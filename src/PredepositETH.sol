@@ -17,7 +17,7 @@ contract PredepositETH {
         // Constructor logic here
     }
 
-
+    // Call this one in the weiroll script
     function deposit(uint256 targetMarketID, address user, uint256 amount) external {
         targetMarketIDToUserToDepositAmount[targetMarketID][user] += amount;
         marketIDToDepositToken[targetMarketID].transferFrom(msg.sender, address(this), amount);
