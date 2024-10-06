@@ -13,23 +13,20 @@ contract ExecutionManager is Ownable2Step {
         bytes[] weirollState;
     }
 
-    bool greenLightGiven;
-
     Recipe public depositRecipe;
     Recipe public withdrawalRecipe;
 
     constructor() {
-        greenLightGiven = false;
     }
 
-    function giveGreenLight() external onlyOwner {
-        // check that depositRecipe and withdrawalRecipe are set
-        if (depositRecipe.weirollCommands.length == 0 || withdrawalRecipe.weirollCommands.length == 0) {
-            revert("Deposit or withdrawal recipe not set");
-        }
-        greenLightGiven = true;
-        //either bridge this to eth now or just handle all of this via msig & delete these
-    }
+    // function giveGreenLight() external onlyOwner {
+    //     // check that depositRecipe and withdrawalRecipe are set
+    //     if (depositRecipe.weirollCommands.length == 0 || withdrawalRecipe.weirollCommands.length == 0) {
+    //         revert("Deposit or withdrawal recipe not set");
+    //     }
+    //     greenLightGiven = true;
+    //     //either bridge this to eth now or just handle all of this via msig & delete these
+    // }
 
     function setDepositRecipe(bytes32[] weirollCommands, bytes[] weirollState) external onlyOwner {
         depositRecipe = Recipe(weirollCommands, weirollState);

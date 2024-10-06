@@ -6,6 +6,7 @@ import {IWeirollWallet} from "src/interfaces/IWeirollWallet.sol";
 import {IStargate, IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt} from "src/interfaces/IStargate.sol";
 import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {SafeTransferLib} from "lib/solmate/src/utils/SafeTransferLib.sol";
+import {OptionsBuilder} from "lib/LayerZero-v2/packages/layerzero-v2/evm/oapp/contracts/oapp/libs/OptionsBuilder.sol";
 import {Ownable2Step, Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
 /// @title BerachainPredeposit
@@ -19,11 +20,17 @@ contract BerachainPredeposit is Ownable2Step {
                                State
     //////////////////////////////////////////////////////////////*/
 
-    // The address of the stargate bridge entrypoint
-    IStargate stargate;
+    // The destination endpoint ID for Berachain
+    uint32 public berachainDstEid;
+
+    // The ERC20 token => Address of the stargate bridge entrypoint for the specified token
+    mapping(ERC20 => IStargate) public tokenToStargate;
 
     // The RecipeKernel keeping track of all markets and offers
     RecipeKernelBase recipeKernel;
+
+    // Address of the ExecutionManager that will receive the tokens and payload on Berachain
+    address executionManagerOnBerachain;
 
     // Royco Market ID => Address of the multisig between the market's IP and Berachain
     mapping(uint256 => address) public marketIdToMultisig;
@@ -41,6 +48,8 @@ contract BerachainPredeposit is Ownable2Step {
     event UserDeposited(uint256 indexed marketId, address depositorWeirollWallet, uint256 amountDeposited);
 
     event UserWithdrawn(uint256 indexed marketId, address depositorWeirollWallet, uint256 amountWithdrawn);
+
+    error ArrayLengthMismatch();
 
     error GreenLightNotGiven();
 
@@ -70,21 +79,47 @@ contract BerachainPredeposit is Ownable2Step {
                                Functions
     //////////////////////////////////////////////////////////////*/
 
-    /// @param _owner Address of the owner of the contract
-    /// @param _stargate Address of the stargate bridge entrypoint
-    constructor(address _owner, address _stargate, address _recipeKernel) Ownable(_owner) {
-        stargate = IStargate(_stargate);
-        recipeKernel = RecipeKernelBase(_recipeKernel);
+    /// @param _owner The address of the owner of the contract
+    /// @param _berachainDstEid Destination endpoint ID for Berachain
+    /// @param _predepositTokens The tokens to bridge to berachain
+    /// @param _stargates The corresponding stargate instances for each bridgable token
+    /// @param _recipeKernel Address of the recipe kernel used to create the Royco markets
+    constructor(
+        address _owner,
+        uint32 _berachainDstEid,
+        ERC20[] memory _predepositTokens,
+        IStargate[] memory _stargates,
+        RecipeKernelBase _recipeKernel
+    ) Ownable(_owner) {
+        require(_predepositTokens.length == _stargates.length, ArrayLengthMismatch());
+
+        // Initialize the contract state
+        for (uint256 i = 0; i < _predepositTokens.length; ++i) {
+            tokenToStargate[_predepositTokens[i]] = _stargates[i];
+        }
+        berachainDstEid = _berachainDstEid;
+        recipeKernel = _recipeKernel;
     }
 
-    /// @param _stargate Address of the new stargate bridge entrypoint
-    function setStargate(address _stargate) external onlyOwner {
-        stargate = IStargate(_stargate);
+    /// @param _berachainDstEid Destination endpoint ID for Berachain
+    function setBerachainDstEid(uint32 _berachainDstEid) external onlyOwner {
+        berachainDstEid = _berachainDstEid;
+    }
+
+    /// @param _token Token to set a stargate instance for
+    /// @param _stargate Stargate instance to set for the specified token
+    function setStargate(ERC20 _token, IStargate _stargate) external onlyOwner {
+        tokenToStargate[_token] = _stargate;
     }
 
     /// @param _recipeKernel Address of the new recipe kernel used to create Royco markets
     function setRecipeKernel(address _recipeKernel) external onlyOwner {
         recipeKernel = RecipeKernelBase(_recipeKernel);
+    }
+
+    /// @param _executionManager Address of the new ExecutionManager that will receive the tokens and payload on Berachain
+    function setExecutionManager(address _executionManager) external onlyOwner {
+        executionManagerOnBerachain = _executionManager;
     }
 
     /// @param _marketId The Royco market ID to set the multisig for
@@ -133,34 +168,45 @@ contract BerachainPredeposit is Ownable2Step {
         emit UserWithdrawn(targetMarketId, msg.sender, amountToWithdraw);
     }
 
-    // per user in payload
-    // AP address - address
-    // deposit amount - uint64
-    // remaining locktime - uint32
-
-    // 1 per payload bridged
-    // marketID - uint8
-
-    // receivePredeposit
-
-    /// @dev Called by the market's IP to bridges depositors from Ethereum to Berachain
-    /// @dev Green light must be given for this IP before calling
-    function bridge(uint256 _marketId, address[] calldata _depositorWeirollWallets)
+    /// @dev Called to bridge depositors from Ethereum to Berachain
+    /// @dev Green light must be given before calling
+    function bridge(uint8 _marketId, uint128 _executorGasLimit, address[] calldata _depositorWeirollWallets)
         external
         payable
         greenLightGiven(_marketId)
     {
-        SendParam memory sendParam = SendParam({
-            dstEid: _dstEid,
-            to: addressToBytes32(_receiver),
-            amountLD: 0,
-            minAmountLD: 0,
-            extraOptions: new bytes(0),
-            composeMsg: new bytes(0),
-            oftCmd: ""
-        });
+        /*
+        Per Bridge TX Payload:
+            marketID - uint8 - 1 byte
 
-        for (uint256 i = 0; i < _depositorWeirollWallets.length; ++i) {}
+        Per AP Payload:
+            AP address - address - 20 bytes
+            Amount Deposited - uint96 - 12 bytes
+            Remaining wallet locktime - uint32 - 4 bytes
+            Total: 40 bytes
+        */
+
+        // Append marketID to the bridge tx's compose message
+        bytes memory composeMsg;
+        composeMsg[0] = bytes1(_marketId);
+
+        // Keep track of total deposits being bridged
+        uint256 totalAmountToBridge;
+
+        for (uint256 i = 0; i < _depositorWeirollWallets.length; ++i) {
+            IWeirollWallet wallet = IWeirollWallet(payable(_depositorWeirollWallets[i]));
+
+            // Add amount deposited by the weiroll wallet to the amount to bridge
+            uint96 depositAmount = uint96(marketIdToDepositorToAmountDeposited[_marketId][_depositorWeirollWallets[i]]);
+            totalAmountToBridge += depositAmount;
+            delete marketIdToDepositorToAmountDeposited[_marketId][_depositorWeirollWallets[i]];
+
+            // Encode the per AP payload
+            bytes memory apPayload =
+                abi.encodePacked(wallet.owner(), depositAmount, uint32((wallet.lockedUntil() - block.timestamp)));
+            // Append the AP's payload to the compose message
+            composeMsg = abi.encodePacked(composeMsg, apPayload);
+        }
         // uint256 amount = marketIdToDepositorToAmountDeposited[targetMarketID][user];
 
         // // generated below
@@ -183,5 +229,50 @@ contract BerachainPredeposit is Ownable2Step {
         // if (msg.value > valueToSend) {
         //     payable(msg.sender).transfer(msg.value - valueToSend);
         // }
+
+        SendParam memory sendParam = SendParam({
+            dstEid: berachainDstEid,
+            to: _addressToBytes32(executionManagerOnBerachain),
+            amountLD: totalAmountToBridge,
+            minAmountLD: totalAmountToBridge,
+            extraOptions: OptionsBuilder.newOptions().addExecutorLzComposeOption(0, _executorGasLimit, 0), // compose gas limit
+            composeMsg: composeMsg,
+            oftCmd: ""
+        });
+
+        (,, OFTReceipt memory receipt) = stargate.quoteOFT(sendParam);
+        sendParam.minAmountLD = receipt.amountReceivedLD;
+
+        messagingFee = stargate.quoteSend(sendParam, false);
+        valueToSend = messagingFee.nativeFee;
+
+        // Get the market's input token and the corresponding stargate instance
+        (ERC20 marketInputToken,,,,,) = recipeKernel.marketIDToWeirollMarket(_marketId);
+        IStargate stargate = tokenToStargate[marketInputToken];
+
+        // Get ready to bridge
+        (,, OFTReceipt memory receipt) = stargate.quoteOFT(sendParam);
+        if (totalAmountToBridge > limit.maxAmountLD || totalAmountToBridge < limit.minAmountLD) {
+            // revert
+        }
+        // sendParam.minAmountLD = receipt.amountReceivedLD;
+
+        MessagingFee memory messagingFee = stargate.quoteSend(sendParam, false);
+        uint256 nativeBridgingFee = messagingFee.nativeFee;
+
+        // Approve stargate to bridge the tokens
+        marketInputToken.safeApprove(stargate, 0);
+        marketInputToken.safeApprove(stargate, totalAmountToBridge);
+
+        // Execute the bridge transaction
+        stargate.sendToken{value: nativeBridgingFee}(sendParam, messagingFee, address(this));
+
+        if (msg.value > nativeBridgingFee) {
+            payable(msg.sender).transfer(msg.value - nativeBridgingFee);
+        }
+    }
+
+    function _addressToBytes32(address _addr) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(_addr)));
     }
 }
