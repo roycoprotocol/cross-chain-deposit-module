@@ -126,7 +126,22 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @param _owner The address of the owner of this contract.
     /// @param _weirollWalletImplementation The address of the Weiroll wallet implementation.
     /// @param _lzEndpoint The address of the LayerZero endpoint.
-    constructor(address _owner, address _weirollWalletImplementation, address _lzEndpoint) Ownable(_owner) {
+    /// @param _predepositTokens The tokens to bridge to Berachain.
+    /// @param _stargates The corresponding Stargate instances for each bridgable token.
+    constructor(
+        address _owner,
+        address _weirollWalletImplementation,
+        address _lzEndpoint,
+        ERC20[] memory _predepositTokens,
+        IStargate[] memory _stargates
+    ) Ownable(_owner) {
+        require(_predepositTokens.length == _stargates.length, ArrayLengthMismatch());
+
+        // Initialize the contract state
+        for (uint256 i = 0; i < _predepositTokens.length; ++i) {
+            tokenToStargate[_predepositTokens[i]] = _stargates[i];
+        }
+
         WEIROLL_WALLET_IMPLEMENTATION = _weirollWalletImplementation;
         lzEndpoint = _lzEndpoint;
     }
@@ -142,6 +157,13 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     function createMarket(uint256 _marketId, address _owner, ERC20 _inputToken) external onlyOwner {
         marketIdToOwner[_marketId] = _owner;
         marketIdToMarket[_marketId].inputToken = _inputToken;
+    }
+
+    /// @notice Sets the Stargate instance for a given token.
+    /// @param _token Token to set a Stargate instance for.
+    /// @param _stargate Stargate instance to set for the specified token.
+    function setStargate(ERC20 _token, IStargate _stargate) external onlyOwner {
+        tokenToStargate[_token] = _stargate;
     }
 
     /// @notice Sets a new owner for the specified market.
