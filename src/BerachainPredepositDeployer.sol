@@ -256,17 +256,14 @@ contract BerachainPredepositDeployer is ILayerZeroComposer, Ownable2Step {
     /// @param _owner The owner of the Weiroll wallet (AP address).
     /// @param _amount The amount deposited.
     /// @param _lockedUntil The timestamp until which the wallet is locked.
-    /// @return The address of the Weiroll wallet.
+    /// @return weirollWallet The address of the Weiroll wallet.
     function _deployWeirollWallet(uint256 _marketId, address _owner, uint256 _amount, uint256 _lockedUntil)
         internal
-        returns (address)
+        returns (address weirollWallet)
     {
         // Deploy a new Weiroll wallet with immutable args
-        bytes memory data =
-            abi.encodePacked(_owner, address(this), _amount, (_lockedUntil - block.timestamp), true, _marketId);
-        address weirollWallet = WEIROLL_WALLET_IMPLEMENTATION.clone(data);
-
-        return weirollWallet;
+        bytes memory data = abi.encodePacked(_owner, address(this), _amount, _lockedUntil, false, _marketId);
+        weirollWallet = WEIROLL_WALLET_IMPLEMENTATION.clone(data);
     }
 
     /// @dev Executes the deposit recipe on the Weiroll wallet.
