@@ -1,6 +1,14 @@
 [profile.default]
 src = "src"
 out = "out"
-libs = ["lib", "lib/royco/lib"]
+libs = ["lib"]
+
+via_ir = true
+fuzz_runs = 500
+deny_warnings = false
+
+[profile.default.optimizer_details]
+constantOptimizer = true
+yul = true
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

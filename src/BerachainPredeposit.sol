@@ -6,7 +6,7 @@ import {IWeirollWallet} from "src/interfaces/IWeirollWallet.sol";
 import {IStargate, SendParam, MessagingFee, MessagingReceipt, OFTReceipt} from "src/interfaces/IStargate.sol";
 import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {SafeTransferLib} from "lib/solmate/src/utils/SafeTransferLib.sol";
-import {OptionsBuilder} from "lib/LayerZero-v2/packages/layerzero-v2/evm/oapp/contracts/oapp/libs/OptionsBuilder.sol";
+import {OptionsBuilder} from "src/libraries/OptionsBuilder.sol";
 import {Ownable2Step, Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
 /// @title BerachainPredeposit
@@ -15,6 +15,7 @@ import {Ownable2Step, Ownable} from "lib/openzeppelin-contracts/contracts/access
 /// @notice This contract manages deposit tokens and bridging actions for all Berachain Royco markets
 contract BerachainPredeposit is Ownable2Step {
     using SafeTransferLib for ERC20;
+    using OptionsBuilder for bytes;
 
     /*//////////////////////////////////////////////////////////////
                                State
@@ -68,7 +69,7 @@ contract BerachainPredeposit is Ownable2Step {
     //////////////////////////////////////////////////////////////*/
 
     modifier onlyMultisig(uint256 _marketId) {
-        // Check if the "bridger" is the IP for the specified market
+        // Check if caller is the multisig between the market's IP and Berachain
         require(marketIdToMultisig[_marketId] == msg.sender, UnauthorizedMultisigForThisMarket());
         _;
     }
@@ -121,9 +122,9 @@ contract BerachainPredeposit is Ownable2Step {
         recipeKernel = RecipeKernelBase(_recipeKernel);
     }
 
-    /// @param _executionManager Address of the new ExecutionManager that will receive the tokens and payload on Berachain
-    function setExecutionManager(address _executionManager) external onlyOwner {
-        executionManagerOnBerachain = _executionManager;
+    /// @param _executionManagerOnBerachain Address of the new ExecutionManager that will receive the tokens and payload on Berachain
+    function setExecutionManager(address _executionManagerOnBerachain) external onlyOwner {
+        executionManagerOnBerachain = _executionManagerOnBerachain;
     }
 
     /// @param _marketId The Royco market ID to set the multisig for
@@ -237,8 +238,8 @@ contract BerachainPredeposit is Ownable2Step {
         require(msg.value >= nativeBridgingFee, InsufficientEthForBridge());
 
         // Approve stargate to bridge the tokens
-        marketInputToken.safeApprove(stargate, 0);
-        marketInputToken.safeApprove(stargate, totalAmountToBridge);
+        marketInputToken.safeApprove(address(stargate), 0);
+        marketInputToken.safeApprove(address(stargate), totalAmountToBridge);
 
         // Execute the bridge transaction
         (MessagingReceipt memory msgReceipt, OFTReceipt memory bridgeReceipt,) =
