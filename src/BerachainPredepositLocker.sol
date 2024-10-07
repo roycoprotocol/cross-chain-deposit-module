@@ -9,89 +9,98 @@ import {SafeTransferLib} from "lib/solmate/src/utils/SafeTransferLib.sol";
 import {OptionsBuilder} from "src/libraries/OptionsBuilder.sol";
 import {Ownable2Step, Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
-/// @title BerachainPredeposit
+/// @title BerachainPredepositLocker
 /// @author ShivaanshK, corddry
-/// @notice A singleton contract for managing predeposits for Berachain on Ethereum
-/// @notice This contract manages deposit tokens and bridging actions for all Berachain Royco markets
-contract BerachainPredeposit is Ownable2Step {
+/// @notice A singleton contract for managing predeposits for Berachain on Ethereum.
+/// @notice Manages deposit tokens and bridging actions for all Berachain Royco markets.
+contract BerachainPredepositLocker is Ownable2Step {
     using SafeTransferLib for ERC20;
     using OptionsBuilder for bytes;
 
     /*//////////////////////////////////////////////////////////////
-                               State
+                                   State
     //////////////////////////////////////////////////////////////*/
 
-    // The destination endpoint ID for Berachain
+    /// @notice The destination endpoint ID for Berachain.
     uint32 public berachainDstEid;
 
-    // The ERC20 token => Address of the stargate bridge entrypoint for the specified token
+    /// @notice Mapping of ERC20 token to its corresponding Stargate bridge entrypoint.
     mapping(ERC20 => IStargate) public tokenToStargate;
 
-    // The RecipeKernel keeping track of all markets and offers
+    /// @notice The RecipeKernel keeping track of all markets and offers.
     RecipeKernelBase recipeKernel;
 
-    // Address of the ExecutionManager that will receive the tokens and payload on Berachain
-    address executionManagerOnBerachain;
+    /// @notice Address of the BerachainPredepositDeployer on Berachain.
+    address berachainPredepositDeployer;
 
-    // Royco Market ID => Address of the multisig between the market's IP and Berachain
+    /// @notice Mapping from Royco Market ID to the multisig address between the market's IP and Berachain.
     mapping(uint256 => address) public marketIdToMultisig;
 
-    // Royco Market ID => Address of weiroll wallet (owned by depositor) => Amount deposited
+    /// @notice Mapping from Market ID to depositor's Weiroll wallet address to amount deposited.
     mapping(uint256 => mapping(address => uint256)) public marketIdToDepositorToAmountDeposited;
 
-    // Royco Market ID => Green Light (indicating if funds are ready to bridge to Berachain for the given market)
+    /// @notice Mapping from Market ID to green light status for bridging funds.
     mapping(uint256 => bool) marketIdToGreenLight;
 
     /*//////////////////////////////////////////////////////////////
-                            Events and Errors
+                                Events and Errors
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Emitted when a user deposits funds.
     event UserDeposited(uint256 indexed marketId, address depositorWeirollWallet, uint256 amountDeposited);
 
+    /// @notice Emitted when a user withdraws funds.
     event UserWithdrawn(uint256 indexed marketId, address depositorWeirollWallet, uint256 amountWithdrawn);
 
+    /// @notice Emitted when funds are bridged to Berachain.
     event BridgedToBerachain(bytes32 indexed guid, uint64 indexed nonce, uint256 marketId, uint256 amountBridged);
 
+    /// @notice Error emitted when array lengths mismatch.
     error ArrayLengthMismatch();
 
+    /// @notice Error emitted when green light is not given for bridging.
     error GreenLightNotGiven();
 
+    /// @notice Error emitted when the caller is not the authorized multisig for the market.
     error UnauthorizedMultisigForThisMarket();
 
-    error UnauthorizedIPForThisMarket();
-
+    /// @notice Error emitted when insufficient ETH is provided for the bridge fee.
     error InsufficientEthForBridge();
 
-    error FailedToBridge();
+    /// @notice Error emitted when bridging all the specified deposits fail.
+    error FailedToBridgeAllDeposits();
 
     /*//////////////////////////////////////////////////////////////
-                               Modifiers
+                                   Modifiers
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Modifier to ensure the caller is the authorized multisig for the market.
     modifier onlyMultisig(uint256 _marketId) {
-        // Check if caller is the multisig between the market's IP and Berachain
         require(marketIdToMultisig[_marketId] == msg.sender, UnauthorizedMultisigForThisMarket());
         _;
     }
 
+    /// @dev Modifier to check if green light is given for bridging.
     modifier greenLightGiven(uint256 _marketId) {
-        // Check if green light has been given for the specified market
         require(marketIdToGreenLight[_marketId], GreenLightNotGiven());
         _;
     }
 
     /*//////////////////////////////////////////////////////////////
-                               Functions
+                                   Functions
     //////////////////////////////////////////////////////////////*/
 
-    /// @param _owner The address of the owner of the contract
-    /// @param _berachainDstEid Destination endpoint ID for Berachain
-    /// @param _predepositTokens The tokens to bridge to berachain
-    /// @param _stargates The corresponding stargate instances for each bridgable token
-    /// @param _recipeKernel Address of the recipe kernel used to create the Royco markets
+    /// @notice Constructor to initialize the contract.
+    /// @param _owner The address of the owner of the contract.
+    /// @param _berachainDstEid Destination endpoint ID for Berachain.
+    /// @param _berachainPredepositDeployer Address of the BerachainPredepositDeployer on Berachain.
+    /// @param _predepositTokens The tokens to bridge to Berachain.
+    /// @param _stargates The corresponding Stargate instances for each bridgable token.
+    /// @param _recipeKernel Address of the recipe kernel used to create the Royco markets.
     constructor(
         address _owner,
         uint32 _berachainDstEid,
+        address _berachainPredepositDeployer,
         ERC20[] memory _predepositTokens,
         IStargate[] memory _stargates,
         RecipeKernelBase _recipeKernel
@@ -103,157 +112,166 @@ contract BerachainPredeposit is Ownable2Step {
             tokenToStargate[_predepositTokens[i]] = _stargates[i];
         }
         berachainDstEid = _berachainDstEid;
+        berachainPredepositDeployer = _berachainPredepositDeployer;
         recipeKernel = _recipeKernel;
     }
 
-    /// @param _berachainDstEid Destination endpoint ID for Berachain
+    /// @notice Sets the destination endpoint ID for Berachain.
+    /// @param _berachainDstEid Destination endpoint ID for Berachain.
     function setBerachainDstEid(uint32 _berachainDstEid) external onlyOwner {
         berachainDstEid = _berachainDstEid;
     }
 
-    /// @param _token Token to set a stargate instance for
-    /// @param _stargate Stargate instance to set for the specified token
+    /// @notice Sets the Stargate instance for a given token.
+    /// @param _token Token to set a Stargate instance for.
+    /// @param _stargate Stargate instance to set for the specified token.
     function setStargate(ERC20 _token, IStargate _stargate) external onlyOwner {
         tokenToStargate[_token] = _stargate;
     }
 
-    /// @param _recipeKernel Address of the new recipe kernel used to create Royco markets
+    /// @notice Sets the recipe kernel contract.
+    /// @param _recipeKernel Address of the new recipe kernel used to create Royco markets.
     function setRecipeKernel(address _recipeKernel) external onlyOwner {
         recipeKernel = RecipeKernelBase(_recipeKernel);
     }
 
-    /// @param _executionManagerOnBerachain Address of the new ExecutionManager that will receive the tokens and payload on Berachain
-    function setExecutionManager(address _executionManagerOnBerachain) external onlyOwner {
-        executionManagerOnBerachain = _executionManagerOnBerachain;
+    /// @notice Sets the BerachainPredepositDeployer address.
+    /// @param _berachainPredepositDeployer Address of the new BerachainPredepositDeployer.
+    function setBerachainPredepositDeployer(address _berachainPredepositDeployer) external onlyOwner {
+        berachainPredepositDeployer = _berachainPredepositDeployer;
     }
 
-    /// @param _marketId The Royco market ID to set the multisig for
-    /// @param _multisig The address of the multisig contract between the market's IP and Berachain
+    /// @notice Sets the multisig address for a market.
+    /// @param _marketId The Royco market ID to set the multisig for.
+    /// @param _multisig The address of the multisig contract between the market's IP and Berachain.
     function setMulitsig(uint256 _marketId, address _multisig) external onlyOwner {
         marketIdToMultisig[_marketId] = _multisig;
     }
 
-    /// @param _marketId The Royco market ID to set the greenlight for
-    /// @param _greenLightStatus Boolean indicating if funds are ready to bridge to Berachain for the given market
+    /// @notice Sets the green light status for a market.
+    /// @param _marketId The Royco market ID to set the green light for.
+    /// @param _greenLightStatus Boolean indicating if funds are ready to bridge.
     function setGreenLight(uint256 _marketId, bool _greenLightStatus) external onlyMultisig(_marketId) {
         marketIdToGreenLight[_marketId] = _greenLightStatus;
     }
 
-    /// @dev Called by the deposit script from the depositors weiroll wallet
+    /// @notice Called by the deposit script from the depositor's Weiroll wallet.
     function deposit() external {
-        // Instantiate weiroll wallet
+        // Instantiate Weiroll wallet
         IWeirollWallet wallet = IWeirollWallet(payable(msg.sender));
-        // Get relevant information about the depositor
+        // Get depositor's market ID and amount
         uint256 targetMarketId = wallet.marketId();
         uint256 amountDeposited = wallet.amount();
 
-        // Transfer the deposit amount and update accounting for the depositor's weiroll wallet
+        // Transfer the deposit amount and update accounting
         (ERC20 marketInputToken,,,,,) = recipeKernel.marketIDToWeirollMarket(targetMarketId);
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
         marketIdToDepositorToAmountDeposited[targetMarketId][msg.sender] = amountDeposited;
 
-        // Emit deposit event for protocols to index
+        // Emit deposit event
         emit UserDeposited(targetMarketId, msg.sender, amountDeposited);
     }
 
-    /// @dev Called by the withdraw script from the depositor's weiroll wallet if the depositor forfeits rewards and backs out
+    /// @notice Called by the withdraw script from the depositor's Weiroll wallet.
     function withdraw() external {
-        // Instantiate weiroll wallet
+        // Instantiate Weiroll wallet
         IWeirollWallet wallet = IWeirollWallet(payable(msg.sender));
-        // Get relevant information about the depositor
+        // Get depositor's market ID and amount
         uint256 targetMarketId = wallet.marketId();
         uint256 amountToWithdraw = wallet.amount();
 
-        // Update accounting for the depositor's weiroll wallet and transfer the deposit amount back to the weiroll wallet
+        // Update accounting and transfer back the amount
         delete marketIdToDepositorToAmountDeposited[targetMarketId][msg.sender];
         (ERC20 marketInputToken,,,,,) = recipeKernel.marketIDToWeirollMarket(targetMarketId);
         marketInputToken.safeTransferFrom(address(this), msg.sender, amountToWithdraw);
 
-        // Emit withdrawal event for protocols to index
+        // Emit withdrawal event
         emit UserWithdrawn(targetMarketId, msg.sender, amountToWithdraw);
     }
 
-    /// @dev Called to bridge depositors from Ethereum to Berachain
-    /// @dev Green light must be given before calling
-    /// @param _marketId The market ID of the market to bridge tokens for
-    /// @param _executorGasLimit The gas limit of the executor the destination chain
-    /// @param _depositorWeirollWallets The addresses of the weiroll wallets used to deposit into the market
+    /// @notice Bridges depositors from Ethereum to Berachain.
+    /// @dev Green light must be given before calling.
+    /// @param _marketId The market ID to bridge tokens for.
+    /// @param _executorGasLimit The gas limit of the executor on the destination chain.
+    /// @param _depositorWeirollWallets The addresses of the Weiroll wallets used to deposit.
     function bridge(uint8 _marketId, uint128 _executorGasLimit, address[] calldata _depositorWeirollWallets)
         external
         payable
         greenLightGiven(_marketId)
     {
         /*
-        Per Bridge TX Payload:
-            marketID - uint8 - 1 byte
-
-        Per AP Payload:
-            AP address - address - 20 bytes
-            Amount Deposited - uint96 - 12 bytes
-            Remaining wallet locktime - uint32 - 4 bytes
-            Total: 40 bytes
+        Payload Structure:
+            - marketID: uint8 (1 byte)
+        Per Depositor:
+            - AP address: address (20 bytes)
+            - Amount Deposited: uint96 (12 bytes)
+            - Remaining wallet locktime: uint32 (4 bytes)
+            Total per depositor: 36 bytes
         */
 
-        // Append marketID to the bridge tx's compose message
-        bytes memory composeMsg;
-        composeMsg[0] = bytes1(_marketId);
+        // Initialize compose message with market ID
+        bytes memory composeMsg = abi.encodePacked(bytes1(_marketId));
 
-        // Keep track of total deposits being bridged
+        // Keep track of total amount of deposits to bridge
         uint256 totalAmountToBridge;
 
         for (uint256 i = 0; i < _depositorWeirollWallets.length; ++i) {
             IWeirollWallet wallet = IWeirollWallet(payable(_depositorWeirollWallets[i]));
 
-            // Add amount deposited by the weiroll wallet to the amount to bridge
+            // Get deposited amount
             uint96 depositAmount = uint96(marketIdToDepositorToAmountDeposited[_marketId][_depositorWeirollWallets[i]]);
+            if (depositAmount == 0) {
+                continue; // Skip if no deposit
+            }
             totalAmountToBridge += depositAmount;
             delete marketIdToDepositorToAmountDeposited[_marketId][_depositorWeirollWallets[i]];
 
-            // Encode the per AP payload
-            bytes memory apPayload =
-                abi.encodePacked(wallet.owner(), depositAmount, uint32((wallet.lockedUntil() - block.timestamp)));
-            // Append the AP's payload to the compose message
+            // Encode depositor's payload
+            bytes memory apPayload = abi.encodePacked(wallet.owner(), depositAmount, uint32(wallet.lockedUntil()));
             composeMsg = abi.encodePacked(composeMsg, apPayload);
         }
 
-        // Marshal the bridging params
+        // Prepare SendParam for bridging
         SendParam memory sendParam = SendParam({
             dstEid: berachainDstEid,
-            to: _addressToBytes32(executionManagerOnBerachain),
+            to: _addressToBytes32(berachainPredepositDeployer),
             amountLD: totalAmountToBridge,
             minAmountLD: totalAmountToBridge,
-            extraOptions: OptionsBuilder.newOptions().addExecutorLzComposeOption(0, _executorGasLimit, 0), // compose gas limit
+            extraOptions: OptionsBuilder.newOptions().addExecutorLzComposeOption(0, _executorGasLimit, 0),
             composeMsg: composeMsg,
             oftCmd: ""
         });
 
-        // Get the market's input token and the corresponding stargate instance
+        // Get the market's input token and Stargate instance
         (ERC20 marketInputToken,,,,,) = recipeKernel.marketIDToWeirollMarket(_marketId);
         IStargate stargate = tokenToStargate[marketInputToken];
 
-        // Get a quote for the fees taken on bridge
+        // Get fee quote for bridging
         MessagingFee memory messagingFee = stargate.quoteSend(sendParam, false);
         uint256 nativeBridgingFee = messagingFee.nativeFee;
-        // Check that sender sent enough ETH to cover the fee
         require(msg.value >= nativeBridgingFee, InsufficientEthForBridge());
 
-        // Approve stargate to bridge the tokens
+        // Approve Stargate to bridge tokens
         marketInputToken.safeApprove(address(stargate), 0);
         marketInputToken.safeApprove(address(stargate), totalAmountToBridge);
 
-        // Execute the bridge transaction
+        // Execute bridge transaction
         (MessagingReceipt memory msgReceipt, OFTReceipt memory bridgeReceipt,) =
             stargate.sendToken{value: nativeBridgingFee}(sendParam, messagingFee, address(this));
-        require(totalAmountToBridge == bridgeReceipt.amountReceivedLD, FailedToBridge());
+        // Ensure that all deposits were bridged
+        require(totalAmountToBridge == bridgeReceipt.amountReceivedLD, FailedToBridgeAllDeposits());
 
-        // Refund any excess ETH to sender
+        // Refund excess ETH
         if (msg.value > nativeBridgingFee) {
             payable(msg.sender).transfer(msg.value - nativeBridgingFee);
         }
 
+        // Emit event to keep track of bridged deposits
         emit BridgedToBerachain(msgReceipt.guid, msgReceipt.nonce, _marketId, totalAmountToBridge);
     }
 
+    /// @dev Converts an address to bytes32.
+    /// @param _addr The address to convert.
     function _addressToBytes32(address _addr) internal pure returns (bytes32) {
         return bytes32(uint256(uint160(_addr)));
     }
