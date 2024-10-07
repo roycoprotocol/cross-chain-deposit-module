@@ -59,6 +59,9 @@ contract BerachainPredeposit is Ownable2Step {
 
     error InsufficientEthForBridge();
 
+    error InsufficientQuoteAmount();
+
+
     /*//////////////////////////////////////////////////////////////
                                Modifiers
     //////////////////////////////////////////////////////////////*/
@@ -170,6 +173,9 @@ contract BerachainPredeposit is Ownable2Step {
 
     /// @dev Called to bridge depositors from Ethereum to Berachain
     /// @dev Green light must be given before calling
+    /// @param _marketId The market ID of the market to bridge tokens for
+    /// @param _executorGasLimit The gas limit of the executor the destination chain
+    /// @param _depositorWeirollWallets The addresses of the weiroll wallets used to deposit into the market
     function bridge(uint8 _marketId, uint128 _executorGasLimit, address[] calldata _depositorWeirollWallets)
         external
         payable
@@ -207,29 +213,8 @@ contract BerachainPredeposit is Ownable2Step {
             // Append the AP's payload to the compose message
             composeMsg = abi.encodePacked(composeMsg, apPayload);
         }
-        // uint256 amount = marketIdToDepositorToAmountDeposited[targetMarketID][user];
 
-        // // generated below
-        // marketIdToDepositorToAmountDeposited[targetMarketID][user] = 0;
-        // // Prepare the transaction parameters
-        // (uint256 valueToSend, SendParam memory sendParam, MessagingFee memory messagingFee) =
-        //     integration.prepareTakeTaxi(stargate, targetMarketID, amount, user); // TODO: errors in params
-
-        // // Ensure enough ETH is sent to cover the cost of bridging
-        // require(msg.value >= valueToSend, InsufficientEthForBridge());
-
-        // // Approve the Stargate contract to spend tokens
-        // ERC20 token = marketIDToDepositToken[targetMarketID];
-        // token.approve(stargate, amount);
-
-        // // Execute the omnichain transaction
-        // IStargate(stargate).sendToken{value: valueToSend}(sendParam, messagingFee, user);
-
-        // // Refund any excess ETH
-        // if (msg.value > valueToSend) {
-        //     payable(msg.sender).transfer(msg.value - valueToSend);
-        // }
-
+        // Marshal the bridging params
         SendParam memory sendParam = SendParam({
             dstEid: berachainDstEid,
             to: _addressToBytes32(executionManagerOnBerachain),
@@ -240,25 +225,19 @@ contract BerachainPredeposit is Ownable2Step {
             oftCmd: ""
         });
 
-        (,, OFTReceipt memory receipt) = stargate.quoteOFT(sendParam);
-        sendParam.minAmountLD = receipt.amountReceivedLD;
-
-        messagingFee = stargate.quoteSend(sendParam, false);
-        valueToSend = messagingFee.nativeFee;
-
         // Get the market's input token and the corresponding stargate instance
         (ERC20 marketInputToken,,,,,) = recipeKernel.marketIDToWeirollMarket(_marketId);
         IStargate stargate = tokenToStargate[marketInputToken];
 
         // Get ready to bridge
         (,, OFTReceipt memory receipt) = stargate.quoteOFT(sendParam);
-        if (totalAmountToBridge > limit.maxAmountLD || totalAmountToBridge < limit.minAmountLD) {
-            // revert
-        }
-        // sendParam.minAmountLD = receipt.amountReceivedLD;
+        require(totalAmountToBridge == receipt.amountReceivedLD, InsufficientQuoteAmount());
 
         MessagingFee memory messagingFee = stargate.quoteSend(sendParam, false);
         uint256 nativeBridgingFee = messagingFee.nativeFee;
+        
+        // Check that sender sent enough ETH to cover the bridge
+        require(msg.value >= nativeBridgingFee, InsufficientEthForBridge());
 
         // Approve stargate to bridge the tokens
         marketInputToken.safeApprove(stargate, 0);
@@ -267,6 +246,7 @@ contract BerachainPredeposit is Ownable2Step {
         // Execute the bridge transaction
         stargate.sendToken{value: nativeBridgingFee}(sendParam, messagingFee, address(this));
 
+        // Refund any excess ETH to sender
         if (msg.value > nativeBridgingFee) {
             payable(msg.sender).transfer(msg.value - nativeBridgingFee);
         }
