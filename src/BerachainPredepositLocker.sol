@@ -67,7 +67,7 @@ contract BerachainPredepositLocker is Ownable2Step {
     /// @notice Error emitted when insufficient ETH is provided for the bridge fee.
     error InsufficientEthForBridge();
 
-    /// @notice Error emitted when bridging all the specified deposits fail.
+    /// @notice Error emitted when bridging all the specified deposits fails.
     error FailedToBridgeAllDeposits();
 
     /*//////////////////////////////////////////////////////////////
