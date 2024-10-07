@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import {RecipeKernelBase} from "src/base/RecipeKernelBase.sol";
 import {IWeirollWallet} from "src/interfaces/IWeirollWallet.sol";
-import {IStargate, IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt} from "src/interfaces/IStargate.sol";
+import {IStargate, SendParam, MessagingFee, MessagingReceipt, OFTReceipt} from "src/interfaces/IStargate.sol";
 import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {SafeTransferLib} from "lib/solmate/src/utils/SafeTransferLib.sol";
 import {OptionsBuilder} from "lib/LayerZero-v2/packages/layerzero-v2/evm/oapp/contracts/oapp/libs/OptionsBuilder.sol";
@@ -49,6 +49,8 @@ contract BerachainPredeposit is Ownable2Step {
 
     event UserWithdrawn(uint256 indexed marketId, address depositorWeirollWallet, uint256 amountWithdrawn);
 
+    event BridgedToBerachain(bytes32 indexed guid, uint64 indexed nonce, uint256 marketId, uint256 amountBridged);
+
     error ArrayLengthMismatch();
 
     error GreenLightNotGiven();
@@ -59,8 +61,7 @@ contract BerachainPredeposit is Ownable2Step {
 
     error InsufficientEthForBridge();
 
-    error InsufficientQuoteAmount();
-
+    error FailedToBridge();
 
     /*//////////////////////////////////////////////////////////////
                                Modifiers
@@ -229,14 +230,10 @@ contract BerachainPredeposit is Ownable2Step {
         (ERC20 marketInputToken,,,,,) = recipeKernel.marketIDToWeirollMarket(_marketId);
         IStargate stargate = tokenToStargate[marketInputToken];
 
-        // Get ready to bridge
-        (,, OFTReceipt memory receipt) = stargate.quoteOFT(sendParam);
-        require(totalAmountToBridge == receipt.amountReceivedLD, InsufficientQuoteAmount());
-
+        // Get a quote for the fees taken on bridge
         MessagingFee memory messagingFee = stargate.quoteSend(sendParam, false);
         uint256 nativeBridgingFee = messagingFee.nativeFee;
-        
-        // Check that sender sent enough ETH to cover the bridge
+        // Check that sender sent enough ETH to cover the fee
         require(msg.value >= nativeBridgingFee, InsufficientEthForBridge());
 
         // Approve stargate to bridge the tokens
@@ -244,12 +241,16 @@ contract BerachainPredeposit is Ownable2Step {
         marketInputToken.safeApprove(stargate, totalAmountToBridge);
 
         // Execute the bridge transaction
-        stargate.sendToken{value: nativeBridgingFee}(sendParam, messagingFee, address(this));
+        (MessagingReceipt memory msgReceipt, OFTReceipt memory bridgeReceipt,) =
+            stargate.sendToken{value: nativeBridgingFee}(sendParam, messagingFee, address(this));
+        require(totalAmountToBridge == bridgeReceipt.amountReceivedLD, FailedToBridge());
 
         // Refund any excess ETH to sender
         if (msg.value > nativeBridgingFee) {
             payable(msg.sender).transfer(msg.value - nativeBridgingFee);
         }
+
+        emit BridgedToBerachain(msgReceipt.guid, msgReceipt.nonce, _marketId, totalAmountToBridge);
     }
 
     function _addressToBytes32(address _addr) internal pure returns (bytes32) {
