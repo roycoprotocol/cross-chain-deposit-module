@@ -66,8 +66,8 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @param weirollWallet The address of the weiroll wallet that executed the withdrawal recipe.
     event WeirollWalletExecutedWithdrawal(address indexed weirollWallet);
 
-    /// @notice Emitted when funds are bridged deposites are deployed.
-    event BridgedDepositsDeployed(bytes32 indexed guid, uint256 indexed marketId);
+    /// @notice Emitted when bridged deposits are put in fresh weiroll wallets and executed.
+    event BridgedDepositsExecuted(bytes32 indexed guid, uint256 indexed marketId);
 
     /// @notice Error emitted when the caller is not the owner of the market.
     error OnlyOwnerOfMarket();
@@ -250,7 +250,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
             _executeDepositRecipe(weirollWallet, marketId);
         }
 
-        emit BridgedDepositsDeployed(_guid, marketId);
+        emit BridgedDepositsExecuted(_guid, marketId);
     }
 
     /// @notice Executes the withdrawal script in the Weiroll wallet.
