@@ -96,25 +96,19 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
 
     /// @dev Modifier to ensure the caller is the owner of the market.
     modifier onlyOwnerOfMarket(uint256 _marketId) {
-        if (msg.sender != marketIdToOwner[_marketId]) {
-            revert OnlyOwnerOfMarket();
-        }
+        require(msg.sender == marketIdToOwner[_marketId], OnlyOwnerOfMarket());
         _;
     }
 
     /// @dev Modifier to check if the Weiroll wallet is unlocked.
     modifier weirollIsUnlocked(address _weirollWallet) {
-        if (IWeirollWallet(payable(_weirollWallet)).lockedUntil() > block.timestamp) {
-            revert WalletLocked();
-        }
+        require(IWeirollWallet(payable(_weirollWallet)).lockedUntil() <= block.timestamp, WalletLocked());
         _;
     }
 
     /// @dev Modifier to ensure the caller is the owner of the Weiroll wallet.
     modifier isWeirollOwner(address _weirollWallet) {
-        if (IWeirollWallet(payable(_weirollWallet)).owner() != msg.sender) {
-            revert NotOwner();
-        }
+        require(IWeirollWallet(payable(_weirollWallet)).owner() == msg.sender, NotOwner());
         _;
     }
 
