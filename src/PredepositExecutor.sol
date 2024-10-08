@@ -253,40 +253,6 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         emit BridgedDepositsDeployed(_guid, marketId);
     }
 
-    /// @notice Emergency execution of deposits in case of issues.
-    /// @param _marketId The market ID.
-    /// @param _aps Array of AP addresses.
-    /// @param _amounts Array of deposit amounts corresponding to each AP.
-    /// @param _locktimes Array of lock times corresponding to each AP.
-    function emergencyExecutionOfDeposits(
-        uint256 _marketId,
-        address[] calldata _aps,
-        uint256[] calldata _amounts,
-        uint256[] calldata _locktimes
-    ) external payable onlyOwner {
-        // Ensure that the array lengths match
-        require(_aps.length == _amounts.length || _aps.length == _locktimes.length, ArrayLengthMismatch());
-
-        // Get the market's input token
-        ERC20 marketInputToken = marketIdToMarket[_marketId].inputToken;
-
-        // Loop through each AP and process the deposit
-        for (uint256 i = 0; i < _aps.length; ++i) {
-            address apAddress = _aps[i];
-            uint256 depositAmount = _amounts[i];
-            uint256 walletLockTime = _locktimes[i];
-
-            // Deploy the Weiroll wallet for the depositor
-            address weirollWallet = _deployWeirollWallet(_marketId, apAddress, depositAmount, walletLockTime);
-
-            // Transfer the deposited tokens to the Weiroll wallet
-            marketInputToken.safeTransfer(weirollWallet, depositAmount);
-
-            // Execute the deposit recipe on the Weiroll wallet
-            _executeDepositRecipe(weirollWallet, _marketId);
-        }
-    }
-
     /// @notice Executes the withdrawal script in the Weiroll wallet.
     /// @param _weirollWallet The address of the Weiroll wallet.
     function executeWithdrawalScript(address _weirollWallet)
