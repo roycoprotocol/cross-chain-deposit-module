@@ -10,8 +10,8 @@ import {OptionsBuilder} from "src/libraries/OptionsBuilder.sol";
 import {Ownable2Step, Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
 /// @title PredepositLocker
-/// @notice A singleton contract for managing predeposits for Berachain on Ethereum.
-/// @notice Manages deposit tokens and bridging actions for all Berachain Royco markets.
+/// @notice A singleton contract for managing predeposits for the destination chain on Ethereum.
+/// @notice Manages deposit tokens and bridging actions for all relevant predeposit Royco markets.
 contract PredepositLocker is Ownable2Step {
     using SafeTransferLib for ERC20;
     using OptionsBuilder for bytes;
@@ -20,8 +20,8 @@ contract PredepositLocker is Ownable2Step {
                                    State
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice The destination endpoint ID for Berachain.
-    uint32 public berachainDstEid;
+    /// @notice The destination endpoint ID for the destination chain.
+    uint32 public chainDstEid;
 
     /// @notice Mapping of ERC20 token to its corresponding Stargate bridge entrypoint.
     mapping(ERC20 => IStargate) public tokenToStargate;
@@ -29,10 +29,10 @@ contract PredepositLocker is Ownable2Step {
     /// @notice The RecipeKernel keeping track of all markets and offers.
     RecipeKernelBase public recipeKernel;
 
-    /// @notice Address of the PredepositExecutor on Berachain.
+    /// @notice Address of the PredepositExecutor on the destination chain.
     address public predepositExecutor;
 
-    /// @notice Mapping from Royco Market ID to the multisig address between the market's IP and Berachain.
+    /// @notice Mapping from Royco Market ID to the multisig address between the market's IP and the destination chain.
     mapping(uint256 => address) public marketIdToMultisig;
 
     /// @notice Mapping from Market ID to depositor's Weiroll wallet address to amount deposited.
@@ -51,8 +51,10 @@ contract PredepositLocker is Ownable2Step {
     /// @notice Emitted when a user withdraws funds.
     event UserWithdrawn(uint256 indexed marketId, address depositorWeirollWallet, uint256 amountWithdrawn);
 
-    /// @notice Emitted when funds are bridged to Berachain.
-    event BridgedToBerachain(bytes32 indexed guid, uint64 indexed nonce, uint256 marketId, uint256 amountBridged);
+    /// @notice Emitted when funds are bridged to the destination chain.
+    event BridgedToDestinationChain(
+        bytes32 indexed guid, uint64 indexed nonce, uint256 marketId, uint256 amountBridged
+    );
 
     /// @notice Error emitted when array lengths mismatch.
     error ArrayLengthMismatch();
@@ -91,14 +93,14 @@ contract PredepositLocker is Ownable2Step {
 
     /// @notice Constructor to initialize the contract.
     /// @param _owner The address of the owner of the contract.
-    /// @param _berachainDstEid Destination endpoint ID for Berachain.
-    /// @param _predepositExecutor Address of the BerachainPredepositExecutor on Berachain.
-    /// @param _predepositTokens The tokens to bridge to Berachain.
+    /// @param _chainDstEid Destination endpoint ID for the destination chain.
+    /// @param _predepositExecutor Address of the the PredepositExecutor on the destination chain.
+    /// @param _predepositTokens The tokens to bridge to the destination chain.
     /// @param _stargates The corresponding Stargate instances for each bridgable token.
     /// @param _recipeKernel Address of the recipe kernel used to create the Royco markets.
     constructor(
         address _owner,
-        uint32 _berachainDstEid,
+        uint32 _chainDstEid,
         address _predepositExecutor,
         ERC20[] memory _predepositTokens,
         IStargate[] memory _stargates,
@@ -110,15 +112,15 @@ contract PredepositLocker is Ownable2Step {
         for (uint256 i = 0; i < _predepositTokens.length; ++i) {
             tokenToStargate[_predepositTokens[i]] = _stargates[i];
         }
-        berachainDstEid = _berachainDstEid;
+        chainDstEid = _chainDstEid;
         predepositExecutor = _predepositExecutor;
         recipeKernel = _recipeKernel;
     }
 
-    /// @notice Sets the destination endpoint ID for Berachain.
-    /// @param _berachainDstEid Destination endpoint ID for Berachain.
-    function setBerachainDstEid(uint32 _berachainDstEid) external onlyOwner {
-        berachainDstEid = _berachainDstEid;
+    /// @notice Sets the destination endpoint ID for the destination chain.
+    /// @param _chainDstEid Destination endpoint ID for the destination chain.
+    function setDestinationChainDstEid(uint32 _chainDstEid) external onlyOwner {
+        chainDstEid = _chainDstEid;
     }
 
     /// @notice Sets the Stargate instance for a given token.
@@ -134,15 +136,15 @@ contract PredepositLocker is Ownable2Step {
         recipeKernel = RecipeKernelBase(_recipeKernel);
     }
 
-    /// @notice Sets the BerachainPredepositExecutor address.
-    /// @param _predepositExecutor Address of the new BerachainPredepositExecutor.
-    function setBerachainPredepositExecutor(address _predepositExecutor) external onlyOwner {
+    /// @notice Sets the PredepositExecutor address.
+    /// @param _predepositExecutor Address of the new PredepositExecutor.
+    function setPredepositExecutor(address _predepositExecutor) external onlyOwner {
         predepositExecutor = _predepositExecutor;
     }
 
     /// @notice Sets the multisig address for a market.
     /// @param _marketId The Royco market ID to set the multisig for.
-    /// @param _multisig The address of the multisig contract between the market's IP and Berachain.
+    /// @param _multisig The address of the multisig contract between the market's IP and the destination chain.
     function setMulitsig(uint256 _marketId, address _multisig) external onlyOwner {
         marketIdToMultisig[_marketId] = _multisig;
     }
@@ -188,7 +190,7 @@ contract PredepositLocker is Ownable2Step {
         emit UserWithdrawn(targetMarketId, msg.sender, amountToWithdraw);
     }
 
-    /// @notice Bridges depositors from Ethereum to Berachain.
+    /// @notice Bridges depositors from Ethereum to the destination chain.
     /// @dev Green light must be given before calling.
     /// @param _marketId The market ID to bridge tokens for.
     /// @param _executorGasLimit The gas limit of the executor on the destination chain.
@@ -232,7 +234,7 @@ contract PredepositLocker is Ownable2Step {
 
         // Prepare SendParam for bridging
         SendParam memory sendParam = SendParam({
-            dstEid: berachainDstEid,
+            dstEid: chainDstEid,
             to: _addressToBytes32(predepositExecutor),
             amountLD: totalAmountToBridge,
             minAmountLD: totalAmountToBridge,
@@ -266,7 +268,7 @@ contract PredepositLocker is Ownable2Step {
         }
 
         // Emit event to keep track of bridged deposits
-        emit BridgedToBerachain(msgReceipt.guid, msgReceipt.nonce, _marketId, totalAmountToBridge);
+        emit BridgedToDestinationChain(msgReceipt.guid, msgReceipt.nonce, _marketId, totalAmountToBridge);
     }
 
     /// @dev Converts an address to bytes32.
