@@ -220,9 +220,12 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         // Extract the compose message from the _message
         bytes memory composeMessage = OFTComposeMsgCodec.composeMsg(_message);
 
+        // Make sure at least one AP was bridged (32 bytes for marketId + 32 bytes for AP payload)
+        require(composeMessage.length >= 64, EOF());
+
         // Extract market ID (first 32 bytes)
         uint256 marketId;
-        assembly {
+        assembly ("memory-safe") {
             marketId := mload(add(composeMessage, 32))
         }
 
@@ -241,7 +244,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         uint256 offset = 32; // After the marketId byte
 
         // Loop through the compose message and process each depositor
-        while (offset + 36 <= composeMessage.length) {
+        while (offset + 32 <= composeMessage.length) {
             // Extract AP address (20 bytes)
             address apAddress = _readAddress(composeMessage, offset);
             offset += 20;
@@ -288,8 +291,8 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         returns (address weirollWallet)
     {
         // Deploy a new Weiroll wallet with immutable args
-        bytes memory data = abi.encodePacked(_owner, address(this), _amount, _lockedUntil, false, _marketId);
-        weirollWallet = WEIROLL_WALLET_IMPLEMENTATION.clone(data);
+        bytes memory weirollParams = abi.encodePacked(_owner, address(this), _amount, _lockedUntil, false, _marketId);
+        weirollWallet = WEIROLL_WALLET_IMPLEMENTATION.clone(weirollParams);
     }
 
     /// @dev Executes the deposit recipe on the Weiroll wallet.
@@ -327,7 +330,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @return addr The address read from the bytes array.
     function _readAddress(bytes memory data, uint256 offset) internal pure returns (address addr) {
         require(data.length >= offset + 20, EOF());
-        assembly {
+        assembly ("memory-safe") {
             addr := shr(96, mload(add(add(data, 32), offset)))
         }
     }
@@ -338,7 +341,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @return value The uint96 value read from the bytes array.
     function _readUint96(bytes memory data, uint256 offset) internal pure returns (uint96 value) {
         require(data.length >= offset + 12, EOF());
-        assembly {
+        assembly ("memory-safe") {
             value := shr(160, mload(add(add(data, 32), offset)))
         }
     }
