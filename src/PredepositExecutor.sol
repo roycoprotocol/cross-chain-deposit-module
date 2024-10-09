@@ -54,10 +54,10 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     mapping(ERC20 => address) public tokenToStargate;
 
     /// @dev Mapping from market ID to owner address.
-    mapping(uint256 => address) internal marketIdToOwner;
+    mapping(uint256 => address) public marketIdToOwner;
 
     /// @dev Mapping from market ID to Market struct.
-    mapping(uint256 => Market) internal marketIdToMarket;
+    mapping(uint256 => Market) public marketIdToMarket;
 
     /*//////////////////////////////////////////////////////////////
                            Events and Errors

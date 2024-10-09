@@ -1,0 +1,16 @@
+1. Add .env file to root with the following variables:
+PRIVATE_KEY={YOUR_PRIVATE_KEY}
+ETH_SEPOLIA_RPC_URL={YOUR_RPC_URL}
+OP_SEPOLIA_RPC_URL={YOUR_RPC_URL}
+ETHERSCAN_API_KEY={YOUR_API_KEY}
+OPSCAN_API_KEY={YOUR_API_KEY}
+
+2. source .env
+
+3. Deploying PredopistExecutor on OP Sepolia: 
+forge script script/DeployPredepositExecutor.s.sol --rpc-url $OP_SEPOLIA_RPC_URL --broadcast --verify -vvvv --etherscan-api-key=$OPSCAN_API_KEY --verifier-url https://api-sepolia-optimistic.etherscan.io/api
+
+4. Edit DeployPredepositLocker.s.sol to set the predepositExecutor address as the address of the deployment done in step 3.
+
+5. Deploying PredepositLocker on ETH Sepolia:
+forge script script/DeployPredepositLocker.s.sol --rpc-url $ETH_SEPOLIA_RPC_URL --broadcast --verify -vvvv --etherscan-api-key=$ETHERSCAN_API_KEY

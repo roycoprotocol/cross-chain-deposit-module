@@ -27,8 +27,8 @@ contract PredepositLockerDeployScript is Script {
         // Set the destination endpoint ID for the destination chain
         chainDstEid = uint32(40232); // Destination endpoint for OP Sepolia
 
-        // Set the address of the PredepositExecutor on the destination chain
-        predepositExecutor = vm.envOr("PREDEPOSIT_EXECUTOR", address(0x0));
+        // Set the address of the PredepositExecutor on OP Sepolia
+        predepositExecutor = address(0xA03749F03c4cB7Bb8C2aa5f735BbdC776EF93014);
 
         // Initialize the arrays directly in the script
         // Example addresses for ERC20 tokens
