@@ -31,10 +31,12 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
 
     /// @dev Represents a market with associated input token and recipes.
     /// @custom:field inputToken The deposit token for the market.
+    /// @custom:field unlockTimestamp  The ABSOLUTE timestamp until deposits will be locked for this market.
     /// @custom:field depositRecipe The weiroll script executed on deposit (specified by the IP/owner of the market).
     /// @custom:field withdrawalRecipe The weiroll script executed on withdrawal (specified by the IP/owner of the market).
     struct Market {
         ERC20 inputToken;
+        uint256 unlockTimestamp;
         Recipe depositRecipe;
         Recipe withdrawalRecipe;
     }
@@ -173,6 +175,13 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         marketIdToOwner[_marketId] = _newOwner;
     }
 
+    /// @notice Sets a new owner for the specified market.
+    /// @param _marketId The unique identifier for the market.
+    /// @param _unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this market.
+    function setMarketLocktime(uint256 _marketId, uint256 _unlockTimestamp) external onlyOwnerOfMarket(_marketId) {
+        marketIdToMarket[_marketId].unlockTimestamp = _unlockTimestamp;
+    }
+
     /// @notice Sets the deposit recipe for a market.
     /// @param _marketId The unique identifier for the market.
     /// @param _weirollCommands The weiroll commands for the deposit recipe.
@@ -226,6 +235,8 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         // Ensure that the _from address is the expected Stargate contract
         require(_from == address(stargate), NotFromStargate());
 
+        uint256 unlockTimestampForMarket = marketIdToMarket[marketId].unlockTimestamp;
+
         // Calculate the offset to start reading depositor data
         uint256 offset = 32; // After the marketId byte
 
@@ -239,12 +250,8 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
             uint96 depositAmount = _readUint96(composeMessage, offset);
             offset += 12;
 
-            // Extract wallet lock time (4 bytes)
-            uint32 walletLockTime = _readUint32(composeMessage, offset);
-            offset += 4;
-
             // Deploy or retrieve the Weiroll wallet for the depositor
-            address weirollWallet = _deployWeirollWallet(marketId, apAddress, depositAmount, walletLockTime);
+            address weirollWallet = _deployWeirollWallet(marketId, apAddress, depositAmount, unlockTimestampForMarket);
 
             // Transfer the deposited tokens to the Weiroll wallet
             marketInputToken.safeTransfer(weirollWallet, depositAmount);
@@ -333,17 +340,6 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         require(data.length >= offset + 12, EOF());
         assembly {
             value := shr(160, mload(add(add(data, 32), offset)))
-        }
-    }
-
-    /// @dev Reads a uint32 from bytes at a specific offset.
-    /// @param data The bytes array.
-    /// @param offset The offset to start reading from.
-    /// @return value The uint32 value read from the bytes array.
-    function _readUint32(bytes memory data, uint256 offset) internal pure returns (uint32 value) {
-        require(data.length >= offset + 4, EOF());
-        assembly {
-            value := shr(224, mload(add(add(data, 32), offset)))
         }
     }
 }

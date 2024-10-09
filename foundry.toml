@@ -17,7 +17,7 @@ optimism-sepolia = "${OP_SEPOLIA_RPC_URL}"
 
 [etherscan]
 sepolia = { key = "${ETHERSCAN_API_KEY}" }
-optimism-sepolia = { key = "${OPSCAN_API_KEY}", chain_id = 11155420, etherscan_api_url = "https://api-sepolia-optimistic.etherscan.io/api" }
+optimism-sepolia = { key = "${OPSCAN_API_KEY}" }
 
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

@@ -206,8 +206,7 @@ contract PredepositLocker is Ownable2Step {
         Per Depositor:
             - AP address: address (20 bytes)
             - Amount Deposited: uint96 (12 bytes)
-            - Absolute locktime: uint32 (4 bytes)
-            Total per depositor: 36 bytes
+            Total per depositor: 32 bytes
         */
 
         // Initialize compose message with market ID
@@ -228,7 +227,7 @@ contract PredepositLocker is Ownable2Step {
             delete marketIdToDepositorToAmountDeposited[_marketId][_depositorWeirollWallets[i]];
 
             // Encode depositor's payload
-            bytes memory apPayload = abi.encodePacked(wallet.owner(), depositAmount, uint32(wallet.lockedUntil()));
+            bytes memory apPayload = abi.encodePacked(wallet.owner(), depositAmount);
             // Concatenate depositor's payload with compose message
             composeMsg = abi.encodePacked(composeMsg, apPayload);
         }
