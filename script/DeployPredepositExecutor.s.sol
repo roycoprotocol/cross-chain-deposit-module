@@ -6,7 +6,6 @@ import "forge-std/Script.sol";
 // Import the PredepositExecutor contract and its dependencies
 import {PredepositExecutor} from "src/PredepositExecutor.sol";
 import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
-import {IStargate} from "src/interfaces/IStargate.sol";
 
 contract PredepositExecutorDeployScript is Script {
     // State variables for external contract addresses and arrays
@@ -14,7 +13,7 @@ contract PredepositExecutorDeployScript is Script {
     address public weirollWalletImplementation;
     address public lzEndpoint;
     ERC20[] public predepositTokens;
-    IStargate[] public stargates;
+    address[] public stargates;
 
     function setUp() public {
         // Initialize state variables
@@ -33,7 +32,7 @@ contract PredepositExecutorDeployScript is Script {
         predepositTokens.push(ERC20(address(0x5fd84259d66Cd46123540766Be93DFE6D43130D7))); // USDC on OP Sepolia
 
         // Corresponding Stargate instances for each token
-        stargates.push(IStargate(address(0x1E8A86EcC9dc41106d3834c6F1033D86939B1e0D))); // StargatePoolUSDC on OP Sepolia
+        stargates.push(address(0x1E8A86EcC9dc41106d3834c6F1033D86939B1e0D)); // StargatePoolUSDC on OP Sepolia
     }
 
     function run() public {

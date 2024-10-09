@@ -3,7 +3,6 @@ pragma solidity ^0.8.0;
 
 import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {Ownable2Step, Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
-import {IStargate} from "src/interfaces/IStargate.sol";
 import {ILayerZeroComposer} from "src/interfaces/ILayerZeroComposer.sol";
 import {IWeirollWallet} from "src/interfaces/IWeirollWallet.sol";
 import {ClonesWithImmutableArgs} from "lib/clones-with-immutable-args/src/ClonesWithImmutableArgs.sol";
@@ -52,7 +51,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     address public lzEndpoint;
 
     /// @notice Mapping of ERC20 token to its corresponding Stargate bridge entrypoint.
-    mapping(ERC20 => IStargate) public tokenToStargate;
+    mapping(ERC20 => address) public tokenToStargate;
 
     /// @dev Mapping from market ID to owner address.
     mapping(uint256 => address) internal marketIdToOwner;
@@ -129,7 +128,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         address _weirollWalletImplementation,
         address _lzEndpoint,
         ERC20[] memory _predepositTokens,
-        IStargate[] memory _stargates
+        address[] memory _stargates
     ) Ownable(_owner) {
         require(_predepositTokens.length == _stargates.length, ArrayLengthMismatch());
 
@@ -164,7 +163,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @notice Sets the Stargate instance for a given token.
     /// @param _token Token to set a Stargate instance for.
     /// @param _stargate Stargate instance to set for the specified token.
-    function setStargate(ERC20 _token, IStargate _stargate) external onlyOwner {
+    function setStargate(ERC20 _token, address _stargate) external onlyOwner {
         tokenToStargate[_token] = _stargate;
     }
 
@@ -232,11 +231,8 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         // Get the market's input token
         ERC20 marketInputToken = marketIdToMarket[marketId].inputToken;
 
-        // Get the Stargate address for the input token
-        IStargate stargate = tokenToStargate[marketInputToken];
-
         // Ensure that the _from address is the expected Stargate contract
-        require(_from == address(stargate), NotFromStargate());
+        require(_from == tokenToStargate[marketInputToken], NotFromStargate());
 
         uint256 unlockTimestampForMarket = marketIdToMarket[marketId].unlockTimestamp;
 
