@@ -4,7 +4,12 @@ pragma solidity ^0.8.0;
 /// @title IWeirollWallet
 /// @author Royco
 interface IWeirollWallet {
-        /// @notice The address of the order creator (owner)
+    /// @notice Let the Weiroll Wallet receive ether directly if needed
+    receive() external payable;
+    /// @notice Also allow a fallback with no logic if erroneous data is provided
+    fallback() external payable;
+
+    /// @notice The address of the order creator (owner)
     function owner() external pure returns (address);
 
     /// @notice The address of the recipeKernel exchange contract
@@ -19,5 +24,8 @@ interface IWeirollWallet {
     /// @notice Returns the marketId associated with this weiroll wallet
     function marketId() external pure returns (uint256);
 
-    function executeWeiroll(bytes32[] calldata commands, bytes[] calldata state) external payable returns (bytes[] memory);
+    function executeWeiroll(bytes32[] calldata commands, bytes[] calldata state)
+        external
+        payable
+        returns (bytes[] memory);
 }

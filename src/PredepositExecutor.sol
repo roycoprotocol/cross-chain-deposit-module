@@ -250,7 +250,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
             offset += 12;
 
             // Deploy or retrieve the Weiroll wallet for the depositor
-            address weirollWallet = _deployWeirollWallet(marketId, apAddress, depositAmount, unlockTimestampForMarket);
+            address payable weirollWallet = _deployWeirollWallet(marketId, apAddress, depositAmount, unlockTimestampForMarket);
 
             // Transfer the deposited tokens to the Weiroll wallet
             marketInputToken.safeTransfer(weirollWallet, depositAmount);
@@ -264,7 +264,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
 
     /// @notice Executes the withdrawal script in the Weiroll wallet.
     /// @param _weirollWallet The address of the Weiroll wallet.
-    function executeWithdrawalScript(address _weirollWallet)
+    function executeWithdrawalScript(address payable _weirollWallet)
         external
         isWeirollOwner(_weirollWallet)
         weirollIsUnlocked(_weirollWallet)
@@ -284,17 +284,17 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @return weirollWallet The address of the Weiroll wallet.
     function _deployWeirollWallet(uint256 _marketId, address _owner, uint256 _amount, uint256 _lockedUntil)
         internal
-        returns (address weirollWallet)
+        returns (address payable weirollWallet)
     {
         // Deploy a new Weiroll wallet with immutable args
         bytes memory weirollParams = abi.encodePacked(_owner, address(this), _amount, _lockedUntil, false, _marketId);
-        weirollWallet = WEIROLL_WALLET_IMPLEMENTATION.clone(weirollParams);
+        weirollWallet = payable(WEIROLL_WALLET_IMPLEMENTATION.clone(weirollParams));
     }
 
     /// @dev Executes the deposit recipe on the Weiroll wallet.
     /// @param _weirollWallet The address of the Weiroll wallet.
     /// @param _marketId The market ID.
-    function _executeDepositRecipe(address _weirollWallet, uint256 _marketId) internal {
+    function _executeDepositRecipe(address payable _weirollWallet, uint256 _marketId) internal {
         // Get the market's deposit recipe
         Recipe storage depositRecipe = marketIdToMarket[_marketId].depositRecipe;
 
@@ -304,9 +304,9 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
 
     /// @dev Internal function to execute the withdrawal script.
     /// @param _weirollWallet The address of the Weiroll wallet.
-    function _executeWithdrawalScript(address _weirollWallet) internal {
+    function _executeWithdrawalScript(address payable _weirollWallet) internal {
         // Instantiate the WeirollWallet from the wallet address
-        IWeirollWallet wallet = IWeirollWallet(payable(_weirollWallet));
+        IWeirollWallet wallet = IWeirollWallet(_weirollWallet);
 
         // Get the market ID associated with the Weiroll wallet
         uint256 marketId = wallet.marketId();

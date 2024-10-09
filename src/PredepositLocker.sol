@@ -195,7 +195,7 @@ contract PredepositLocker is Ownable2Step {
     /// @param _marketId The market ID to bridge tokens for.
     /// @param _executorGasLimit The gas limit of the executor on the destination chain.
     /// @param _depositorWeirollWallets The addresses of the Weiroll wallets used to deposit.
-    function bridge(uint256 _marketId, uint128 _executorGasLimit, address[] calldata _depositorWeirollWallets)
+    function bridge(uint256 _marketId, uint128 _executorGasLimit, address payable[] calldata _depositorWeirollWallets)
         external
         payable
         greenLightGiven(_marketId)
@@ -216,12 +216,12 @@ contract PredepositLocker is Ownable2Step {
         uint256 totalAmountToBridge;
 
         for (uint256 i = 0; i < _depositorWeirollWallets.length; ++i) {
-            IWeirollWallet wallet = IWeirollWallet(payable(_depositorWeirollWallets[i]));
+            IWeirollWallet wallet = IWeirollWallet(_depositorWeirollWallets[i]);
 
             // Get deposited amount
             uint96 depositAmount = uint96(marketIdToDepositorToAmountDeposited[_marketId][_depositorWeirollWallets[i]]);
             if (depositAmount == 0) {
-                continue; // Skip if no deposit
+                continue; // Skip if didn't deposit
             }
             totalAmountToBridge += depositAmount;
             delete marketIdToDepositorToAmountDeposited[_marketId][_depositorWeirollWallets[i]];
