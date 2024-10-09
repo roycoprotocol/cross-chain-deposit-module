@@ -271,6 +271,9 @@ contract PredepositLocker is Ownable2Step {
         emit BridgedToDestinationChain(msgReceipt.guid, msgReceipt.nonce, _marketId, totalAmountToBridge);
     }
 
+    /// @notice Let the PredepositLocker receive ether directly if needed
+    receive() external payable {}
+
     /// @dev Converts an address to bytes32.
     /// @param _addr The address to convert.
     function _addressToBytes32(address _addr) internal pure returns (bytes32) {
