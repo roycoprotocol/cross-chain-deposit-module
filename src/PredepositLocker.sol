@@ -229,6 +229,7 @@ contract PredepositLocker is Ownable2Step {
 
             // Encode depositor's payload
             bytes memory apPayload = abi.encodePacked(wallet.owner(), depositAmount, uint32(wallet.lockedUntil()));
+            // Concatenate depositor's payload with compose message
             composeMsg = abi.encodePacked(composeMsg, apPayload);
         }
 
