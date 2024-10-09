@@ -195,23 +195,23 @@ contract PredepositLocker is Ownable2Step {
     /// @param _marketId The market ID to bridge tokens for.
     /// @param _executorGasLimit The gas limit of the executor on the destination chain.
     /// @param _depositorWeirollWallets The addresses of the Weiroll wallets used to deposit.
-    function bridge(uint8 _marketId, uint128 _executorGasLimit, address[] calldata _depositorWeirollWallets)
+    function bridge(uint256 _marketId, uint128 _executorGasLimit, address[] calldata _depositorWeirollWallets)
         external
         payable
         greenLightGiven(_marketId)
     {
         /*
         Payload Structure:
-            - marketID: uint8 (1 byte)
+            - marketID: uint256 (32 byte)
         Per Depositor:
             - AP address: address (20 bytes)
             - Amount Deposited: uint96 (12 bytes)
-            - Remaining wallet locktime: uint32 (4 bytes)
+            - Absolute locktime: uint32 (4 bytes)
             Total per depositor: 36 bytes
         */
 
         // Initialize compose message with market ID
-        bytes memory composeMsg = abi.encodePacked(bytes1(_marketId));
+        bytes memory composeMsg = abi.encodePacked(bytes32(_marketId));
 
         // Keep track of total amount of deposits to bridge
         uint256 totalAmountToBridge;

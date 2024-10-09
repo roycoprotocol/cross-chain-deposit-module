@@ -153,6 +153,12 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         marketIdToMarket[_marketId].inputToken = _inputToken;
     }
 
+    /// @notice Sets the LayerZero endpoint address for this chain.
+    /// @param _newLzEndpoint New LayerZero endpoint for this chain
+    function setLzEndpoint(address _newLzEndpoint) external onlyOwner {
+        lzEndpoint = _newLzEndpoint;
+    }
+
     /// @notice Sets the Stargate instance for a given token.
     /// @param _token Token to set a Stargate instance for.
     /// @param _stargate Stargate instance to set for the specified token.
@@ -205,8 +211,11 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         // Extract the compose message from the _message
         bytes memory composeMessage = OFTComposeMsgCodec.composeMsg(_message);
 
-        // Extract market ID (first byte)
-        uint256 marketId = uint256(uint8(composeMessage[0]));
+        // Extract market ID (first 32 bytes)
+        uint256 marketId;
+        assembly {
+            marketId := mload(add(composeMessage, 32))
+        }
 
         // Get the market's input token
         ERC20 marketInputToken = marketIdToMarket[marketId].inputToken;
@@ -218,7 +227,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         require(_from == address(stargate), NotFromStargate());
 
         // Calculate the offset to start reading depositor data
-        uint256 offset = 1; // After the marketId byte
+        uint256 offset = 32; // After the marketId byte
 
         // Loop through the compose message and process each depositor
         while (offset + 36 <= composeMessage.length) {
