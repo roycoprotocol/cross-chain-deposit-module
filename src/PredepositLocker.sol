@@ -56,6 +56,9 @@ contract PredepositLocker is Ownable2Step {
         bytes32 indexed guid, uint64 indexed nonce, uint256 marketId, uint256 amountBridged
     );
 
+    /// @notice Error emitted when calling withdraw with nothing deposited
+    error NothingToWithdraw();
+
     /// @notice Error emitted when array lengths mismatch.
     error ArrayLengthMismatch();
 
@@ -182,6 +185,7 @@ contract PredepositLocker is Ownable2Step {
 
         // Update accounting
         uint256 amountToWithdraw = marketIdToDepositorToAmountDeposited[targetMarketId][msg.sender];
+        require(amountToWithdraw > 0, NothingToWithdraw());
         delete marketIdToDepositorToAmountDeposited[targetMarketId][msg.sender];
 
         // Transfer back the amount deposited
