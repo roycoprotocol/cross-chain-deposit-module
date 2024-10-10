@@ -32,10 +32,10 @@ contract PredepositLockerDeployScript is Script {
 
         // Initialize the arrays directly in the script
         // Example addresses for ERC20 tokens
-        predepositTokens.push(ERC20(address(0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238))); // USDC on ETH Sepolia
+        predepositTokens.push(ERC20(address(0x2F6F07CDcf3588944Bf4C42aC74ff24bF56e7590))); // USDC on ETH Sepolia
 
         // Corresponding Stargate instances for each token
-        stargates.push(IStargate(address(0xa5A8481790BB57CF3FA0a4f24Dc28121A491447f))); // StargatePoolUSDC on ETH Sepolia
+        stargates.push(IStargate(address(0xa4e97dFd56E0E30A2542d666Ef04ACC102310083))); // StargatePoolUSDC on ETH Sepolia
 
         // Set the RecipeKernelBase contract address
         recipeKernel = RecipeKernelBase(address(0xb2215b4765515ad9d5Aa46B0D6EC3D8C91F45f2e)); // RecipeKernel on ETH Sepolia
