@@ -179,12 +179,14 @@ contract PredepositLocker is Ownable2Step {
         IWeirollWallet wallet = IWeirollWallet(payable(msg.sender));
         // Get depositor's market ID and amount
         uint256 targetMarketId = wallet.marketId();
-        uint256 amountToWithdraw = wallet.amount();
 
-        // Update accounting and transfer back the amount
+        // Update accounting
+        uint256 amountToWithdraw = marketIdToDepositorToAmountDeposited[targetMarketId][msg.sender];
         delete marketIdToDepositorToAmountDeposited[targetMarketId][msg.sender];
+
+        // Transfer back the amount deposited
         (ERC20 marketInputToken,,,,,) = recipeKernel.marketIDToWeirollMarket(targetMarketId);
-        marketInputToken.safeTransferFrom(address(this), msg.sender, amountToWithdraw);
+        marketInputToken.safeTransfer(msg.sender, amountToWithdraw);
 
         // Emit withdrawal event
         emit UserWithdrawn(targetMarketId, msg.sender, amountToWithdraw);
