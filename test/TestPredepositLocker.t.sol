@@ -82,6 +82,41 @@ contract TestPredepositLocker is RecipeMarketHubTestBase {
         assertEq(mockLiquidityToken.balanceOf(address(predepositLocker)), fillAmount);
     }
 
+    function test_WithdrawFromPredepositLocker(uint256 offerAmount, uint256 fillAmount) external {
+        vm.assume(fillAmount <= offerAmount && fillAmount > 1e18);
+        vm.assume(offerAmount < type(uint96).max && offerAmount > 1e18);
+
+        // Mint liquidity tokens to the AP to fill the offer
+        mockLiquidityToken.mint(AP_ADDRESS, fillAmount);
+        vm.startPrank(AP_ADDRESS);
+        mockLiquidityToken.approve(address(recipeMarketHub), fillAmount);
+        vm.stopPrank();
+
+        // Create a fillable IP offer for points
+        (bytes32 offerHash, Points points) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
+
+        // Record the logs to capture Transfer events to get Weiroll wallet address
+        vm.recordLogs();
+        // AP Fills the offer (no funding vault)
+        vm.startPrank(AP_ADDRESS);
+        recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
+
+        // Extract the Weiroll wallet address (the 'to' address from the Transfer event - third event in logs)
+        address weirollWallet = address(uint160(uint256(vm.getRecordedLogs()[0].topics[2])));
+
+        vm.expectEmit(true, true, false, true, address(mockLiquidityToken));
+        emit ERC20.Transfer(address(predepositLocker), weirollWallet, fillAmount);
+
+        vm.expectEmit(true, false, false, true, address(predepositLocker));
+        emit PredepositLocker.UserWithdrawn(marketHash, weirollWallet, fillAmount);
+
+        recipeMarketHub.forfeit(weirollWallet, true);
+        vm.stopPrank();
+
+        assertEq(mockLiquidityToken.balanceOf(weirollWallet), fillAmount);
+        assertEq(mockLiquidityToken.balanceOf(address(predepositLocker)), 0);
+    }
+
     // Get fill amount using Weiroll Helper -> Approve fill amount -> Call Deposit
     function _buildDepositRecipe(
         bytes4 _depositSelector,
