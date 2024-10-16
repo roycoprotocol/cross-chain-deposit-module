@@ -10,3 +10,6 @@
 [submodule "lib/clones-with-immutable-args"]
 	path = lib/clones-with-immutable-args
 	url = https://github.com/wighawag/clones-with-immutable-args
+[submodule "lib/royco"]
+	path = lib/royco
+	url = https://github.com/roycoprotocol/royco
