@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 
 // Import the PredepositExecutor contract and its dependencies
 import {PredepositExecutor} from "src/PredepositExecutor.sol";
-import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
+import { ERC20 } from "@royco/src/base/RecipeMarketHubBase.sol";
 
 contract PredepositExecutorDeployScript is Script {
     // State variables for external contract addresses and arrays

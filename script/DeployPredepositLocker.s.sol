@@ -4,10 +4,8 @@ pragma solidity ^0.8.0;
 import "forge-std/Script.sol";
 
 // Import the PredepositLocker contract and its dependencies
-import {PredepositLocker} from "src/PredepositLocker.sol";
-import {RecipeKernelBase} from "src/base/RecipeKernelBase.sol";
-import {IStargate} from "src/interfaces/IStargate.sol";
-import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
+import { PredepositLocker, RecipeMarketHubBase, ERC20 } from "src/PredepositLocker.sol";
+import { IStargate } from "src/interfaces/IStargate.sol";
 
 contract PredepositLockerDeployScript is Script {
     // State variables for external contract addresses and arrays
@@ -16,7 +14,7 @@ contract PredepositLockerDeployScript is Script {
     address public predepositExecutor;
     ERC20[] public predepositTokens;
     IStargate[] public stargates;
-    RecipeKernelBase public recipeKernel;
+    RecipeMarketHubBase public recipeMarketHub;
 
     function setUp() public {
         // Initialize state variables
@@ -25,7 +23,7 @@ contract PredepositLockerDeployScript is Script {
         owner = vm.envOr("OWNER", address(0)); // If not set, will default to deployer in run()
 
         // Set the destination endpoint ID for the destination chain
-        chainDstEid = uint32(40232); // Destination endpoint for OP Sepolia
+        chainDstEid = uint32(40_232); // Destination endpoint for OP Sepolia
 
         // Set the address of the PredepositExecutor on OP Sepolia
         predepositExecutor = address(0xA03749F03c4cB7Bb8C2aa5f735BbdC776EF93014);
@@ -37,8 +35,8 @@ contract PredepositLockerDeployScript is Script {
         // Corresponding Stargate instances for each token
         stargates.push(IStargate(address(0xa4e97dFd56E0E30A2542d666Ef04ACC102310083))); // StargatePoolUSDC on ETH Sepolia
 
-        // Set the RecipeKernelBase contract address
-        recipeKernel = RecipeKernelBase(address(0xb2215b4765515ad9d5Aa46B0D6EC3D8C91F45f2e)); // RecipeKernel on ETH Sepolia
+        // Set the RecipeMarketHubBase contract address
+        recipeMarketHub = RecipeMarketHubBase(address(0xb2215b4765515ad9d5Aa46B0D6EC3D8C91F45f2e)); // RecipeMarketHub on ETH Sepolia
     }
 
     function run() public {
@@ -55,13 +53,10 @@ contract PredepositLockerDeployScript is Script {
         }
 
         // Ensure arrays have the same length
-        require(
-            predepositTokens.length == stargates.length, "Array lengths of predeposit tokens and stargates must match"
-        );
+        require(predepositTokens.length == stargates.length, "Array lengths of predeposit tokens and stargates must match");
 
         // Deploy the PredepositLocker contract
-        PredepositLocker locker =
-            new PredepositLocker(owner, chainDstEid, predepositExecutor, predepositTokens, stargates, recipeKernel);
+        PredepositLocker locker = new PredepositLocker(owner, chainDstEid, predepositExecutor, predepositTokens, stargates, recipeMarketHub);
 
         // Output the address of the deployed PredepositLocker contract
         console.log("PredepositLocker deployed at:", address(locker));

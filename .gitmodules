@@ -1,15 +1,6 @@
 [submodule "lib/forge-std"]
 	path = lib/forge-std
 	url = https://github.com/foundry-rs/forge-std
-[submodule "lib/solmate"]
-	path = lib/solmate
-	url = https://github.com/transmissions11/solmate
-[submodule "lib/openzeppelin-contracts"]
-	path = lib/openzeppelin-contracts
-	url = https://github.com/OpenZeppelin/openzeppelin-contracts
-[submodule "lib/clones-with-immutable-args"]
-	path = lib/clones-with-immutable-args
-	url = https://github.com/wighawag/clones-with-immutable-args
 [submodule "lib/royco"]
 	path = lib/royco
 	url = https://github.com/roycoprotocol/royco
