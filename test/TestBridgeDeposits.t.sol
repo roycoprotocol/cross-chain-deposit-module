@@ -28,7 +28,7 @@ contract TestBridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
 
     function test_BridgeDeposits(uint256 offerAmount, uint256 numDepositors) external {
         numDepositors = bound(numDepositors, 1, 20);
-        offerAmount = bound(offerAmount, 1e18, type(uint64).max);
+        offerAmount = bound(offerAmount, 1e6, type(uint48).max);
 
         vm.selectFork(mainnetFork);
         assertEq(vm.activeFork(), mainnetFork);
@@ -64,8 +64,6 @@ contract TestBridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
 
         uint256 frontendFee = recipeMarketHub.minimumFrontendFee();
         bytes32 marketHash = recipeMarketHub.createMarket(USDC_ADDRESS, 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
-
-        assertEq(mockLiquidityToken.balanceOf(address(predepositLocker)), 0);
 
         // Create a fillable IP offer for points
         (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
@@ -104,6 +102,9 @@ contract TestBridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
 
         vm.expectEmit(true, true, true, true, USDC_ADDRESS);
         emit ERC20.Transfer(address(predepositLocker), address(predepositLocker.tokenToStargate(ERC20(USDC_ADDRESS))), offerAmount);
+
+        vm.expectEmit(false, false, true, false, address(predepositLocker));
+        emit PredepositLocker.BridgedToDestinationChain(bytes32(0), 0, marketHash, offerAmount);
 
         vm.startPrank(IP_ADDRESS);
         predepositLocker.bridge{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);

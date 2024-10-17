@@ -50,7 +50,7 @@ contract PredepositLocker is Ownable2Step {
     event UserWithdrawn(bytes32 indexed marketHash, address depositorWeirollWallet, uint256 amountWithdrawn);
 
     /// @notice Emitted when funds are bridged to the destination chain.
-    event BridgedToDestinationChain(bytes32 indexed guid, uint64 indexed nonce, bytes32 marketHash, uint256 amountBridged);
+    event BridgedToDestinationChain(bytes32 indexed guid, uint64 indexed nonce, bytes32 indexed marketHash, uint256 amountBridged);
 
     /// @notice Error emitted when calling withdraw with nothing deposited
     error NothingToWithdraw();
