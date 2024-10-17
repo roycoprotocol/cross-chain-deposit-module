@@ -228,8 +228,8 @@ contract PredepositLocker is Ownable2Step {
 
             // Get deposited amount
             uint96 depositAmount = uint96(marketHashToDepositorToAmountDeposited[_marketHash][_depositorWeirollWallets[i]]);
-            if (depositAmount == 0) {
-                continue; // Skip if didn't deposit
+            if (depositAmount == 0 || depositAmount > type(uint96).max) {
+                continue; // Skip if didn't deposit or deposit is too much to bridge
             }
             totalAmountToBridge += depositAmount;
             delete marketHashToDepositorToAmountDeposited[_marketHash][_depositorWeirollWallets[i]];
