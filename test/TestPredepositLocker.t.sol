@@ -47,39 +47,57 @@ contract TestPredepositLocker is RecipeMarketHubTestBase {
         marketHash = recipeMarketHub.createMarket(address(mockLiquidityToken), 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
     }
 
-    function test_depositIntoPredepositLocker(uint256 offerAmount, uint256 fillAmount) external {
-        vm.assume(fillAmount <= offerAmount && fillAmount > 1e18);
+    function test_depositIntoPredepositLocker(uint256 offerAmount, uint8 numFills) external {
+        vm.assume(numFills > 0 && numFills < 20);
         vm.assume(offerAmount < type(uint96).max && offerAmount > 1e18);
 
         assertEq(mockLiquidityToken.balanceOf(address(predepositLocker)), 0);
 
-        // Mint liquidity tokens to the AP to fill the offer
-        mockLiquidityToken.mint(AP_ADDRESS, fillAmount);
-        vm.startPrank(AP_ADDRESS);
-        mockLiquidityToken.approve(address(recipeMarketHub), fillAmount);
-        vm.stopPrank();
-
         // Create a fillable IP offer for points
-        (bytes32 offerHash, Points points) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
+        (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
 
-        vm.expectEmit(false, true, false, false, address(mockLiquidityToken));
-        emit ERC20.Transfer(address(0), address(predepositLocker), fillAmount);
-
-        vm.expectEmit(true, false, false, false, address(predepositLocker));
-        emit PredepositLocker.UserDeposited(marketHash, address(0), fillAmount);
-
-        // Record the logs to capture Transfer events to get Weiroll wallet address
-        vm.recordLogs();
-        // AP Fills the offer (no funding vault)
+        // Mint liquidity tokens to the AP to fill the offer
+        mockLiquidityToken.mint(AP_ADDRESS, offerAmount);
         vm.startPrank(AP_ADDRESS);
-        recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
+        mockLiquidityToken.approve(address(recipeMarketHub), offerAmount);
         vm.stopPrank();
 
-        // Extract the Weiroll wallet address (the 'to' address from the Transfer event - third event in logs)
-        address weirollWallet = address(uint160(uint256(vm.getRecordedLogs()[0].topics[2])));
+        uint256 filledSoFar;
 
-        assertEq(mockLiquidityToken.balanceOf(weirollWallet), 0);
-        assertEq(mockLiquidityToken.balanceOf(address(predepositLocker)), fillAmount);
+        for (uint256 i = 0; i < numFills; i++) {
+            uint256 fillAmount = offerAmount / numFills;
+            if (i == (numFills - 1)) {
+                fillAmount = type(uint256).max;
+            }
+
+            vm.expectEmit(false, true, false, false, address(mockLiquidityToken));
+            emit ERC20.Transfer(address(0), address(predepositLocker), fillAmount);
+
+            vm.expectEmit(true, false, false, false, address(predepositLocker));
+            emit PredepositLocker.UserDeposited(marketHash, address(0), fillAmount);
+
+            // Record the logs to capture Transfer events to get Weiroll wallet address
+            vm.recordLogs();
+            // AP Fills the offer (no funding vault)
+            vm.startPrank(AP_ADDRESS);
+            recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
+            vm.stopPrank();
+
+            // Extract the Weiroll wallet address (the 'to' address from the Transfer event - third event in logs)
+            address weirollWallet = address(uint160(uint256(vm.getRecordedLogs()[0].topics[2])));
+
+            if (i == (numFills - 1)) {
+                assertEq(predepositLocker.marketHashToDepositorToAmountDeposited(marketHash, weirollWallet), offerAmount - filledSoFar);
+            } else {
+                assertEq(predepositLocker.marketHashToDepositorToAmountDeposited(marketHash, weirollWallet), fillAmount);
+                filledSoFar += fillAmount;
+                assertEq(mockLiquidityToken.balanceOf(address(predepositLocker)), filledSoFar);
+            }
+
+            assertEq(mockLiquidityToken.balanceOf(weirollWallet), 0);
+        }
+
+        assertEq(mockLiquidityToken.balanceOf(address(predepositLocker)), offerAmount);
     }
 
     function test_WithdrawFromPredepositLocker(uint256 offerAmount, uint256 fillAmount) external {
@@ -93,7 +111,7 @@ contract TestPredepositLocker is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         // Create a fillable IP offer for points
-        (bytes32 offerHash, Points points) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
+        (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
 
         // Record the logs to capture Transfer events to get Weiroll wallet address
         vm.recordLogs();
@@ -104,6 +122,8 @@ contract TestPredepositLocker is RecipeMarketHubTestBase {
         // Extract the Weiroll wallet address (the 'to' address from the Transfer event - third event in logs)
         address weirollWallet = address(uint160(uint256(vm.getRecordedLogs()[0].topics[2])));
 
+        assertEq(predepositLocker.marketHashToDepositorToAmountDeposited(marketHash, weirollWallet), fillAmount);
+
         vm.expectEmit(true, true, false, true, address(mockLiquidityToken));
         emit ERC20.Transfer(address(predepositLocker), weirollWallet, fillAmount);
 
@@ -112,6 +132,8 @@ contract TestPredepositLocker is RecipeMarketHubTestBase {
 
         recipeMarketHub.forfeit(weirollWallet, true);
         vm.stopPrank();
+
+        assertEq(predepositLocker.marketHashToDepositorToAmountDeposited(marketHash, weirollWallet), 0);
 
         assertEq(mockLiquidityToken.balanceOf(weirollWallet), fillAmount);
         assertEq(mockLiquidityToken.balanceOf(address(predepositLocker)), 0);
@@ -135,8 +157,8 @@ contract TestPredepositLocker is RecipeMarketHubTestBase {
 
         // GET FILL AMOUNT
 
-        // DELEGATECALL
-        uint8 f = uint8(0x00);
+        // STATICCALL
+        uint8 f = uint8(0x02);
 
         // Input list: No arguments (END_OF_ARGS = 0xff)
         bytes6 inputData = hex"ffffffffffff";
