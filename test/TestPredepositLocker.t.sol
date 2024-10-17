@@ -10,7 +10,7 @@ import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
 
 // Test depositing and withdrawing to/from the PredepositLocker through a Royco Market
 // This will simulate the expected behaviour on the source chain of a Predeposit Campaign
-contract TestPredepositLocker is RecipeMarketHubTestBase {
+contract TestDepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase {
     using FixedPointMathLib for uint256;
 
     address IP_ADDRESS;
@@ -47,7 +47,7 @@ contract TestPredepositLocker is RecipeMarketHubTestBase {
         marketHash = recipeMarketHub.createMarket(address(mockLiquidityToken), 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
     }
 
-    function test_DepositIntoPredepositLocker(uint256 offerAmount, uint256 numDepositors) external {
+    function test_Deposits(uint256 offerAmount, uint256 numDepositors) external {
         numDepositors = bound(numDepositors, 1, 20);
         offerAmount = bound(offerAmount, 1e18, type(uint96).max);
 
@@ -100,7 +100,7 @@ contract TestPredepositLocker is RecipeMarketHubTestBase {
         assertEq(mockLiquidityToken.balanceOf(address(predepositLocker)), offerAmount);
     }
 
-    function test_WithdrawFromPredepositLocker(uint256 offerAmount, uint256 numDepositors, uint256 numWithdrawals) external {
+    function test_Withdrawals(uint256 offerAmount, uint256 numDepositors, uint256 numWithdrawals) external {
         numDepositors = bound(numDepositors, 1, 20);
         numWithdrawals = bound(numWithdrawals, 1, numDepositors);
         offerAmount = bound(offerAmount, 1e18, type(uint96).max);
@@ -171,91 +171,5 @@ contract TestPredepositLocker is RecipeMarketHubTestBase {
             assertEq(mockLiquidityToken.balanceOf(depositorWallets[i]), fillAmount);
             assertEq(mockLiquidityToken.balanceOf(address(predepositLocker)), offerAmount - withdrawnSoFar);
         }
-    }
-
-    // Get fill amount using Weiroll Helper -> Approve fill amount -> Call Deposit
-    function _buildDepositRecipe(
-        bytes4 _depositSelector,
-        address _helper,
-        address _tokenAddress,
-        address _predepositLocker
-    )
-        internal
-        pure
-        returns (RecipeMarketHubBase.Recipe memory)
-    {
-        bytes32[] memory commands = new bytes32[](3);
-        bytes[] memory state = new bytes[](2);
-
-        state[0] = abi.encode(_predepositLocker);
-
-        // GET FILL AMOUNT
-
-        // STATICCALL
-        uint8 f = uint8(0x02);
-
-        // Input list: No arguments (END_OF_ARGS = 0xff)
-        bytes6 inputData = hex"ffffffffffff";
-
-        // Output specifier (fixed length return value stored at index 0 of the output array)
-        // 0xff ignores the output if any
-        uint8 o = 0x01;
-
-        // Encode args and add command to RecipeMarketHubBase.Recipe
-        commands[0] = (bytes32(abi.encodePacked(WeirollWalletHelper.amount.selector, f, inputData, o, _helper)));
-
-        // APPROVE Predeposit Locker to spend tokens
-
-        // CALL
-        f = uint8(0x01);
-
-        // Input list: Args at state index 0 (address) and args at state index 1 (fill amount)
-        inputData = hex"0001ffffffff";
-
-        // Output specifier (fixed length return value stored at index 0 of the output array)
-        // 0xff ignores the output if any
-        o = 0xff;
-
-        // Encode args and add command to RecipeMarketHubBase.Recipe
-        commands[1] = (bytes32(abi.encodePacked(ERC20.approve.selector, f, inputData, o, _tokenAddress)));
-
-        // CALL DEPOSIT() in Predeposit Locker
-        f = uint8(0x01);
-
-        // Input list: No arguments (END_OF_ARGS = 0xff)
-        inputData = hex"ffffffffffff";
-
-        // Output specifier (fixed length return value stored at index 0 of the output array)
-        // 0xff ignores the output if any
-        o = uint8(0xff);
-
-        // Encode args and add command to RecipeMarketHubBase.Recipe
-        commands[2] = (bytes32(abi.encodePacked(_depositSelector, f, inputData, o, _predepositLocker)));
-
-        return RecipeMarketHubBase.Recipe(commands, state);
-    }
-
-    function _buildWithdrawalRecipe(bytes4 _withdrawalSelector, address _predepositLocker) internal pure returns (RecipeMarketHubBase.Recipe memory) {
-        bytes32[] memory commands = new bytes32[](1);
-        bytes[] memory state = new bytes[](0);
-
-        // Flags:
-        // DELEGATECALL (calltype = 0x00)
-        // CALL (calltype = 0x01)
-        // STATICCALL (calltype = 0x02)
-        // CALL with value (calltype = 0x03)
-        uint8 f = uint8(0x01);
-
-        // Input list: No arguments (END_OF_ARGS = 0xff)
-        bytes6 inputData = hex"ffffffffffff";
-
-        // Output specifier (fixed length return value stored at index 0 of the output array)
-        // 0xff ignores the output if any
-        uint8 o = uint8(0xff);
-
-        // Encode args and add command to RecipeMarketHubBase.Recipe
-        commands[0] = (bytes32(abi.encodePacked(_withdrawalSelector, f, inputData, o, _predepositLocker)));
-
-        return RecipeMarketHubBase.Recipe(commands, state);
     }
 }

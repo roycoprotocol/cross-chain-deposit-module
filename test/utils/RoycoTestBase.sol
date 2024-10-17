@@ -15,6 +15,9 @@ contract RoycoTestBase is Test {
     Vm.Wallet internal OWNER;
     address internal OWNER_ADDRESS;
 
+    Vm.Wallet internal MULTISIG;
+    address internal MULTISIG_ADDRESS;
+
     Vm.Wallet internal POINTS_FACTORY_OWNER;
     address internal POINTS_FACTORY_OWNER_ADDRESS;
 
@@ -64,6 +67,7 @@ contract RoycoTestBase is Test {
     function setupWallets() internal {
         // Init wallets with 1000 ETH each
         OWNER = initWallet("OWNER", 1000 ether);
+        MULTISIG = initWallet("MULTISIG", 1000 ether);
         POINTS_FACTORY_OWNER = initWallet("POINTS_FACTORY_OWNER", 1000 ether);
         ALICE = initWallet("ALICE", 1000 ether);
         BOB = initWallet("BOB", 1000 ether);
@@ -72,6 +76,7 @@ contract RoycoTestBase is Test {
 
         // Set addresses
         OWNER_ADDRESS = OWNER.addr;
+        MULTISIG_ADDRESS = MULTISIG.addr;
         POINTS_FACTORY_OWNER_ADDRESS = POINTS_FACTORY_OWNER.addr;
         ALICE_ADDRESS = ALICE.addr;
         BOB_ADDRESS = BOB.addr;

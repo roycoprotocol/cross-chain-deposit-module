@@ -7,6 +7,8 @@ import { MockERC20 } from "@royco/test/mocks/MockERC20.sol";
 import { MockERC4626 } from "@royco/test/mocks/MockERC4626.sol";
 
 import { RoycoTestBase } from "./RoycoTestBase.sol";
+import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
+
 
 contract RecipeMarketHubTestBase is RoycoTestBase {
     using FixedPointMathLib for uint256;
@@ -34,7 +36,13 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         vm.stopPrank();
     }
 
-    function createMarket(RecipeMarketHubBase.Recipe memory _depositRecipe, RecipeMarketHubBase.Recipe memory _withdrawRecipe) public returns (bytes32 marketHash) {
+    function createMarket(
+        RecipeMarketHubBase.Recipe memory _depositRecipe,
+        RecipeMarketHubBase.Recipe memory _withdrawRecipe
+    )
+        public
+        returns (bytes32 marketHash)
+    {
         // Generate random market parameters within valid constraints
         uint256 lockupTime = 1 hours + (uint256(keccak256(abi.encodePacked(block.timestamp))) % 29 days); // Lockup time between 1 hour and 30 days
         uint256 frontendFee = (uint256(keccak256(abi.encodePacked(block.timestamp, msg.sender))) % 1e17) + initialMinimumFrontendFee;
@@ -121,7 +129,9 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
             tokenAmountsRequested // Incentive amounts requested
         );
 
-        offer = RecipeMarketHubBase.APOffer(recipeMarketHub.numAPOffers()-1, _targetMarketHash, _apAddress, _fundingVault, _quantity, 30 days, tokensRequested, tokenAmountsRequested);
+        offer = RecipeMarketHubBase.APOffer(
+            recipeMarketHub.numAPOffers() - 1, _targetMarketHash, _apAddress, _fundingVault, _quantity, 30 days, tokensRequested, tokenAmountsRequested
+        );
     }
 
     function createAPOffer_ForTokens(
@@ -149,7 +159,9 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
             tokenAmountsRequested // Incentive amounts requested
         );
 
-        offer = RecipeMarketHubBase.APOffer(recipeMarketHub.numAPOffers()-1, _targetMarketHash, _apAddress, _fundingVault, _quantity, _expiry, tokensRequested, tokenAmountsRequested);
+        offer = RecipeMarketHubBase.APOffer(
+            recipeMarketHub.numAPOffers() - 1, _targetMarketHash, _apAddress, _fundingVault, _quantity, _expiry, tokensRequested, tokenAmountsRequested
+        );
     }
 
     function createAPOffer_ForPoints(
@@ -190,7 +202,9 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
             tokenAmountsRequested // Incentive amounts requested
         );
         vm.stopPrank();
-        offer = RecipeMarketHubBase.APOffer(recipeMarketHub.numAPOffers()-1, _targetMarketHash, _apAddress, _fundingVault, _quantity, 30 days, tokensRequested, tokenAmountsRequested);
+        offer = RecipeMarketHubBase.APOffer(
+            recipeMarketHub.numAPOffers() - 1, _targetMarketHash, _apAddress, _fundingVault, _quantity, 30 days, tokensRequested, tokenAmountsRequested
+        );
     }
 
     function createIPOffer_WithPoints(
@@ -259,5 +273,91 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         incentiveAmount = tokenAmountRequested.mulWadDown(fillPercentage);
         protocolFeeAmount = incentiveAmount.mulWadDown(protocolFee);
         frontendFeeAmount = incentiveAmount.mulWadDown(frontendFee);
+    }
+
+    // Get fill amount using Weiroll Helper -> Approve fill amount -> Call Deposit
+    function _buildDepositRecipe(
+        bytes4 _depositSelector,
+        address _helper,
+        address _tokenAddress,
+        address _predepositLocker
+    )
+        internal
+        pure
+        returns (RecipeMarketHubBase.Recipe memory)
+    {
+        bytes32[] memory commands = new bytes32[](3);
+        bytes[] memory state = new bytes[](2);
+
+        state[0] = abi.encode(_predepositLocker);
+
+        // GET FILL AMOUNT
+
+        // STATICCALL
+        uint8 f = uint8(0x02);
+
+        // Input list: No arguments (END_OF_ARGS = 0xff)
+        bytes6 inputData = hex"ffffffffffff";
+
+        // Output specifier (fixed length return value stored at index 0 of the output array)
+        // 0xff ignores the output if any
+        uint8 o = 0x01;
+
+        // Encode args and add command to RecipeMarketHubBase.Recipe
+        commands[0] = (bytes32(abi.encodePacked(WeirollWalletHelper.amount.selector, f, inputData, o, _helper)));
+
+        // APPROVE Predeposit Locker to spend tokens
+
+        // CALL
+        f = uint8(0x01);
+
+        // Input list: Args at state index 0 (address) and args at state index 1 (fill amount)
+        inputData = hex"0001ffffffff";
+
+        // Output specifier (fixed length return value stored at index 0 of the output array)
+        // 0xff ignores the output if any
+        o = 0xff;
+
+        // Encode args and add command to RecipeMarketHubBase.Recipe
+        commands[1] = (bytes32(abi.encodePacked(ERC20.approve.selector, f, inputData, o, _tokenAddress)));
+
+        // CALL DEPOSIT() in Predeposit Locker
+        f = uint8(0x01);
+
+        // Input list: No arguments (END_OF_ARGS = 0xff)
+        inputData = hex"ffffffffffff";
+
+        // Output specifier (fixed length return value stored at index 0 of the output array)
+        // 0xff ignores the output if any
+        o = uint8(0xff);
+
+        // Encode args and add command to RecipeMarketHubBase.Recipe
+        commands[2] = (bytes32(abi.encodePacked(_depositSelector, f, inputData, o, _predepositLocker)));
+
+        return RecipeMarketHubBase.Recipe(commands, state);
+    }
+
+    function _buildWithdrawalRecipe(bytes4 _withdrawalSelector, address _predepositLocker) internal pure returns (RecipeMarketHubBase.Recipe memory) {
+        bytes32[] memory commands = new bytes32[](1);
+        bytes[] memory state = new bytes[](0);
+
+        // Flags:
+        // DELEGATECALL (calltype = 0x00)
+        // CALL (calltype = 0x01)
+        // STATICCALL (calltype = 0x02)
+        // CALL with value (calltype = 0x03)
+        uint8 f = uint8(0x01);
+
+        // Input list: No arguments (END_OF_ARGS = 0xff)
+        bytes6 inputData = hex"ffffffffffff";
+
+        // Output specifier (fixed length return value stored at index 0 of the output array)
+        // 0xff ignores the output if any
+        uint8 o = uint8(0xff);
+
+        // Encode args and add command to RecipeMarketHubBase.Recipe
+        commands[0] = (bytes32(abi.encodePacked(_withdrawalSelector, f, inputData, o, _predepositLocker)));
+
+        return RecipeMarketHubBase.Recipe(commands, state);
     }
 }
