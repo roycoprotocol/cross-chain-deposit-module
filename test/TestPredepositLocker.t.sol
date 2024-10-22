@@ -10,11 +10,10 @@ import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
 
 // Test depositing and withdrawing to/from the PredepositLocker through a Royco Market
 // This will simulate the expected behaviour on the source chain of a Predeposit Campaign
-contract TestDepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase {
+contract Test_DepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase {
     using FixedPointMathLib for uint256;
 
     address IP_ADDRESS;
-    address AP_ADDRESS;
     address FRONTEND_FEE_RECIPIENT;
 
     ERC20[] public predepositTokens;
@@ -34,7 +33,6 @@ contract TestDepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase 
         setUpRecipeMarketHubTests(protocolFee, minimumFrontendFee);
 
         IP_ADDRESS = ALICE_ADDRESS;
-        AP_ADDRESS = BOB_ADDRESS;
         FRONTEND_FEE_RECIPIENT = CHARLIE_ADDRESS;
 
         predepositLocker = new PredepositLocker(OWNER_ADDRESS, 0, address(0), predepositTokens, stargates, recipeMarketHub);
@@ -56,19 +54,20 @@ contract TestDepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase 
         // Create a fillable IP offer for points
         (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
 
-        // Mint liquidity tokens to the AP to fill the offer
-        mockLiquidityToken.mint(AP_ADDRESS, offerAmount);
-        vm.startPrank(AP_ADDRESS);
-        mockLiquidityToken.approve(address(recipeMarketHub), offerAmount);
-        vm.stopPrank();
-
         uint256 filledSoFar;
 
         for (uint256 i = 0; i < numDepositors; i++) {
+            (address ap,) = makeAddrAndKey(string(abi.encode(i)));
+
             uint256 fillAmount = offerAmount / numDepositors;
             if (i == (numDepositors - 1)) {
                 fillAmount = type(uint256).max;
             }
+            // Mint liquidity tokens to the AP to fill the offer
+            mockLiquidityToken.mint(ap, offerAmount);
+
+            vm.startPrank(ap);
+            mockLiquidityToken.approve(address(recipeMarketHub), offerAmount);
 
             vm.expectEmit(false, true, false, false, address(mockLiquidityToken));
             emit ERC20.Transfer(address(0), address(predepositLocker), fillAmount);
@@ -79,7 +78,6 @@ contract TestDepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase 
             // Record the logs to capture Transfer events to get Weiroll wallet address
             vm.recordLogs();
             // AP Fills the offer (no funding vault)
-            vm.startPrank(AP_ADDRESS);
             recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
 
@@ -110,19 +108,22 @@ contract TestDepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase 
         // Create a fillable IP offer for points
         (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
 
-        // Mint liquidity tokens to the AP to fill the offer
-        mockLiquidityToken.mint(AP_ADDRESS, offerAmount);
-        vm.startPrank(AP_ADDRESS);
-        mockLiquidityToken.approve(address(recipeMarketHub), offerAmount);
-        vm.stopPrank();
-
+        address[] memory aps = new address[](numDepositors);
         address[] memory depositorWallets = new address[](numDepositors);
 
         for (uint256 i = 0; i < numDepositors; i++) {
+            (address ap,) = makeAddrAndKey(string(abi.encode(i)));
+            aps[i] = ap;
+
             uint256 fillAmount = offerAmount / numDepositors;
             if (i == (numDepositors - 1)) {
                 fillAmount = type(uint256).max;
             }
+
+            // Mint liquidity tokens to the AP to fill the offer
+            mockLiquidityToken.mint(ap, offerAmount);
+            vm.startPrank(ap);
+            mockLiquidityToken.approve(address(recipeMarketHub), offerAmount);
 
             vm.expectEmit(false, true, false, false, address(mockLiquidityToken));
             emit ERC20.Transfer(address(0), address(predepositLocker), fillAmount);
@@ -133,7 +134,6 @@ contract TestDepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase 
             // Record the logs to capture Transfer events to get Weiroll wallet address
             vm.recordLogs();
             // AP Fills the offer (no funding vault)
-            vm.startPrank(AP_ADDRESS);
             recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
 
@@ -153,7 +153,7 @@ contract TestDepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase 
                 fillAmount = offerAmount - (fillAmount * (numDepositors - 1));
             }
 
-            vm.startPrank(AP_ADDRESS);
+            vm.startPrank(aps[i]);
 
             vm.expectEmit(true, true, false, true, address(mockLiquidityToken));
             emit ERC20.Transfer(address(predepositLocker), depositorWallets[i], fillAmount);

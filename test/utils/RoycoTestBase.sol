@@ -10,6 +10,19 @@ import "lib/forge-std/src/Vm.sol";
 
 contract RoycoTestBase is Test {
     // -----------------------------------------
+    // Constants
+    // -----------------------------------------
+
+    address USDC_MAINNET_ADDRESS = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+    address USDT_MAINNET_ADDRESS = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
+
+    address USDC_POLYGON_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
+    address USDT_POLYGON_ADDRESS = 0xc2132D05D31c914a87C6611C10748AEb04B58e8F;
+
+    address STARGATE_USDC_POOL_MAINNET_ADDRESS = 0xc026395860Db2d07ee33e05fE50ed7bD583189C7;
+    address STARGATE_USDT_POOL_POLYGON_ADDRESS = 0x933597a323Eb81cAe705C5bC29985172fd5A3973;
+
+    // -----------------------------------------
     // Test Wallets
     // -----------------------------------------
     Vm.Wallet internal OWNER;
