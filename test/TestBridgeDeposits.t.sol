@@ -23,7 +23,7 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
     }
 
     function test_BridgeDeposits(uint256 offerAmount, uint256 numDepositors) external {
-        numDepositors = bound(numDepositors, 1, 20);
+        numDepositors = bound(numDepositors, 1, 309);
         offerAmount = bound(offerAmount, 1e6, type(uint48).max);
 
         vm.selectFork(mainnetFork);

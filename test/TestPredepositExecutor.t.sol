@@ -33,7 +33,7 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
     }
 
     function test_ExecutorOnBridge(uint256 offerAmount, uint256 numDepositors, uint256 unlockTimestamp) external {
-        numDepositors = bound(numDepositors, 1, 20);
+        numDepositors = bound(numDepositors, 1, 309);
         offerAmount = bound(offerAmount, 1e6, type(uint48).max);
         unlockTimestamp = bound(unlockTimestamp, block.timestamp, type(uint128).max);
 

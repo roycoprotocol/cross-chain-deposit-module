@@ -46,7 +46,7 @@ contract Test_DepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase
     }
 
     function test_Deposits(uint256 offerAmount, uint256 numDepositors) external {
-        numDepositors = bound(numDepositors, 1, 20);
+        numDepositors = bound(numDepositors, 1, 309);
         offerAmount = bound(offerAmount, 1e18, type(uint96).max);
 
         assertEq(mockLiquidityToken.balanceOf(address(predepositLocker)), 0);
@@ -99,7 +99,7 @@ contract Test_DepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase
     }
 
     function test_Withdrawals(uint256 offerAmount, uint256 numDepositors, uint256 numWithdrawals) external {
-        numDepositors = bound(numDepositors, 1, 20);
+        numDepositors = bound(numDepositors, 1, 309);
         numWithdrawals = bound(numWithdrawals, 1, numDepositors);
         offerAmount = bound(offerAmount, 1e18, type(uint96).max);
 
