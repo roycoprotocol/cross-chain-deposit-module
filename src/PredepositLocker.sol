@@ -235,7 +235,7 @@ contract PredepositLocker is Ownable2Step {
             delete marketHashToDepositorToAmountDeposited[_marketHash][_depositorWeirollWallets[i]];
 
             // Encode depositor's payload
-            bytes memory apPayload = abi.encodePacked(wallet.owner(), depositAmount);
+            bytes32 apPayload = bytes32(abi.encodePacked(wallet.owner(), depositAmount));
             // Concatenate depositor's payload with compose message
             composeMsg = abi.encodePacked(composeMsg, apPayload);
         }

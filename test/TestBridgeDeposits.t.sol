@@ -60,11 +60,11 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
 
         address payable[] memory depositorWallets = new address payable[](numDepositors);
         for (uint256 i = 0; i < numDepositors; i++) {
-            (address ap, ) = makeAddrAndKey(string(abi.encode(i)));
+            (address ap,) = makeAddrAndKey(string(abi.encode(i)));
 
             // Fund the AP
             deal(USDC_MAINNET_ADDRESS, ap, offerAmount);
-                
+
             vm.startPrank(ap);
 
             // Approve the market hub to spend the tokens

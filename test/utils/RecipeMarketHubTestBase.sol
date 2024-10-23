@@ -9,7 +9,6 @@ import { MockERC4626 } from "@royco/test/mocks/MockERC4626.sol";
 import { RoycoTestBase } from "./RoycoTestBase.sol";
 import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
 
-
 contract RecipeMarketHubTestBase is RoycoTestBase {
     using FixedPointMathLib for uint256;
 
@@ -299,7 +298,7 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         // Input list: No arguments (END_OF_ARGS = 0xff)
         bytes6 inputData = hex"ffffffffffff";
 
-        // Output specifier (fixed length return value stored at index 0 of the output array)
+        // Output specifier (fixed length return value stored at index 1 of the output array)
         // 0xff ignores the output if any
         uint8 o = 0x01;
 
@@ -357,6 +356,46 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
 
         // Encode args and add command to RecipeMarketHubBase.Recipe
         commands[0] = (bytes32(abi.encodePacked(_withdrawalSelector, f, inputData, o, _predepositLocker)));
+
+        return RecipeMarketHubBase.Recipe(commands, state);
+    }
+
+    // Burn tokens that were deposited
+    function _buildBurnDepositRecipe(address _helper, address _tokenAddress) internal pure returns (RecipeMarketHubBase.Recipe memory) {
+        bytes32[] memory commands = new bytes32[](2);
+        bytes[] memory state = new bytes[](2);
+
+        state[0] = abi.encode(address(0xbeef));
+
+        // GET FILL AMOUNT
+
+        // STATICCALL
+        uint8 f = uint8(0x02);
+
+        // Input list: No arguments (END_OF_ARGS = 0xff)
+        bytes6 inputData = hex"ffffffffffff";
+
+        // Output specifier (fixed length return value stored at index 1 of the output array)
+        // 0xff ignores the output if any
+        uint8 o = 0x01;
+
+        // Encode args and add command to RecipeMarketHubBase.Recipe
+        commands[0] = (bytes32(abi.encodePacked(WeirollWalletHelper.amount.selector, f, inputData, o, _helper)));
+
+        // Send tokens to burn address
+
+        // CALL
+        f = uint8(0x01);
+
+        // Input list: Args at state index 0 (fill amount) and args at state index 1 (0 address)
+        inputData = hex"0001ffffffff";
+
+        // Output specifier (fixed length return value stored at index 0 of the output array)
+        // 0xff ignores the output if any
+        o = 0xff;
+
+        // Encode args and add command to RecipeMarketHubBase.Recipe
+        commands[1] = (bytes32(abi.encodePacked(ERC20.transfer.selector, f, inputData, o, _tokenAddress)));
 
         return RecipeMarketHubBase.Recipe(commands, state);
     }
