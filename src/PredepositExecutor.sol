@@ -66,8 +66,8 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @param weirollWallet The address of the weiroll wallet that executed the withdrawal recipe.
     event WeirollWalletExecutedWithdrawal(address indexed weirollWallet);
 
-    /// @notice Emitted when bridged deposits are put in fresh weiroll wallets and executed.
-    event BridgedDepositsExecuted(bytes32 indexed guid, bytes32 indexed sourceMarketHash);
+    /// @notice Emitted when bridged deposits are put in fresh weiroll wallets.
+    event BridgedDepositsExecuted(bytes32 indexed guid, bytes32 indexed sourceMarketHash, address[] weirollWalletsCreated);
 
     /// @notice Error emitted when the caller is not the owner of the campaign.
     error OnlyOwnerOfPredepositCampaign();
@@ -80,6 +80,9 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
 
     /// @notice Error emitted when trying to interact with a locked wallet.
     error WalletLocked();
+
+    /// @notice Error emitted when trying to execute deposit recipe more than once.
+    error DepositRecipeAlreadyExecuted();
 
     /// @notice Error emitted when the caller of the lzCompose function isn't the valid endpoint address.
     error NotFromValidEndpoint();
@@ -103,6 +106,12 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @dev Modifier to check if the Weiroll wallet is unlocked.
     modifier weirollIsUnlocked(address _weirollWallet) {
         require(WeirollWallet(payable(_weirollWallet)).lockedUntil() <= block.timestamp, WalletLocked());
+        _;
+    }
+
+    /// @dev Modifier to check if the Weiroll wallet is unlocked.
+    modifier depositRecipeNotExecuted(address _weirollWallet) {
+        require(!WeirollWallet(payable(_weirollWallet)).executed(), DepositRecipeAlreadyExecuted());
         _;
     }
 
@@ -245,6 +254,12 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         // Calculate the offset to start reading depositor data
         uint256 offset = 32; // Start at the byte after the sourceMarketHash
 
+        // Num depositors bridged = ((bytes of composeMsg - 32 byte sourceMarketHash) / 32 bytes per depositor)
+        uint256 numDepositorsBridged = (composeMessage.length - 32) / 32;
+        // Keep track of weiroll wallets created for event emission (to be used in deposit recipe execution phase)
+        address[] memory weirollWalletsCreated = new address[](numDepositorsBridged);
+        uint256 currIndex;
+
         // Loop through the compose message and process each depositor
         while (offset + 32 <= composeMessage.length) {
             // Extract AP address (20 bytes)
@@ -256,22 +271,45 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
             offset += 12;
 
             // Deploy or retrieve the Weiroll wallet for the depositor
-            address payable weirollWallet = _deployWeirollWallet(sourceMarketHash, apAddress, depositAmount, unlockTimestampForPredepositCampaign);
+            address weirollWallet = _deployWeirollWallet(sourceMarketHash, apAddress, depositAmount, unlockTimestampForPredepositCampaign);
 
             // Transfer the deposited tokens to the Weiroll wallet
             campaignInputToken.safeTransfer(weirollWallet, depositAmount);
 
-            // Execute the deposit recipe on the Weiroll wallet
-            _executeDepositRecipe(weirollWallet, sourceMarketHash);
+            // Push fresh weiroll wallet to creation array
+            weirollWalletsCreated[currIndex++] = weirollWallet;
         }
 
-        emit BridgedDepositsExecuted(_guid, sourceMarketHash);
+        emit BridgedDepositsExecuted(_guid, sourceMarketHash, weirollWalletsCreated);
+    }
+
+    /// @notice Executes the deposit scripts for the specified Weiroll wallets.
+    /// @param _sourceMarketHash The source market hash of the Weiroll wallets' market.
+    /// @param _weirollWallets The addresses of the Weiroll wallets.
+    function executeDepositRecipes(
+        bytes32 _sourceMarketHash,
+        address[] calldata _weirollWallets
+    )
+        external
+        onlyOwnerOfPredepositCampaign(_sourceMarketHash)
+    {
+        for (uint256 i = 0; i < _weirollWallets.length; ++i) {
+            if (WeirollWallet(payable(_weirollWallets[i])).marketHash() == _sourceMarketHash) {
+                _executeDepositRecipe(_sourceMarketHash, _weirollWallets[i]);
+            }
+        }
+    }
+
+    /// @notice Executes the deposit script in the Weiroll wallet.
+    /// @param _weirollWallet The address of the Weiroll wallet.
+    function executeDepositRecipe(address _weirollWallet) external isWeirollOwner(_weirollWallet) {
+        _executeDepositRecipe(WeirollWallet(payable(_weirollWallet)).marketHash(), _weirollWallet);
     }
 
     /// @notice Executes the withdrawal script in the Weiroll wallet.
     /// @param _weirollWallet The address of the Weiroll wallet.
-    function executeWithdrawalScript(address payable _weirollWallet) external isWeirollOwner(_weirollWallet) weirollIsUnlocked(_weirollWallet) {
-        _executeWithdrawalScript(_weirollWallet);
+    function executeWithdrawalRecipe(address _weirollWallet) external isWeirollOwner(_weirollWallet) weirollIsUnlocked(_weirollWallet) {
+        _executeWithdrawalRecipe(_weirollWallet);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -298,22 +336,22 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         weirollWallet = payable(WEIROLL_WALLET_IMPLEMENTATION.clone(weirollParams));
     }
 
-    /// @dev Executes the deposit recipe on the Weiroll wallet.
+    /// @dev Internal function to execute the deposit script.
     /// @param _weirollWallet The address of the Weiroll wallet.
     /// @param _sourceMarketHash The source market's hash.
-    function _executeDepositRecipe(address payable _weirollWallet, bytes32 _sourceMarketHash) internal {
+    function _executeDepositRecipe(bytes32 _sourceMarketHash, address _weirollWallet) internal depositRecipeNotExecuted(_weirollWallet) {
         // Get the campaign's deposit recipe
         Recipe storage depositRecipe = sourceMarketHashToPredepositCampaign[_sourceMarketHash].depositRecipe;
 
         // Execute the deposit recipe on the Weiroll wallet
-        WeirollWallet(_weirollWallet).executeWeiroll(depositRecipe.weirollCommands, depositRecipe.weirollState);
+        WeirollWallet(payable(_weirollWallet)).executeWeiroll(depositRecipe.weirollCommands, depositRecipe.weirollState);
     }
 
     /// @dev Internal function to execute the withdrawal script.
     /// @param _weirollWallet The address of the Weiroll wallet.
-    function _executeWithdrawalScript(address payable _weirollWallet) internal {
+    function _executeWithdrawalRecipe(address _weirollWallet) internal {
         // Instantiate the WeirollWallet from the wallet address
-        WeirollWallet wallet = WeirollWallet(_weirollWallet);
+        WeirollWallet wallet = WeirollWallet(payable(_weirollWallet));
 
         // Get the source market's hash associated with the Weiroll wallet
         bytes32 sourceMarketHash = wallet.marketHash();

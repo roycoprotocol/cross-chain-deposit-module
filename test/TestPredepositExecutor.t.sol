@@ -78,13 +78,6 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
             // Check that tokens being deposited into weiroll wallet
             vm.expectEmit(true, false, false, false, USDC_POLYGON_ADDRESS);
             emit ERC20.Transfer(address(predepositExecutor), address(0), depositAmounts[i]);
-
-            // Check that deposit recipe is called
-            vm.expectCall(USDC_POLYGON_ADDRESS, abi.encodeCall(ERC20.transfer, (address(0xbeef), depositAmounts[i])));
-
-            // Check that correct deposit recipe output state is reached
-            vm.expectEmit(false, true, false, false, USDC_POLYGON_ADDRESS);
-            emit ERC20.Transfer(address(0), address(0xbeef), depositAmounts[i]);
         }
 
         vm.recordLogs();
@@ -101,7 +94,7 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
         // Check that all weiroll wallets were created and executed as expected
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i = 0; i < numDepositors; i++) {
-            WeirollWallet weirollWalletForDepositor = WeirollWallet(payable(address(uint160(uint256(logs[i * 2].topics[2])))));
+            WeirollWallet weirollWalletForDepositor = WeirollWallet(payable(address(uint160(uint256(logs[i].topics[2])))));
 
             // Check wallet state is correct
             assertEq(weirollWalletForDepositor.owner(), depositors[i]);
@@ -110,11 +103,38 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
             assertEq(weirollWalletForDepositor.lockedUntil(), unlockTimestamp);
             assertEq(weirollWalletForDepositor.isForfeitable(), false);
             assertEq(weirollWalletForDepositor.marketHash(), sourceMarketHash);
-            assertEq(weirollWalletForDepositor.executed(), true);
+            assertEq(weirollWalletForDepositor.executed(), false);
             assertEq(weirollWalletForDepositor.forfeited(), false);
-            // Check that deposit was burned as specified by deposit recipe
+            // // Check that deposit amount was sent to the wallet
+            assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(weirollWalletForDepositor)), depositAmounts[i]);
+        }
+
+        address[] memory weirollWallets = abi.decode(logs[logs.length - 1].data, (address[]));
+        assertEq(weirollWallets.length, numDepositors);
+
+        for (uint256 i = 0; i < numDepositors; i++) {
+            // Check that deposit recipe is called
+            vm.expectCall(USDC_POLYGON_ADDRESS, abi.encodeCall(ERC20.transfer, (address(0xbeef), depositAmounts[i])));
+
+            // Check that correct deposit recipe output state is reached
+            vm.expectEmit(true, true, false, true, USDC_POLYGON_ADDRESS);
+            emit ERC20.Transfer(weirollWallets[i], address(0xbeef), depositAmounts[i]);
+        }
+
+        vm.startPrank(IP_ADDRESS);
+        predepositExecutor.executeDepositRecipes(sourceMarketHash, weirollWallets);
+        vm.stopPrank();
+
+        for (uint256 i = 0; i < numDepositors; i++) {
+            WeirollWallet weirollWalletForDepositor = WeirollWallet(payable(weirollWallets[i]));
+
+            // Check wallet state is correct
+            assertEq(weirollWalletForDepositor.executed(), true);
+            // // Check that deposit execution was done as specified by the deposit recipe
             assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(weirollWalletForDepositor)), 0);
         }
+        // Check that 0xbeef received all funds on destionation
+        assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(0xbeef)), offerAmount);
     }
 
     function _bridgeDeposits(
