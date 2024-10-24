@@ -12,3 +12,6 @@ docs/
 
 # Dotenv file
 .env
+
+# Flattened contracts
+*.flattened.sol

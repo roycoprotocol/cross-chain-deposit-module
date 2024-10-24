@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Script.sol";
 
 // Import the PredepositExecutor contract and its dependencies
-import { PredepositExecutor, ERC20 } from "src/PredepositExecutor.sol";
+import "src/PredepositExecutor.flattened.sol";
 
 contract PredepositExecutorDeployScript is Script {
     // State variables for external contract addresses and arrays

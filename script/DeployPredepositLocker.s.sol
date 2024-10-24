@@ -4,8 +4,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Script.sol";
 
 // Import the PredepositLocker contract and its dependencies
-import { PredepositLocker, RecipeMarketHubBase, ERC20 } from "src/PredepositLocker.sol";
-import { IStargate } from "src/interfaces/IStargate.sol";
+import "src/PredepositLocker.flattened.sol";
 
 contract PredepositLockerDeployScript is Script {
     // State variables for external contract addresses and arrays
@@ -26,7 +25,7 @@ contract PredepositLockerDeployScript is Script {
         chainDstEid = uint32(40_231); // LZv2 destination endpoint for ARB Sepolia
 
         // Set the address of the PredepositExecutor on ARB Sepolia
-        predepositExecutor = address(0x71dF7FCF87458103081dB793943f58D339C693D3);
+        predepositExecutor = address(0xD6414b9Edb3d2C8345dDd37aB244eC4557a90394);
 
         // Initialize the arrays directly in the script
         // Example addresses for ERC20 tokens
