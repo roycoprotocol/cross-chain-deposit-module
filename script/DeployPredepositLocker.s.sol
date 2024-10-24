@@ -23,20 +23,20 @@ contract PredepositLockerDeployScript is Script {
         owner = vm.envOr("OWNER", address(0)); // If not set, will default to deployer in run()
 
         // Set the destination endpoint ID for the destination chain
-        chainDstEid = uint32(40_232); // Destination endpoint for OP Sepolia
+        chainDstEid = uint32(40_231); // LZv2 destination endpoint for ARB Sepolia
 
-        // Set the address of the PredepositExecutor on OP Sepolia
-        predepositExecutor = address(0xA03749F03c4cB7Bb8C2aa5f735BbdC776EF93014);
+        // Set the address of the PredepositExecutor on ARB Sepolia
+        predepositExecutor = address(0x71dF7FCF87458103081dB793943f58D339C693D3);
 
         // Initialize the arrays directly in the script
         // Example addresses for ERC20 tokens
-        predepositTokens.push(ERC20(address(0x2F6F07CDcf3588944Bf4C42aC74ff24bF56e7590))); // USDC on ETH Sepolia
+        predepositTokens.push(ERC20(address(0x488327236B65C61A6c083e8d811a4E0D3d1D4268))); // USDC on OP Sepolia
 
         // Corresponding Stargate instances for each token
-        stargates.push(IStargate(address(0xa4e97dFd56E0E30A2542d666Ef04ACC102310083))); // StargatePoolUSDC on ETH Sepolia
+        stargates.push(IStargate(address(0x1E8A86EcC9dc41106d3834c6F1033D86939B1e0D))); // StargatePoolUSDC on OP Sepolia
 
         // Set the RecipeMarketHubBase contract address
-        recipeMarketHub = RecipeMarketHubBase(address(0xb2215b4765515ad9d5Aa46B0D6EC3D8C91F45f2e)); // RecipeMarketHub on ETH Sepolia
+        recipeMarketHub = RecipeMarketHubBase(address(0x828223B512BF1892229FeC61C5c1376BDED3a285)); // RecipeMarketHub on OP Sepolia
     }
 
     function run() public {

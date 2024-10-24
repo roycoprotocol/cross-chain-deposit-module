@@ -9,7 +9,6 @@ import { IStargate } from "src/interfaces/IStargate.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
 import { Vm } from "lib/forge-std/src/Vm.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
-import { ClonesWithImmutableArgs } from "@clones-with-immutable-args/ClonesWithImmutableArgs.sol";
 
 // Test deploying deposits via weiroll recipes post bridge
 contract Test_PredepositExecutor is RecipeMarketHubTestBase {

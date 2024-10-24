@@ -1,6 +1,6 @@
 # Chain Predeposit Module
 
-The Chain Predeposit Module (CPM) is a sophisticated system designed to facilitate cross-chain deposits and executions for decentralized applications. It consists of two main components: the PredepositLocker on the source chain and the PredepositExecutor on the destination chain.
+The Chain Predeposit Module (CPM) is a sophisticated system designed to facilitate cross-chain deposits and executions for decentralized applications. It consists of two main components: the ```PredepositLocker``` on the source chain and the ```PredepositExecutor``` on the destination chain.
 
 ## Overview
 
