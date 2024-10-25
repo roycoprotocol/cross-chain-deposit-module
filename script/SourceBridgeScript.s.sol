@@ -8,10 +8,11 @@ import { RecipeMarketHub, RewardStyle } from "@royco/src/RecipeMarketHub.sol";
 import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
 import "src/PredepositLocker.sol";
 
-contract PredepositExecutorDeployScript is Script {
-    address constant weirollHelper = 0xf8E66EaC95D27DD30A756ee1A2D2D96D392b61CB;
-    address constant predepositLocker = 0x844F6B31f7D1240134B3d63ffC2b6f1c7F2612b6;
-    address constant usdc_address = 0x3253a335E7bFfB4790Aa4C25C4250d206E9b9773;  // Stargate USDC on OP Sepolia
+contract SourceBridgeScript is Script {
+    address constant weirollHelperAddress = 0xf8E66EaC95D27DD30A756ee1A2D2D96D392b61CB;
+    address payable constant predepositLockerAddress = payable(0x844F6B31f7D1240134B3d63ffC2b6f1c7F2612b6);
+    address constant usdc_address = 0x488327236B65C61A6c083e8d811a4E0D3d1D4268; // Stargate USDC on OP Sepolia
+    uint256 constant numDepositors = 10;
 
     RecipeMarketHub recipeMarketHub;
 
@@ -28,11 +29,43 @@ contract PredepositExecutorDeployScript is Script {
         // Start broadcasting transactions
         vm.startBroadcast(deployerPrivateKey);
 
-        RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
-            _buildDepositRecipe(PredepositLocker.deposit.selector, weirollHelper, usdc_address, predepositLocker);
-        RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(PredepositLocker.withdraw.selector, predepositLocker);
+        // Create Market
 
-        recipeMarketHub.createMarket(usdc_address, 8 weeks, 0.001e18, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
+        RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
+            _buildDepositRecipe(PredepositLocker.deposit.selector, weirollHelperAddress, usdc_address, predepositLockerAddress);
+        RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(PredepositLocker.withdraw.selector, predepositLockerAddress);
+
+        bytes32 marketHash = recipeMarketHub.createMarket(usdc_address, 8 weeks, 0.001e18, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
+
+        // Approve the
+        ERC20(usdc_address).approve(address(recipeMarketHub), type(uint256).max);
+
+        address[] memory incentivesOffered = new address[](1);
+        incentivesOffered[0] = usdc_address;
+        uint256[] memory incentiveAmountsPaid = new uint256[](1);
+        incentiveAmountsPaid[0] = 100e6;
+        bytes32 offerHash = recipeMarketHub.createIPOffer(marketHash, 10_000e6, block.timestamp + 2 weeks, incentivesOffered, incentiveAmountsPaid);
+
+        bytes32[] memory ipOfferHashes = new bytes32[](1);
+        ipOfferHashes[0] = offerHash;
+        uint256[] memory fillAmounts = new uint256[](1);
+        fillAmounts[0] = 1000e6;
+
+        address payable[] memory depositorWallets = new address payable[](numDepositors);
+        for (uint256 i; i < numDepositors; ++i) {
+            vm.recordLogs();
+            recipeMarketHub.fillIPOffers(ipOfferHashes, fillAmounts, address(0), deployer);
+            address payable weirollWallet = payable(address(uint160(uint256(vm.getRecordedLogs()[0].topics[2]))));
+            depositorWallets[i] = weirollWallet;
+        }
+
+        PredepositLocker predepositLocker = PredepositLocker(predepositLockerAddress);
+
+        predepositLocker.setMulitsig(marketHash, deployer);
+
+        predepositLocker.setGreenLight(marketHash, true);
+
+        predepositLocker.bridge{ value: 1 ether }(marketHash, 4_000_000, depositorWallets);
 
         // Stop broadcasting transactions
         vm.stopBroadcast();
@@ -43,7 +76,7 @@ contract PredepositExecutorDeployScript is Script {
         bytes4 _depositSelector,
         address _helper,
         address _tokenAddress,
-        address _predepositLocker
+        address _predepositLockerAddress
     )
         internal
         pure
@@ -52,7 +85,7 @@ contract PredepositExecutorDeployScript is Script {
         bytes32[] memory commands = new bytes32[](3);
         bytes[] memory state = new bytes[](2);
 
-        state[0] = abi.encode(_predepositLocker);
+        state[0] = abi.encode(_predepositLockerAddress);
 
         // GET FILL AMOUNT
 
@@ -95,12 +128,12 @@ contract PredepositExecutorDeployScript is Script {
         o = uint8(0xff);
 
         // Encode args and add command to RecipeMarketHubBase.Recipe
-        commands[2] = (bytes32(abi.encodePacked(_depositSelector, f, inputData, o, _predepositLocker)));
+        commands[2] = (bytes32(abi.encodePacked(_depositSelector, f, inputData, o, _predepositLockerAddress)));
 
         return RecipeMarketHubBase.Recipe(commands, state);
     }
 
-    function _buildWithdrawalRecipe(bytes4 _withdrawalSelector, address _predepositLocker) internal pure returns (RecipeMarketHubBase.Recipe memory) {
+    function _buildWithdrawalRecipe(bytes4 _withdrawalSelector, address _predepositLockerAddress) internal pure returns (RecipeMarketHubBase.Recipe memory) {
         bytes32[] memory commands = new bytes32[](1);
         bytes[] memory state = new bytes[](0);
 
@@ -119,7 +152,7 @@ contract PredepositExecutorDeployScript is Script {
         uint8 o = uint8(0xff);
 
         // Encode args and add command to RecipeMarketHubBase.Recipe
-        commands[0] = (bytes32(abi.encodePacked(_withdrawalSelector, f, inputData, o, _predepositLocker)));
+        commands[0] = (bytes32(abi.encodePacked(_withdrawalSelector, f, inputData, o, _predepositLockerAddress)));
 
         return RecipeMarketHubBase.Recipe(commands, state);
     }
