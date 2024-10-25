@@ -66,8 +66,20 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @param weirollWallet The address of the weiroll wallet that executed the withdrawal recipe.
     event WeirollWalletExecutedWithdrawal(address indexed weirollWallet);
 
-    /// @notice Emitted when bridged deposits are put in fresh weiroll wallets.
-    event BridgedDepositsExecuted(bytes32 indexed guid, bytes32 indexed sourceMarketHash, address[] weirollWalletsCreated);
+    /// @notice Emitted when a Weiroll wallet executes a deposit.
+    /// @param weirollWallet The address of the weiroll wallet that executed the deposit recipe.
+    event WeirollWalletExecutedDeposit(address indexed weirollWallet);
+
+    /// @notice Emitted on batch execute of Weiroll Wallet deposits.
+    /// @param sourceMarketHash The source market hash of the Weiroll Wallets.
+    /// @param weirollWallets The addresses of the weiroll wallets that executed the market's deposit recipe.
+    event WeirollWalletsExecutedDeposits(bytes32 indexed sourceMarketHash, address[] weirollWallets);
+
+    /// @notice Emitted when bridged deposits are put in fresh Weiroll Wallets.
+    /// @param guid The global unique identifier of the bridge transaction.
+    /// @param sourceMarketHash The source market hash of the deposits received.
+    /// @param weirollWalletsCreated The addresses of the fresh Weiroll Wallets that were created on destination.
+    event FreshWeirollWalletsCreated(bytes32 indexed guid, bytes32 indexed sourceMarketHash, address[] weirollWalletsCreated);
 
     /// @notice Error emitted when the caller is not the owner of the campaign.
     error OnlyOwnerOfPredepositCampaign();
@@ -280,36 +292,33 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
             weirollWalletsCreated[currIndex++] = weirollWallet;
         }
 
-        emit BridgedDepositsExecuted(_guid, sourceMarketHash, weirollWalletsCreated);
+        emit FreshWeirollWalletsCreated(_guid, sourceMarketHash, weirollWalletsCreated);
     }
 
     /// @notice Executes the deposit scripts for the specified Weiroll wallets.
     /// @param _sourceMarketHash The source market hash of the Weiroll wallets' market.
     /// @param _weirollWallets The addresses of the Weiroll wallets.
-    function executeDepositRecipes(
-        bytes32 _sourceMarketHash,
-        address[] calldata _weirollWallets
-    )
-        external
-        onlyOwnerOfPredepositCampaign(_sourceMarketHash)
-    {
+    function executeDepositRecipes(bytes32 _sourceMarketHash, address[] calldata _weirollWallets) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             if (WeirollWallet(payable(_weirollWallets[i])).marketHash() == _sourceMarketHash) {
                 _executeDepositRecipe(_sourceMarketHash, _weirollWallets[i]);
             }
         }
+        emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
     }
 
     /// @notice Executes the deposit script in the Weiroll wallet.
     /// @param _weirollWallet The address of the Weiroll wallet.
     function executeDepositRecipe(address _weirollWallet) external isWeirollOwner(_weirollWallet) {
         _executeDepositRecipe(WeirollWallet(payable(_weirollWallet)).marketHash(), _weirollWallet);
+        emit WeirollWalletExecutedDeposit(_weirollWallet);
     }
 
     /// @notice Executes the withdrawal script in the Weiroll wallet.
     /// @param _weirollWallet The address of the Weiroll wallet.
     function executeWithdrawalRecipe(address _weirollWallet) external isWeirollOwner(_weirollWallet) weirollIsUnlocked(_weirollWallet) {
         _executeWithdrawalRecipe(_weirollWallet);
+        emit WeirollWalletExecutedWithdrawal(_weirollWallet);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -361,8 +370,6 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
 
         // Execute the withdrawal recipe
         wallet.executeWeiroll(campaign.withdrawalRecipe.weirollCommands, campaign.withdrawalRecipe.weirollState);
-
-        emit WeirollWalletExecutedWithdrawal(_weirollWallet);
     }
 
     /// @dev Reads an address from bytes at a specific offset.
