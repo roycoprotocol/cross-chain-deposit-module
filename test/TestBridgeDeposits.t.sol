@@ -97,7 +97,7 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         vm.expectEmit(true, true, true, true, USDC_MAINNET_ADDRESS);
-        emit ERC20.Transfer(address(predepositLocker), address(predepositLocker.tokenToStargate(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
+        emit ERC20.Transfer(address(predepositLocker), address(predepositLocker.tokenToStargatePool(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
 
         vm.expectEmit(false, false, true, false, address(predepositLocker));
         emit PredepositLocker.BridgedToDestinationChain(bytes32(0), 0, marketHash, offerAmount);

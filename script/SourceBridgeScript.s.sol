@@ -31,13 +31,14 @@ contract SourceBridgeScript is Script {
 
         // Create Market
 
-        RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
-            _buildDepositRecipe(PredepositLocker.deposit.selector, weirollHelperAddress, usdc_address, predepositLockerAddress);
-        RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(PredepositLocker.withdraw.selector, predepositLockerAddress);
+        // RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
+        //     _buildDepositRecipe(PredepositLocker.deposit.selector, weirollHelperAddress, usdc_address, predepositLockerAddress);
+        // RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(PredepositLocker.withdraw.selector, predepositLockerAddress);
+        // bytes32 marketHash = recipeMarketHub.createMarket(usdc_address, 8 weeks, 0.001e18, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
+        
+        bytes32 marketHash = bytes32(0xcd520b87754ed96438e199c82c143337c3024af70d0e26ea04f614377e687de8);
 
-        bytes32 marketHash = recipeMarketHub.createMarket(usdc_address, 8 weeks, 0.001e18, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
-
-        // Approve the
+        // Approve the market hub to spend usdc
         ERC20(usdc_address).approve(address(recipeMarketHub), type(uint256).max);
 
         address[] memory incentivesOffered = new address[](1);

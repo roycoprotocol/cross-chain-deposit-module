@@ -18,11 +18,11 @@ contract PredepositLocker is Ownable2Step {
                                    State
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice The destination endpoint ID for the destination chain.
-    uint32 public chainDstEid;
+    /// @notice The LayerZero endpoint ID for the destination chain.
+    uint32 public dstChainLzEid;
 
     /// @notice Mapping of ERC20 token to its corresponding Stargate bridge entrypoint.
-    mapping(ERC20 => IStargate) public tokenToStargate;
+    mapping(ERC20 => IStargate) public tokenToStargatePool;
 
     /// @notice The RecipeMarketHub keeping track of all markets and offers.
     RecipeMarketHubBase public recipeMarketHub;
@@ -52,6 +52,9 @@ contract PredepositLocker is Ownable2Step {
     /// @notice Emitted when funds are bridged to the destination chain.
     event BridgedToDestinationChain(bytes32 indexed guid, uint64 indexed nonce, bytes32 indexed marketHash, uint256 amountBridged);
 
+    /// @notice Error emitted when setting a stargate for a token that doesn't support the token
+    error InvalidStargateForToken();
+    
     /// @notice Error emitted when calling withdraw with nothing deposited
     error NothingToWithdraw();
 
@@ -92,43 +95,44 @@ contract PredepositLocker is Ownable2Step {
 
     /// @notice Constructor to initialize the contract.
     /// @param _owner The address of the owner of the contract.
-    /// @param _chainDstEid Destination endpoint ID for the destination chain.
+    /// @param _dstChainLzEid Destination LayerZero endpoint ID for the destination chain.
     /// @param _predepositExecutor Address of the the PredepositExecutor on the destination chain.
     /// @param _predepositTokens The tokens to bridge to the destination chain.
-    /// @param _stargates The corresponding Stargate instances for each bridgable token.
+    /// @param _stargatePools The corresponding Stargate instances for each bridgable token.
     /// @param _recipeMarketHub Address of the recipe kernel used to create the Royco markets.
     constructor(
         address _owner,
-        uint32 _chainDstEid,
+        uint32 _dstChainLzEid,
         address _predepositExecutor,
         ERC20[] memory _predepositTokens,
-        IStargate[] memory _stargates,
+        IStargate[] memory _stargatePools,
         RecipeMarketHubBase _recipeMarketHub
     )
         Ownable(_owner)
     {
-        require(_predepositTokens.length == _stargates.length, ArrayLengthMismatch());
+        require(_predepositTokens.length == _stargatePools.length, ArrayLengthMismatch());
 
         // Initialize the contract state
         for (uint256 i = 0; i < _predepositTokens.length; ++i) {
-            tokenToStargate[_predepositTokens[i]] = _stargates[i];
+            tokenToStargatePool[_predepositTokens[i]] = _stargatePools[i];
         }
-        chainDstEid = _chainDstEid;
+        dstChainLzEid = _dstChainLzEid;
         predepositExecutor = _predepositExecutor;
         recipeMarketHub = _recipeMarketHub;
     }
 
     /// @notice Sets the destination endpoint ID for the destination chain.
-    /// @param _chainDstEid Destination endpoint ID for the destination chain.
-    function setDestinationChainDstEid(uint32 _chainDstEid) external onlyOwner {
-        chainDstEid = _chainDstEid;
+    /// @param _dstChainLzEid Destination endpoint ID for the destination chain.
+    function setDestinationChainDstEid(uint32 _dstChainLzEid) external onlyOwner {
+        dstChainLzEid = _dstChainLzEid;
     }
 
     /// @notice Sets the Stargate instance for a given token.
     /// @param _token Token to set a Stargate instance for.
-    /// @param _stargate Stargate instance to set for the specified token.
-    function setStargate(ERC20 _token, IStargate _stargate) external onlyOwner {
-        tokenToStargate[_token] = _stargate;
+    /// @param _stargatePool Stargate instance to set for the specified token.
+    function setStargatePool(ERC20 _token, IStargate _stargatePool) external onlyOwner {
+        require(_stargatePool.token() == address(_token), InvalidStargateForToken());
+        tokenToStargatePool[_token] = _stargatePool;
     }
 
     /// @notice Sets the recipe kernel contract.
@@ -242,7 +246,7 @@ contract PredepositLocker is Ownable2Step {
 
         // Prepare SendParam for bridging
         SendParam memory sendParam = SendParam({
-            dstEid: chainDstEid,
+            dstEid: dstChainLzEid,
             to: _addressToBytes32(predepositExecutor),
             amountLD: totalAmountToBridge,
             minAmountLD: totalAmountToBridge,
@@ -253,7 +257,7 @@ contract PredepositLocker is Ownable2Step {
 
         // Get the market's input token and Stargate instance
         (, ERC20 marketInputToken,,,,,) = recipeMarketHub.marketHashToWeirollMarket(_marketHash);
-        IStargate stargate = tokenToStargate[marketInputToken];
+        IStargate stargate = tokenToStargatePool[marketInputToken];
 
         // Get fee quote for bridging
         MessagingFee memory messagingFee = stargate.quoteSend(sendParam, false);
@@ -278,9 +282,6 @@ contract PredepositLocker is Ownable2Step {
         // Emit event to keep track of bridged deposits
         emit BridgedToDestinationChain(msgReceipt.guid, msgReceipt.nonce, _marketHash, totalAmountToBridge);
     }
-
-    /// @notice Let the PredepositLocker receive ether directly if needed
-    receive() external payable { }
 
     /// @dev Converts an address to bytes32.
     /// @param _addr The address to convert.

@@ -32,7 +32,7 @@ contract PredepositLockerDeployScript is Script {
         predepositTokens.push(ERC20(address(0x488327236B65C61A6c083e8d811a4E0D3d1D4268))); // USDC on OP Sepolia
 
         // Corresponding Stargate instances for each token
-        stargates.push(IStargate(address(0x1E8A86EcC9dc41106d3834c6F1033D86939B1e0D))); // StargatePoolUSDC on OP Sepolia
+        stargates.push(IStargate(address(0x314B753272a3C79646b92A87dbFDEE643237033a))); // StargatePoolUSDC on OP Sepolia
 
         // Set the RecipeMarketHubBase contract address
         recipeMarketHub = RecipeMarketHubBase(address(0x828223B512BF1892229FeC61C5c1376BDED3a285)); // RecipeMarketHub on OP Sepolia

@@ -50,7 +50,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     address public lzEndpoint;
 
     /// @notice Mapping of ERC20 token to its corresponding Stargate bridge entrypoint.
-    mapping(ERC20 => address) public tokenToStargate;
+    mapping(ERC20 => address) public tokenToStargatePool;
 
     /// @dev Mapping from campaign hash to owner address.
     mapping(bytes32 => address) public sourceMarketHashToOwner;
@@ -100,7 +100,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     error NotFromValidEndpoint();
 
     /// @notice Error emitted when the _from in the lzCompose function isn't the correct Stargate address.
-    error NotFromStargate();
+    error NotFromStargatePool();
 
     /// @notice Error emitted when reading from bytes array is out of bounds.
     error EOF();
@@ -142,21 +142,21 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @param _weirollWalletImplementation The address of the Weiroll wallet implementation.
     /// @param _lzEndpoint The address of the LayerZero endpoint.
     /// @param _predepositTokens The tokens to bridge to Berachain.
-    /// @param _stargates The corresponding Stargate instances for each bridgable token.
+    /// @param _stargatePools The corresponding stargate pools instances for each bridgable token.
     constructor(
         address _owner,
         address _weirollWalletImplementation,
         address _lzEndpoint,
         ERC20[] memory _predepositTokens,
-        address[] memory _stargates
+        address[] memory _stargatePools
     )
         Ownable(_owner)
     {
-        require(_predepositTokens.length == _stargates.length, ArrayLengthMismatch());
+        require(_predepositTokens.length == _stargatePools.length, ArrayLengthMismatch());
 
         // Initialize the contract state
         for (uint256 i = 0; i < _predepositTokens.length; ++i) {
-            tokenToStargate[_predepositTokens[i]] = _stargates[i];
+            tokenToStargatePool[_predepositTokens[i]] = _stargatePools[i];
         }
 
         WEIROLL_WALLET_IMPLEMENTATION = _weirollWalletImplementation;
@@ -184,9 +184,9 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
 
     /// @notice Sets the Stargate instance for a given token.
     /// @param _token Token to set a Stargate instance for.
-    /// @param _stargate Stargate instance to set for the specified token.
-    function setStargate(ERC20 _token, address _stargate) external onlyOwner {
-        tokenToStargate[_token] = _stargate;
+    /// @param _stargatePool Stargate pool instance to set for the specified token.
+    function setStargatePool(ERC20 _token, address _stargatePool) external onlyOwner {
+        tokenToStargatePool[_token] = _stargatePool;
     }
 
     /// @notice Sets a new owner for the specified campaign.
@@ -259,7 +259,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         ERC20 campaignInputToken = sourceMarketHashToPredepositCampaign[sourceMarketHash].inputToken;
 
         // Ensure that the _from address is the expected Stargate contract
-        require(_from == tokenToStargate[campaignInputToken], NotFromStargate());
+        require(_from == tokenToStargatePool[campaignInputToken], NotFromStargatePool());
 
         uint256 unlockTimestampForPredepositCampaign = sourceMarketHashToPredepositCampaign[sourceMarketHash].unlockTimestamp;
 
@@ -377,7 +377,6 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @param offset The offset to start reading from.
     /// @return addr The address read from the bytes array.
     function _readAddress(bytes memory data, uint256 offset) internal pure returns (address addr) {
-        require(data.length >= offset + 20, EOF());
         assembly ("memory-safe") {
             addr := shr(96, mload(add(add(data, 32), offset)))
         }
@@ -388,7 +387,6 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @param offset The offset to start reading from.
     /// @return value The uint96 value read from the bytes array.
     function _readUint96(bytes memory data, uint256 offset) internal pure returns (uint96 value) {
-        require(data.length >= offset + 12, EOF());
         assembly ("memory-safe") {
             value := shr(160, mload(add(add(data, 32), offset)))
         }

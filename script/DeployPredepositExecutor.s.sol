@@ -31,7 +31,7 @@ contract PredepositExecutorDeployScript is Script {
         predepositTokens.push(ERC20(address(0x3253a335E7bFfB4790Aa4C25C4250d206E9b9773))); // USDC on ARB Sepolia
 
         // Corresponding Stargate instances for each token
-        stargates.push(address(0x0d7aB83370b492f2AB096c80111381674456e8d8)); // StargatePoolUSDC on ARB Sepolia
+        stargates.push(address(0x543BdA7c6cA4384FE90B1F5929bb851F52888983)); // StargatePoolUSDC on ARB Sepolia
     }
 
     function run() public {
