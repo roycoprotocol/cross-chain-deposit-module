@@ -233,49 +233,50 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
         // Make sure at least one AP was bridged (32 bytes for sourceMarketHash + 32 bytes for AP payload)
         require(composeMessage.length >= 64, EOF());
 
-        // Extract the source market's hash (first 32 bytes)
-        bytes32 sourceMarketHash;
-        assembly ("memory-safe") {
-            sourceMarketHash := mload(add(composeMessage, 32))
+        unchecked {
+            // Extract the source market's hash (first 32 bytes)
+            bytes32 sourceMarketHash;
+            assembly ("memory-safe") {
+                sourceMarketHash := mload(add(composeMessage, 32))
+            }
+
+            // Get the market's input token
+            ERC20 campaignInputToken = sourceMarketHashToPredepositCampaign[sourceMarketHash].inputToken;
+
+            // Ensure that the _from address is the expected Stargate contract
+            require(_from == tokenToStargatePool[campaignInputToken], NotFromStargatePool());
+
+            uint256 unlockTimestampForPredepositCampaign = sourceMarketHashToPredepositCampaign[sourceMarketHash].unlockTimestamp;
+
+            // Calculate the offset to start reading depositor data
+            uint256 offset = 32; // Start at the byte after the sourceMarketHash
+
+            // Num depositors bridged = ((bytes of composeMsg - 32 byte sourceMarketHash) / 32 bytes per depositor)
+            uint256 numDepositorsBridged = (composeMessage.length - 32) / 32;
+            // Keep track of weiroll wallets created for event emission (to be used in deposit recipe execution phase)
+            address[] memory weirollWalletsCreated = new address[](numDepositorsBridged);
+            uint256 currIndex = 0;
+
+            // Loop through the compose message and process each depositor
+            while (offset + 32 <= composeMessage.length) {
+                // Extract AP address (20 bytes)
+                address apAddress = _readAddress(composeMessage, offset);
+                offset += 20;
+
+                // Extract deposit amount (12 bytes)
+                uint96 depositAmount = _readUint96(composeMessage, offset);
+                offset += 12;
+
+                // Deploy or retrieve the Weiroll wallet for the depositor
+                address weirollWallet = _deployWeirollWallet(sourceMarketHash, apAddress, depositAmount, unlockTimestampForPredepositCampaign);
+
+                // Transfer the deposited tokens to the Weiroll wallet
+                campaignInputToken.safeTransfer(weirollWallet, depositAmount);
+
+                // Push fresh weiroll wallet to creation array
+                weirollWalletsCreated[currIndex++] = weirollWallet;
+            }
         }
-
-        // Get the market's input token
-        ERC20 campaignInputToken = sourceMarketHashToPredepositCampaign[sourceMarketHash].inputToken;
-
-        // Ensure that the _from address is the expected Stargate contract
-        require(_from == tokenToStargatePool[campaignInputToken], NotFromStargatePool());
-
-        uint256 unlockTimestampForPredepositCampaign = sourceMarketHashToPredepositCampaign[sourceMarketHash].unlockTimestamp;
-
-        // Calculate the offset to start reading depositor data
-        uint256 offset = 32; // Start at the byte after the sourceMarketHash
-
-        // Num depositors bridged = ((bytes of composeMsg - 32 byte sourceMarketHash) / 32 bytes per depositor)
-        uint256 numDepositorsBridged = (composeMessage.length - 32) / 32;
-        // Keep track of weiroll wallets created for event emission (to be used in deposit recipe execution phase)
-        address[] memory weirollWalletsCreated = new address[](numDepositorsBridged);
-        uint256 currIndex;
-
-        // Loop through the compose message and process each depositor
-        while (offset + 32 <= composeMessage.length) {
-            // Extract AP address (20 bytes)
-            address apAddress = _readAddress(composeMessage, offset);
-            offset += 20;
-
-            // Extract deposit amount (12 bytes)
-            uint96 depositAmount = _readUint96(composeMessage, offset);
-            offset += 12;
-
-            // Deploy or retrieve the Weiroll wallet for the depositor
-            address weirollWallet = _deployWeirollWallet(sourceMarketHash, apAddress, depositAmount, unlockTimestampForPredepositCampaign);
-
-            // Transfer the deposited tokens to the Weiroll wallet
-            campaignInputToken.safeTransfer(weirollWallet, depositAmount);
-
-            // Push fresh weiroll wallet to creation array
-            weirollWalletsCreated[currIndex++] = weirollWallet;
-        }
-
         emit FreshWeirollWalletsCreated(_guid, sourceMarketHash, weirollWalletsCreated);
     }
 
@@ -291,7 +292,9 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
             if (WeirollWallet(payable(_weirollWallets[i])).marketHash() == _sourceMarketHash) {
                 _executeDepositRecipe(_sourceMarketHash, _weirollWallets[i]);
                 walletsExecutedDeposit[executedCount] = _weirollWallets[i];
-                ++executedCount;
+                unchecked {
+                    ++executedCount;
+                }
             }
         }
         // Resize the array to the actual number of executed wallets
