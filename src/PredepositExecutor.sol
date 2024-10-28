@@ -276,8 +276,9 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
                 // Push fresh weiroll wallet to creation array
                 weirollWalletsCreated[currIndex++] = weirollWallet;
             }
+
+            emit FreshWeirollWalletsCreated(_guid, sourceMarketHash, weirollWalletsCreated);
         }
-        emit FreshWeirollWalletsCreated(_guid, sourceMarketHash, weirollWalletsCreated);
     }
 
     /// @notice Executes the deposit scripts for the specified Weiroll wallets.
