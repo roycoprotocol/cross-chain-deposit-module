@@ -128,8 +128,8 @@ contract PredepositLocker is Ownable2Step {
     }
 
     /// @notice Sets the Stargate instance for a given token.
-    /// @param _token Token to set a Stargate instance for.
-    /// @param _stargatePool Stargate instance to set for the specified token.
+    /// @param _token Token to set a Stargate pool instance for.
+    /// @param _stargatePool Stargate pool instance to set for the specified token.
     function setStargatePool(ERC20 _token, IStargate _stargatePool) external onlyOwner {
         require(_stargatePool.token() == address(_token), InvalidStargateForToken());
         tokenToStargatePool[_token] = _stargatePool;

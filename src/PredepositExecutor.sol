@@ -183,7 +183,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     }
 
     /// @notice Sets the Stargate instance for a given token.
-    /// @param _token Token to set a Stargate instance for.
+    /// @param _token Token to set a Stargate pool instance for.
     /// @param _stargatePool Stargate pool instance to set for the specified token.
     function setStargatePool(ERC20 _token, address _stargatePool) external onlyOwner {
         tokenToStargatePool[_token] = _stargatePool;
@@ -205,32 +205,16 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
 
     /// @notice Sets the deposit recipe for a campaign.
     /// @param _sourceMarketHash The unique identifier for the campaign.
-    /// @param _weirollCommands The weiroll commands for the deposit recipe.
-    /// @param _weirollState The weiroll state for the deposit recipe.
-    function setDepositRecipe(
-        bytes32 _sourceMarketHash,
-        bytes32[] calldata _weirollCommands,
-        bytes[] calldata _weirollState
-    )
-        external
-        onlyOwnerOfPredepositCampaign(_sourceMarketHash)
-    {
-        sourceMarketHashToPredepositCampaign[_sourceMarketHash].depositRecipe = Recipe(_weirollCommands, _weirollState);
+    /// @param _depositRecipe The deposit recipe for the source market on the destination chain
+    function setDepositRecipe(bytes32 _sourceMarketHash, Recipe calldata _depositRecipe) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
+        sourceMarketHashToPredepositCampaign[_sourceMarketHash].depositRecipe = _depositRecipe;
     }
 
     /// @notice Sets the withdrawal recipe for a campaign.
     /// @param _sourceMarketHash The unique identifier for the campaign.
-    /// @param _weirollCommands The weiroll commands for the withdrawal recipe.
-    /// @param _weirollState The weiroll state for the withdrawal recipe.
-    function setWithdrawalRecipe(
-        bytes32 _sourceMarketHash,
-        bytes32[] calldata _weirollCommands,
-        bytes[] calldata _weirollState
-    )
-        external
-        onlyOwnerOfPredepositCampaign(_sourceMarketHash)
-    {
-        sourceMarketHashToPredepositCampaign[_sourceMarketHash].withdrawalRecipe = Recipe(_weirollCommands, _weirollState);
+    /// @param _withdrawalRecipe The withdrawal recipe for the source market on the destination chain
+    function setWithdrawalRecipe(bytes32 _sourceMarketHash, Recipe calldata _withdrawalRecipe) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
+        sourceMarketHashToPredepositCampaign[_sourceMarketHash].withdrawalRecipe = _withdrawalRecipe;
     }
 
     /**
@@ -299,12 +283,22 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @param _sourceMarketHash The source market hash of the Weiroll wallets' market.
     /// @param _weirollWallets The addresses of the Weiroll wallets.
     function executeDepositRecipes(bytes32 _sourceMarketHash, address[] calldata _weirollWallets) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
+        // Keep track of actual wallets that executed the deposit recipe (based on _sourceMarketHash matching the wallet's market hash)
+        address[] memory walletsExecutedDeposit = new address[](_weirollWallets.length);
+        uint256 executedCount = 0;
+        // Executed deposit recipes
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             if (WeirollWallet(payable(_weirollWallets[i])).marketHash() == _sourceMarketHash) {
                 _executeDepositRecipe(_sourceMarketHash, _weirollWallets[i]);
+                walletsExecutedDeposit[executedCount] = _weirollWallets[i];
+                ++executedCount;
             }
         }
-        emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
+        // Resize the array to the actual number of executed wallets
+        assembly ("memory-safe") {
+            mstore(walletsExecutedDeposit, executedCount)
+        }
+        emit WeirollWalletsExecutedDeposits(_sourceMarketHash, walletsExecutedDeposit);
     }
 
     /// @notice Executes the deposit script in the Weiroll wallet.

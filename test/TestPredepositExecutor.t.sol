@@ -64,10 +64,10 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
         predepositExecutor.setPredepositCampaignLocktime(sourceMarketHash, unlockTimestamp);
         vm.stopPrank();
 
-        RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE = _buildBurnDepositRecipe(address(walletHelper), USDC_POLYGON_ADDRESS);
+        PredepositExecutor.Recipe memory DEPOSIT_RECIPE = _buildBurnDepositRecipe(address(walletHelper), USDC_POLYGON_ADDRESS);
 
         vm.startPrank(IP_ADDRESS);
-        predepositExecutor.setDepositRecipe(sourceMarketHash, DEPOSIT_RECIPE.weirollCommands, DEPOSIT_RECIPE.weirollState);
+        predepositExecutor.setDepositRecipe(sourceMarketHash, DEPOSIT_RECIPE);
         vm.stopPrank();
 
         // Fund the Executor (bridge simulation)

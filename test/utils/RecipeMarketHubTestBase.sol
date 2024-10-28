@@ -5,6 +5,7 @@ import "@royco/test/mocks/MockRecipeMarketHub.sol";
 
 import { MockERC20 } from "@royco/test/mocks/MockERC20.sol";
 import { MockERC4626 } from "@royco/test/mocks/MockERC4626.sol";
+import { PredepositExecutor } from "src/PredepositExecutor.sol";
 
 import { RoycoTestBase } from "./RoycoTestBase.sol";
 import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
@@ -361,7 +362,7 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
     }
 
     // Burn tokens that were deposited
-    function _buildBurnDepositRecipe(address _helper, address _tokenAddress) internal pure returns (RecipeMarketHubBase.Recipe memory) {
+    function _buildBurnDepositRecipe(address _helper, address _tokenAddress) internal pure returns (PredepositExecutor.Recipe memory) {
         bytes32[] memory commands = new bytes32[](2);
         bytes[] memory state = new bytes[](2);
 
@@ -379,7 +380,7 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         // 0xff ignores the output if any
         uint8 o = 0x01;
 
-        // Encode args and add command to RecipeMarketHubBase.Recipe
+        // Encode args and add command to PredepositExecutor.Recipe
         commands[0] = (bytes32(abi.encodePacked(WeirollWalletHelper.amount.selector, f, inputData, o, _helper)));
 
         // Send tokens to burn address
@@ -394,9 +395,9 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         // 0xff ignores the output if any
         o = 0xff;
 
-        // Encode args and add command to RecipeMarketHubBase.Recipe
+        // Encode args and add command to PredepositExecutor.Recipe
         commands[1] = (bytes32(abi.encodePacked(ERC20.transfer.selector, f, inputData, o, _tokenAddress)));
 
-        return RecipeMarketHubBase.Recipe(commands, state);
+        return PredepositExecutor.Recipe(commands, state);
     }
 }
