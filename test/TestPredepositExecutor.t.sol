@@ -32,13 +32,20 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
     }
 
     function test_ExecutorOnBridge(uint256 offerAmount, uint256 numDepositors, uint256 unlockTimestamp) external {
-        numDepositors = bound(numDepositors, 1, 309);
         offerAmount = bound(offerAmount, 1e6, type(uint48).max);
         unlockTimestamp = bound(unlockTimestamp, block.timestamp, type(uint128).max);
 
         // Simulate bridge
-        (bytes32 sourceMarketHash, address[] memory depositors, uint256[] memory depositAmounts, bytes memory encodedPayload, bytes32 guid) =
-            _bridgeDeposits(offerAmount, numDepositors);
+        (
+            bytes32 sourceMarketHash,
+            address[] memory depositors,
+            uint256[] memory depositAmounts,
+            bytes memory encodedPayload,
+            bytes32 guid,
+            uint256 actualNumberOfDepositors
+        ) = _bridgeDeposits(offerAmount, numDepositors);
+
+        numDepositors = actualNumberOfDepositors;
 
         // Receive bridged funds on Polygon and execute recipes for depositor's wallet
         vm.selectFork(polygonFork);
@@ -141,7 +148,14 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
         uint256 numDepositors
     )
         internal
-        returns (bytes32 marketHash, address[] memory depositors, uint256[] memory depositAmounts, bytes memory encodedPayload, bytes32 guid)
+        returns (
+            bytes32 marketHash,
+            address[] memory depositors,
+            uint256[] memory depositAmounts,
+            bytes memory encodedPayload,
+            bytes32 guid,
+            uint256 actualNumberOfDepositors
+        )
     {
         vm.selectFork(mainnetFork);
         assertEq(vm.activeFork(), mainnetFork);
@@ -164,6 +178,9 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
         PredepositLocker predepositLocker = new PredepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), predepositTokens, stargates, recipeMarketHub);
+
+        numDepositors = bound(numDepositors, 1, predepositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        actualNumberOfDepositors = numDepositors;
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(PredepositLocker.deposit.selector, address(walletHelper), USDC_MAINNET_ADDRESS, address(predepositLocker));

@@ -23,7 +23,6 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
     }
 
     function test_BridgeDeposits(uint256 offerAmount, uint256 numDepositors) external {
-        numDepositors = bound(numDepositors, 1, 309);
         offerAmount = bound(offerAmount, 1e6, type(uint48).max);
 
         vm.selectFork(mainnetFork);
@@ -46,6 +45,8 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
         PredepositLocker predepositLocker = new PredepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), predepositTokens, stargates, recipeMarketHub);
+
+        numDepositors = bound(numDepositors, 1, predepositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(PredepositLocker.deposit.selector, address(walletHelper), USDC_MAINNET_ADDRESS, address(predepositLocker));

@@ -286,23 +286,24 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @param _weirollWallets The addresses of the Weiroll wallets.
     function executeDepositRecipes(bytes32 _sourceMarketHash, address[] calldata _weirollWallets) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
         // Keep track of actual wallets that executed the deposit recipe (based on _sourceMarketHash matching the wallet's market hash)
-        address[] memory walletsExecutedDeposit = new address[](_weirollWallets.length);
-        uint256 executedCount = 0;
+        // address[] memory walletsExecutedDeposit = new address[](_weirollWallets.length);
+        // uint256 executedCount = 0;
         // Executed deposit recipes
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             if (WeirollWallet(payable(_weirollWallets[i])).marketHash() == _sourceMarketHash) {
                 _executeDepositRecipe(_sourceMarketHash, _weirollWallets[i]);
-                walletsExecutedDeposit[executedCount] = _weirollWallets[i];
-                unchecked {
-                    ++executedCount;
-                }
+                // walletsExecutedDeposit[executedCount] = _weirollWallets[i];
+                // unchecked {
+                //     ++executedCount;
+                // }
             }
         }
-        // Resize the array to the actual number of executed wallets
-        assembly ("memory-safe") {
-            mstore(walletsExecutedDeposit, executedCount)
-        }
-        emit WeirollWalletsExecutedDeposits(_sourceMarketHash, walletsExecutedDeposit);
+        // // Resize the array to the actual number of wallets that executed the deposit recipe
+        // assembly ("memory-safe") {
+        //     mstore(walletsExecutedDeposit, executedCount)
+        // }
+        // emit WeirollWalletsExecutedDeposits(_sourceMarketHash, walletsExecutedDeposit);
+        emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
     }
 
     /// @notice Executes the deposit script in the Weiroll wallet.

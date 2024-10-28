@@ -14,6 +14,8 @@ contract PredepositLocker is Ownable2Step {
     using SafeTransferLib for ERC20;
     using OptionsBuilder for bytes;
 
+    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 200;
+
     /*//////////////////////////////////////////////////////////////
                                    State
     //////////////////////////////////////////////////////////////*/
@@ -54,7 +56,7 @@ contract PredepositLocker is Ownable2Step {
 
     /// @notice Error emitted when setting a stargate for a token that doesn't support the token
     error InvalidStargateForToken();
-    
+
     /// @notice Error emitted when calling withdraw with nothing deposited
     error NothingToWithdraw();
 
@@ -66,6 +68,9 @@ contract PredepositLocker is Ownable2Step {
 
     /// @notice Error emitted when the caller is not the authorized multisig for the market.
     error UnauthorizedMultisigForThisMarket();
+
+    /// @notice Error emitted when attempting to bridge more than the bridge limit
+    error ExceededDepositorsPerBridgeLimit();
 
     /// @notice Error emitted when insufficient ETH is provided for the bridge fee.
     error InsufficientEthForBridge();
@@ -212,6 +217,8 @@ contract PredepositLocker is Ownable2Step {
         payable
         greenLightGiven(_marketHash)
     {
+        require(_depositorWeirollWallets.length <= MAX_DEPOSITORS_PER_BRIDGE, ExceededDepositorsPerBridgeLimit());
+
         /*
         Payload Structure:
             - marketHash: bytes32 (32 byte)
@@ -220,7 +227,6 @@ contract PredepositLocker is Ownable2Step {
             - Amount Deposited: uint96 (12 bytes)
             Total per depositor: 32 bytes
         */
-
         // Initialize compose message
         bytes memory composeMsg = abi.encodePacked(_marketHash); //
 

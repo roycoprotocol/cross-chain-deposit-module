@@ -12,7 +12,8 @@ contract SourceBridgeScript is Script {
     address constant weirollHelperAddress = 0xf8E66EaC95D27DD30A756ee1A2D2D96D392b61CB;
     address payable constant predepositLockerAddress = payable(0x844F6B31f7D1240134B3d63ffC2b6f1c7F2612b6);
     address constant usdc_address = 0x488327236B65C61A6c083e8d811a4E0D3d1D4268; // Stargate USDC on OP Sepolia
-    uint256 constant numDepositors = 10;
+    uint256 constant numDepositors = 215;
+    uint256 constant offerSize = 1e9 * numDepositors;
 
     RecipeMarketHub recipeMarketHub;
 
@@ -35,7 +36,7 @@ contract SourceBridgeScript is Script {
         //     _buildDepositRecipe(PredepositLocker.deposit.selector, weirollHelperAddress, usdc_address, predepositLockerAddress);
         // RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(PredepositLocker.withdraw.selector, predepositLockerAddress);
         // bytes32 marketHash = recipeMarketHub.createMarket(usdc_address, 8 weeks, 0.001e18, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
-        
+
         bytes32 marketHash = bytes32(0xcd520b87754ed96438e199c82c143337c3024af70d0e26ea04f614377e687de8);
 
         // Approve the market hub to spend usdc
@@ -45,12 +46,12 @@ contract SourceBridgeScript is Script {
         incentivesOffered[0] = usdc_address;
         uint256[] memory incentiveAmountsPaid = new uint256[](1);
         incentiveAmountsPaid[0] = 100e6;
-        bytes32 offerHash = recipeMarketHub.createIPOffer(marketHash, 10_000e6, block.timestamp + 2 weeks, incentivesOffered, incentiveAmountsPaid);
+        bytes32 offerHash = recipeMarketHub.createIPOffer(marketHash, offerSize, block.timestamp + 2 weeks, incentivesOffered, incentiveAmountsPaid);
 
         bytes32[] memory ipOfferHashes = new bytes32[](1);
         ipOfferHashes[0] = offerHash;
         uint256[] memory fillAmounts = new uint256[](1);
-        fillAmounts[0] = 1000e6;
+        fillAmounts[0] = offerSize / numDepositors;
 
         address payable[] memory depositorWallets = new address payable[](numDepositors);
         for (uint256 i; i < numDepositors; ++i) {
@@ -66,7 +67,7 @@ contract SourceBridgeScript is Script {
 
         predepositLocker.setGreenLight(marketHash, true);
 
-        predepositLocker.bridge{ value: 1 ether }(marketHash, 4_000_000, depositorWallets);
+        predepositLocker.bridge{ value: 1 ether }(marketHash, 25_000_000, depositorWallets);
 
         // Stop broadcasting transactions
         vm.stopBroadcast();
