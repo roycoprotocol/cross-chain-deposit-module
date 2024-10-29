@@ -1,4 +1,6 @@
 @clones-with-immutable-args/=lib/royco/lib/clones-with-immutable-args/src/
+@clones-with-immutable-args/=lib/royco/lib/clones-with-immutable-args/src/
+@openzeppelin/contracts/=lib/royco/lib/openzeppelin-contracts/contracts/
 @erc4626-tests/=lib/royco/lib/openzeppelin-contracts/lib/erc4626-tests/
 @forge-std/=lib/forge-std/src/
 @openzeppelin-contracts/=lib/royco/lib/openzeppelin-contracts/

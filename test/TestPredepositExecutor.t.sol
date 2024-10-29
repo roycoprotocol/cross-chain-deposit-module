@@ -5,7 +5,7 @@ pragma solidity ^0.8.0;
 import { PredepositLocker, RecipeMarketHubBase, ERC20 } from "src/PredepositLocker.sol";
 import { RecipeMarketHubTestBase, RecipeMarketHubBase, WeirollWalletHelper, WeirollWallet, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
 import { PredepositExecutor } from "src/PredepositExecutor.sol";
-import { IStargate } from "src/interfaces/IStargate.sol";
+import { IStargate, IOFT } from "src/interfaces/IStargate.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
 import { Vm } from "lib/forge-std/src/Vm.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
@@ -177,7 +177,9 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
         stargates[0] = IStargate(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
-        PredepositLocker predepositLocker = new PredepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), predepositTokens, stargates, recipeMarketHub);
+        PredepositLocker predepositLocker = new PredepositLocker(
+            OWNER_ADDRESS, 30_284, address(0xbeef), WBTC_MAINNET_ADDRESS, IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS), recipeMarketHub, predepositTokens, stargates
+        );
 
         numDepositors = bound(numDepositors, 1, predepositLocker.MAX_DEPOSITORS_PER_BRIDGE());
         actualNumberOfDepositors = numDepositors;

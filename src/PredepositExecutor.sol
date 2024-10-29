@@ -7,11 +7,12 @@ import { ILayerZeroComposer } from "src/interfaces/ILayerZeroComposer.sol";
 import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
 import { ClonesWithImmutableArgs } from "@clones-with-immutable-args/ClonesWithImmutableArgs.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
+import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 /// @title PredepositExecutor
 /// @notice A singleton contract for deploying bridged funds to the appropriate protocols on Berachain.
 /// @notice This contract implements ILayerZeroComposer to act on compose messages sent from the source chain.
-contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
+contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTransient {
     using ClonesWithImmutableArgs for address;
     using SafeTransferLib for ERC20;
 
@@ -223,7 +224,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
      * @param _guid The unique identifier for the corresponding LayerZero src/dst tx.
      * @param _message The composed message payload in bytes.
      */
-    function lzCompose(address _from, bytes32 _guid, bytes calldata _message, address, bytes calldata) external payable {
+    function lzCompose(address _from, bytes32 _guid, bytes calldata _message, address, bytes calldata) external payable nonReentrant {
         // Ensure the caller is the LayerZero endpoint
         require(msg.sender == lzEndpoint, NotFromValidEndpoint());
 
@@ -284,7 +285,14 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
     /// @notice Executes the deposit scripts for the specified Weiroll wallets.
     /// @param _sourceMarketHash The source market hash of the Weiroll wallets' market.
     /// @param _weirollWallets The addresses of the Weiroll wallets.
-    function executeDepositRecipes(bytes32 _sourceMarketHash, address[] calldata _weirollWallets) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
+    function executeDepositRecipes(
+        bytes32 _sourceMarketHash,
+        address[] calldata _weirollWallets
+    )
+        external
+        onlyOwnerOfPredepositCampaign(_sourceMarketHash)
+        nonReentrant
+    {
         // Keep track of actual wallets that executed the deposit recipe (based on _sourceMarketHash matching the wallet's market hash)
         // address[] memory walletsExecutedDeposit = new address[](_weirollWallets.length);
         // uint256 executedCount = 0;
@@ -308,14 +316,14 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step {
 
     /// @notice Executes the deposit script in the Weiroll wallet.
     /// @param _weirollWallet The address of the Weiroll wallet.
-    function executeDepositRecipe(address _weirollWallet) external isWeirollOwner(_weirollWallet) {
+    function executeDepositRecipe(address _weirollWallet) external isWeirollOwner(_weirollWallet) nonReentrant {
         _executeDepositRecipe(WeirollWallet(payable(_weirollWallet)).marketHash(), _weirollWallet);
         emit WeirollWalletExecutedDeposit(_weirollWallet);
     }
 
     /// @notice Executes the withdrawal script in the Weiroll wallet.
     /// @param _weirollWallet The address of the Weiroll wallet.
-    function executeWithdrawalRecipe(address _weirollWallet) external isWeirollOwner(_weirollWallet) weirollIsUnlocked(_weirollWallet) {
+    function executeWithdrawalRecipe(address _weirollWallet) external isWeirollOwner(_weirollWallet) weirollIsUnlocked(_weirollWallet) nonReentrant {
         _executeWithdrawalRecipe(_weirollWallet);
         emit WeirollWalletExecutedWithdrawal(_weirollWallet);
     }

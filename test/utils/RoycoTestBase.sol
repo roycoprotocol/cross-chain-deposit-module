@@ -13,6 +13,11 @@ contract RoycoTestBase is Test {
     // Constants
     // -----------------------------------------
 
+    // Address of wBTC on ETH
+    address WBTC_MAINNET_ADDRESS = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
+    // Address of wBTC OFT Adapter on ETH
+    address WBTC_OFT_ADAPTER_MAINNET_ADDRESS = 0x0555E30da8f98308EdB960aa94C0Db47230d2B9c;
+
     address USDC_MAINNET_ADDRESS = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address USDT_MAINNET_ADDRESS = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
 

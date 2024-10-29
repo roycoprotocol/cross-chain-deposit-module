@@ -12,7 +12,7 @@ contract SourceBridgeScript is Script {
     address constant weirollHelperAddress = 0xf8E66EaC95D27DD30A756ee1A2D2D96D392b61CB;
     address payable constant predepositLockerAddress = payable(0x844F6B31f7D1240134B3d63ffC2b6f1c7F2612b6);
     address constant usdc_address = 0x488327236B65C61A6c083e8d811a4E0D3d1D4268; // Stargate USDC on OP Sepolia
-    uint256 constant numDepositors = 215;
+    uint256 constant numDepositors = 150;
     uint256 constant offerSize = 1e9 * numDepositors;
 
     RecipeMarketHub recipeMarketHub;
