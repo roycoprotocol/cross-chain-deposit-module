@@ -16,7 +16,7 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
     using OptionsBuilder for bytes;
 
     // Limit for how many depositers can be bridged in a single transaction
-    // At this limit, ~10m gas will be consumed to execute logic on the destination's PredepositExecutor
+    // At this limit, ~10m gas will be consumed to execute lzCompose logic on the destination's PredepositExecutor
     uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 100;
 
     /*//////////////////////////////////////////////////////////////
