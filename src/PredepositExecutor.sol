@@ -198,29 +198,29 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     }
 
     /// @notice Sets a new owner for the specified campaign.
-    /// @param _sourceMarketHash The unique identifier for the campaign.
+    /// @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
     /// @param _newOwner The address of the new campaign owner.
     function setPredepositCampaignOwner(bytes32 _sourceMarketHash, address _newOwner) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
         sourceMarketHashToOwner[_sourceMarketHash] = _newOwner;
     }
 
     /// @notice Sets a new owner for the specified campaign.
-    /// @param _sourceMarketHash The unique identifier for the campaign.
-    /// @param _unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign.
+    /// @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
+    /// @param _unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign on destination.
     function setPredepositCampaignLocktime(bytes32 _sourceMarketHash, uint256 _unlockTimestamp) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
         sourceMarketHashToPredepositCampaign[_sourceMarketHash].unlockTimestamp = _unlockTimestamp;
     }
 
     /// @notice Sets the deposit recipe for a campaign.
-    /// @param _sourceMarketHash The unique identifier for the campaign.
-    /// @param _depositRecipe The deposit recipe for the source market on the destination chain
+    /// @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
+    /// @param _depositRecipe The deposit recipe for the campaign on the destination chain
     function setDepositRecipe(bytes32 _sourceMarketHash, Recipe calldata _depositRecipe) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
         sourceMarketHashToPredepositCampaign[_sourceMarketHash].depositRecipe = _depositRecipe;
     }
 
     /// @notice Sets the withdrawal recipe for a campaign.
-    /// @param _sourceMarketHash The unique identifier for the campaign.
-    /// @param _withdrawalRecipe The withdrawal recipe for the source market on the destination chain
+    /// @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
+    /// @param _withdrawalRecipe The withdrawal recipe for the campaign on the destination chain
     function setWithdrawalRecipe(bytes32 _sourceMarketHash, Recipe calldata _withdrawalRecipe) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
         sourceMarketHashToPredepositCampaign[_sourceMarketHash].withdrawalRecipe = _withdrawalRecipe;
     }
