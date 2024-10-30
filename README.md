@@ -34,7 +34,7 @@ This module allows users to deposit funds on one chain (source) and have those f
 - Bridging funds and a payload containing depositor information using LayerZero
 - Weiroll Wallets created for each depositor on the destination chain with the ability to deposit and withdraw assets as specified by the campaign's destination recipes
 
-## CPM Flow
+## CCDM Flow
 1. AP (depositor) fills an offer for a cross-chain deposit market in the RecipeMarketHub
 2. The RecipeMarketHub automatically creates a Weiroll Wallet for the user and deposits them into the DepositLocker
 3. Depositors can withdraw deposits anytime through the RecipeMarketHub before their deposits are bridged
