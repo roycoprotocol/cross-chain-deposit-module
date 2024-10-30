@@ -16,7 +16,7 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
     using OptionsBuilder for bytes;
 
     // Limit for how many depositers can be bridged in a single transaction
-    // At this limit, ~10m gas will be consumed to execute lzCompose logic on the destination's PredepositExecutor
+    // At this limit, ~10m gas will be consumed to execute the lzCompose logic on the destination's PredepositExecutor
     uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 100;
 
     /*//////////////////////////////////////////////////////////////
@@ -216,7 +216,7 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
             delete marketHashToDepositorToAmountDeposited[_marketHash][_depositorWeirollWallets[i]];
 
             // Concatenate depositor's payload (32 bytes) to the lz compose message
-            composeMsg = abi.encodePacked(composeMsg, WeirollWallet(_depositorWeirollWallets[i]).owner(), uint96(depositAmount));
+            composeMsg = abi.encodePacked(composeMsg, bytes20(uint160(WeirollWallet(_depositorWeirollWallets[i]).owner())), uint96(depositAmount));
         }
 
         // Ensure that at least one depositor was included in the bridge payload
