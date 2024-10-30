@@ -10,10 +10,10 @@ import { IOFT } from "src/interfaces/IOFT.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
-/// @title PredepositExecutor
-/// @notice A singleton contract for receiving and deploying bridged deposits on the destination chain for all predeposit campaigns.
+/// @title DepositExecutor
+/// @notice A singleton contract for receiving and deploying bridged deposits on the destination chain for all deposit campaigns.
 /// @notice This contract implements ILayerZeroComposer to act on compose messages sent from the source chain.
-contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTransient {
+contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTransient {
     using ClonesWithImmutableArgs for address;
     using SafeTransferLib for ERC20;
 
@@ -29,12 +29,12 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
         bytes[] weirollState;
     }
 
-    /// @dev Represents a Predeposit Campaign on the destination chain.
+    /// @dev Represents a Deposit Campaign on the destination chain.
     /// @custom:field dstInputToken The deposit token for the campaign on the destination chain.
     /// @custom:field unlockTimestamp  The ABSOLUTE timestamp until deposits will be locked for this campaign.
     /// @custom:field depositRecipe The Weiroll recipe executed on deposit (specified by the owner of the campaign).
     /// @custom:field withdrawalRecipe The Weiroll recipe executed on withdrawal (specified by the owner of the campaign).
-    struct PredepositCampaign {
+    struct DepositCampaign {
         ERC20 dstInputToken;
         uint256 unlockTimestamp;
         Recipe depositRecipe;
@@ -57,8 +57,8 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     /// @dev Mapping from a market hash on the source chain to its owner's address.
     mapping(bytes32 => address) public sourceMarketHashToOwner;
 
-    /// @dev Mapping from a market hash on the source chain to its PredepositCampaign struct.
-    mapping(bytes32 => PredepositCampaign) public sourceMarketHashToPredepositCampaign;
+    /// @dev Mapping from a market hash on the source chain to its DepositCampaign struct.
+    mapping(bytes32 => DepositCampaign) public sourceMarketHashToDepositCampaign;
 
     /*//////////////////////////////////////////////////////////////
                            Events and Errors
@@ -84,7 +84,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     event FreshWeirollWalletsCreated(bytes32 indexed guid, bytes32 indexed sourceMarketHash, address[] weirollWalletsCreated);
 
     /// @notice Error emitted when the caller is not the owner of the campaign.
-    error OnlyOwnerOfPredepositCampaign();
+    error OnlyOwnerOfDepositCampaign();
 
     /// @notice Error emitted when array lengths mismatch.
     error ArrayLengthMismatch();
@@ -115,8 +115,8 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Modifier to ensure the caller is the owner of the campaign.
-    modifier onlyOwnerOfPredepositCampaign(bytes32 _sourceMarketHash) {
-        require(msg.sender == sourceMarketHashToOwner[_sourceMarketHash], OnlyOwnerOfPredepositCampaign());
+    modifier onlyOwnerOfDepositCampaign(bytes32 _sourceMarketHash) {
+        require(msg.sender == sourceMarketHashToOwner[_sourceMarketHash], OnlyOwnerOfDepositCampaign());
         _;
     }
 
@@ -142,28 +142,28 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
                              Constructor
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Initialize the PredepositExecutor Contract.
+    /// @notice Initialize the DepositExecutor Contract.
     /// @param _owner The address of the owner of this contract.
     /// @param _weirollWalletImplementation The address of the Weiroll wallet implementation.
     /// @param _lzEndpoint The address of the LayerZero endpoint.
-    /// @param _predepositTokens The tokens that are bridged to the destination chain from the source chain. (dest chain addresses)
-    /// @param _lzOApps The corresponding LayerZero OApp instances for each predeposit token on the destination chain.
+    /// @param _depositTokens The tokens that are bridged to the destination chain from the source chain. (dest chain addresses)
+    /// @param _lzOApps The corresponding LayerZero OApp instances for each deposit token on the destination chain.
     constructor( 
         address _owner,
         address _weirollWalletImplementation,
         address _lzEndpoint,
-        ERC20[] memory _predepositTokens,
+        ERC20[] memory _depositTokens,
         address[] memory _lzOApps
     )
         Ownable(_owner)
     {
-        require(_predepositTokens.length == _lzOApps.length, ArrayLengthMismatch());
+        require(_depositTokens.length == _lzOApps.length, ArrayLengthMismatch());
 
         // Initialize the contract state
-        for (uint256 i = 0; i < _predepositTokens.length; ++i) {
+        for (uint256 i = 0; i < _depositTokens.length; ++i) {
             // Check that the token has a valid corresponding lzOApp
-            require(IOFT(_lzOApps[i]).token() == address(_predepositTokens[i]), InvalidLzOAppForToken());
-            tokenToLzOApp[_predepositTokens[i]] = _lzOApps[i];
+            require(IOFT(_lzOApps[i]).token() == address(_depositTokens[i]), InvalidLzOAppForToken());
+            tokenToLzOApp[_depositTokens[i]] = _lzOApps[i];
         }
 
         WEIROLL_WALLET_IMPLEMENTATION = _weirollWalletImplementation;
@@ -178,9 +178,9 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     /// @param _sourceMarketHash The unique identifier for the campaign.
     /// @param _owner The address of the campaign owner.
     /// @param _dstInputToken The ERC20 token used as input for the campaign.
-    function createPredepositCampaign(bytes32 _sourceMarketHash, address _owner, ERC20 _dstInputToken) external onlyOwner {
+    function createDepositCampaign(bytes32 _sourceMarketHash, address _owner, ERC20 _dstInputToken) external onlyOwner {
         sourceMarketHashToOwner[_sourceMarketHash] = _owner;
-        sourceMarketHashToPredepositCampaign[_sourceMarketHash].dstInputToken = _dstInputToken;
+        sourceMarketHashToDepositCampaign[_sourceMarketHash].dstInputToken = _dstInputToken;
     }
 
     /// @notice Sets the LayerZero endpoint address for this chain.
@@ -200,29 +200,29 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     /// @notice Sets a new owner for the specified campaign.
     /// @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
     /// @param _newOwner The address of the new campaign owner.
-    function setPredepositCampaignOwner(bytes32 _sourceMarketHash, address _newOwner) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
+    function setDepositCampaignOwner(bytes32 _sourceMarketHash, address _newOwner) external onlyOwnerOfDepositCampaign(_sourceMarketHash) {
         sourceMarketHashToOwner[_sourceMarketHash] = _newOwner;
     }
 
     /// @notice Sets a new owner for the specified campaign.
     /// @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
     /// @param _unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign on destination.
-    function setPredepositCampaignLocktime(bytes32 _sourceMarketHash, uint256 _unlockTimestamp) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
-        sourceMarketHashToPredepositCampaign[_sourceMarketHash].unlockTimestamp = _unlockTimestamp;
+    function setDepositCampaignLocktime(bytes32 _sourceMarketHash, uint256 _unlockTimestamp) external onlyOwnerOfDepositCampaign(_sourceMarketHash) {
+        sourceMarketHashToDepositCampaign[_sourceMarketHash].unlockTimestamp = _unlockTimestamp;
     }
 
     /// @notice Sets the deposit recipe for a campaign.
     /// @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
     /// @param _depositRecipe The deposit recipe for the campaign on the destination chain
-    function setDepositRecipe(bytes32 _sourceMarketHash, Recipe calldata _depositRecipe) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
-        sourceMarketHashToPredepositCampaign[_sourceMarketHash].depositRecipe = _depositRecipe;
+    function setDepositRecipe(bytes32 _sourceMarketHash, Recipe calldata _depositRecipe) external onlyOwnerOfDepositCampaign(_sourceMarketHash) {
+        sourceMarketHashToDepositCampaign[_sourceMarketHash].depositRecipe = _depositRecipe;
     }
 
     /// @notice Sets the withdrawal recipe for a campaign.
     /// @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
     /// @param _withdrawalRecipe The withdrawal recipe for the campaign on the destination chain
-    function setWithdrawalRecipe(bytes32 _sourceMarketHash, Recipe calldata _withdrawalRecipe) external onlyOwnerOfPredepositCampaign(_sourceMarketHash) {
-        sourceMarketHashToPredepositCampaign[_sourceMarketHash].withdrawalRecipe = _withdrawalRecipe;
+    function setWithdrawalRecipe(bytes32 _sourceMarketHash, Recipe calldata _withdrawalRecipe) external onlyOwnerOfDepositCampaign(_sourceMarketHash) {
+        sourceMarketHashToDepositCampaign[_sourceMarketHash].withdrawalRecipe = _withdrawalRecipe;
     }
 
     /**
@@ -248,15 +248,15 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
                 sourceMarketHash := mload(add(composeMessage, 32))
             }
 
-            PredepositCampaign storage predepositCampaign = sourceMarketHashToPredepositCampaign[sourceMarketHash];
+            DepositCampaign storage depositCampaign = sourceMarketHashToDepositCampaign[sourceMarketHash];
 
             // Get the market's input token
-            ERC20 campaignInputToken = predepositCampaign.dstInputToken;
+            ERC20 campaignInputToken = depositCampaign.dstInputToken;
 
             // Ensure that the _from address is the expected LayerZero OApp contract for this token
             require(_from == tokenToLzOApp[campaignInputToken], NotFromLzOApp());
 
-            uint256 unlockTimestamp = predepositCampaign.unlockTimestamp;
+            uint256 unlockTimestamp = depositCampaign.unlockTimestamp;
 
             // Calculate the offset to start reading depositor data
             uint256 offset = 32; // Start at the byte after the sourceMarketHash
@@ -299,7 +299,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
         address[] calldata _weirollWallets
     )
         external
-        onlyOwnerOfPredepositCampaign(_sourceMarketHash)
+        onlyOwnerOfDepositCampaign(_sourceMarketHash)
         nonReentrant
     {
         // Keep track of actual wallets that executed the deposit recipe (based on _sourceMarketHash matching the wallet's market hash)
@@ -366,7 +366,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     /// @param _sourceMarketHash The source market's hash.
     function _executeDepositRecipe(bytes32 _sourceMarketHash, address _weirollWallet) internal depositRecipeNotExecuted(_weirollWallet) {
         // Get the campaign's deposit recipe
-        Recipe storage depositRecipe = sourceMarketHashToPredepositCampaign[_sourceMarketHash].depositRecipe;
+        Recipe storage depositRecipe = sourceMarketHashToDepositCampaign[_sourceMarketHash].depositRecipe;
 
         // Execute the deposit recipe on the Weiroll wallet
         WeirollWallet(payable(_weirollWallet)).executeWeiroll(depositRecipe.weirollCommands, depositRecipe.weirollState);
@@ -382,7 +382,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
         bytes32 sourceMarketHash = wallet.marketHash();
 
         // Get the source market's to retrieve the withdrawal recipe
-        PredepositCampaign storage campaign = sourceMarketHashToPredepositCampaign[sourceMarketHash];
+        DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[sourceMarketHash];
 
         // Execute the withdrawal recipe
         wallet.executeWeiroll(campaign.withdrawalRecipe.weirollCommands, campaign.withdrawalRecipe.weirollState);

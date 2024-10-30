@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-// Import the PredepositLocker contract and its dependencies
-import { PredepositLocker, RecipeMarketHubBase, ERC20 } from "src/PredepositLocker.sol";
+// Import the DepositLocker contract and its dependencies
+import { DepositLocker, RecipeMarketHubBase, ERC20 } from "src/DepositLocker.sol";
 import { RecipeMarketHubTestBase, RecipeMarketHubBase, WeirollWalletHelper, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
 import { IOFT } from "src/interfaces/IOFT.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
 
 // Test Bridging Deposits on ETH Mainnet fork
-contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
+contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
     using FixedPointMathLib for uint256;
 
     address IP_ADDRESS;
@@ -37,22 +37,22 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
 
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        ERC20[] memory predepositTokens = new ERC20[](2);
+        ERC20[] memory depositTokens = new ERC20[](2);
         IOFT[] memory lzOApps = new IOFT[](2);
 
-        predepositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
+        depositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
         lzOApps[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
-        predepositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
+        depositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
         lzOApps[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
-        PredepositLocker predepositLocker = new PredepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, predepositTokens, lzOApps);
+        DepositLocker depositLocker = new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, depositTokens, lzOApps);
 
-        numDepositors = bound(numDepositors, 1, predepositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
-            _buildDepositRecipe(PredepositLocker.deposit.selector, address(walletHelper), USDC_MAINNET_ADDRESS, address(predepositLocker));
-        RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(PredepositLocker.withdraw.selector, address(predepositLocker));
+            _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), USDC_MAINNET_ADDRESS, address(depositLocker));
+        RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(DepositLocker.withdraw.selector, address(depositLocker));
 
         uint256 frontendFee = recipeMarketHub.minimumFrontendFee();
         bytes32 marketHash =
@@ -92,21 +92,21 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
         }
 
         vm.startPrank(OWNER_ADDRESS);
-        predepositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
+        depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
         vm.stopPrank();
 
         vm.startPrank(MULTISIG_ADDRESS);
-        predepositLocker.setGreenLight(marketHash, true);
+        depositLocker.setGreenLight(marketHash, true);
         vm.stopPrank();
 
         vm.expectEmit(true, true, true, true, USDC_MAINNET_ADDRESS);
-        emit ERC20.Transfer(address(predepositLocker), address(predepositLocker.tokenToLzOApp(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
+        emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzOApp(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
 
-        vm.expectEmit(false, false, true, false, address(predepositLocker));
-        emit PredepositLocker.BridgedToDestinationChain(bytes32(0), 0, marketHash, offerAmount);
+        vm.expectEmit(false, false, true, false, address(depositLocker));
+        emit DepositLocker.BridgedToDestinationChain(bytes32(0), 0, marketHash, offerAmount);
 
         vm.startPrank(IP_ADDRESS);
-        predepositLocker.bridge{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridge{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
         vm.stopPrank();
     }
 
@@ -125,22 +125,22 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
 
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        ERC20[] memory predepositTokens = new ERC20[](2);
+        ERC20[] memory depositTokens = new ERC20[](2);
         IOFT[] memory lzOApps = new IOFT[](2);
 
-        predepositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
+        depositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
         lzOApps[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
-        predepositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
+        depositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
         lzOApps[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to Avax
-        PredepositLocker predepositLocker = new PredepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, predepositTokens, lzOApps);
+        DepositLocker depositLocker = new DepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, depositTokens, lzOApps);
 
-        numDepositors = bound(numDepositors, 1, predepositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
-            _buildDepositRecipe(PredepositLocker.deposit.selector, address(walletHelper), WBTC_MAINNET_ADDRESS, address(predepositLocker));
-        RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(PredepositLocker.withdraw.selector, address(predepositLocker));
+            _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), WBTC_MAINNET_ADDRESS, address(depositLocker));
+        RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(DepositLocker.withdraw.selector, address(depositLocker));
 
         uint256 frontendFee = recipeMarketHub.minimumFrontendFee();
         bytes32 marketHash =
@@ -180,21 +180,21 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
         }
 
         vm.startPrank(OWNER_ADDRESS);
-        predepositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
+        depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
         vm.stopPrank();
 
         vm.startPrank(MULTISIG_ADDRESS);
-        predepositLocker.setGreenLight(marketHash, true);
+        depositLocker.setGreenLight(marketHash, true);
         vm.stopPrank();
 
         vm.expectEmit(true, true, true, true, WBTC_MAINNET_ADDRESS);
-        emit ERC20.Transfer(address(predepositLocker), WBTC_OFT_ADAPTER_MAINNET_ADDRESS, offerAmount);
+        emit ERC20.Transfer(address(depositLocker), WBTC_OFT_ADAPTER_MAINNET_ADDRESS, offerAmount);
 
-        vm.expectEmit(false, false, true, false, address(predepositLocker));
-        emit PredepositLocker.BridgedToDestinationChain(bytes32(0), 0, marketHash, offerAmount);
+        vm.expectEmit(false, false, true, false, address(depositLocker));
+        emit DepositLocker.BridgedToDestinationChain(bytes32(0), 0, marketHash, offerAmount);
 
         vm.startPrank(IP_ADDRESS);
-        predepositLocker.bridge{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridge{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
         vm.stopPrank();
     }
 }

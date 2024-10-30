@@ -8,15 +8,15 @@ import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src
 import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
 import { Ownable2Step, Ownable } from "@openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
-/// @title PredepositLocker
-/// @notice A singleton contract for managing predeposits for the destination chain on the source chain.
-/// @notice Facilitates deposits, withdrawals, and bridging deposits for all predeposit markets.
-contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
+/// @title DepositLocker
+/// @notice A singleton contract for managing deposits for the destination chain on the source chain.
+/// @notice Facilitates deposits, withdrawals, and bridging deposits for all deposit markets.
+contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     using SafeTransferLib for ERC20;
     using OptionsBuilder for bytes;
 
     // Limit for how many depositers can be bridged in a single transaction
-    // At this limit, ~10m gas will be consumed to execute the lzCompose logic on the destination's PredepositExecutor
+    // At this limit, ~10m gas will be consumed to execute the lzCompose logic on the destination's DepositExecutor
     uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 100;
 
     /*//////////////////////////////////////////////////////////////
@@ -32,9 +32,9 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Mapping of an ERC20 token to its corresponding LayerZero Omnichain Application (Stargate Pool, Stargate Hydra, OFT Adapters, etc.)
     mapping(ERC20 => IOFT) public tokenToLzOApp;
 
-    /// @notice Address of the PredepositExecutor on the destination chain.
+    /// @notice Address of the DepositExecutor on the destination chain.
     /// @notice This address will receive all bridged tokens and be responsible for executing all lzCompose logic on the destination chain.
-    address public predepositExecutor;
+    address public depositExecutor;
 
     /// @notice Mapping from Royco Market Hash to the multisig address between the market's IP and the destination chain.
     mapping(bytes32 => address) public marketHashToMultisig;
@@ -105,35 +105,35 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
                                    Functions
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Initialize the PredepositLocker Contract.
+    /// @notice Initialize the DepositLocker Contract.
     /// @param _owner The address of the owner of the contract.
     /// @param _dstChainLzEid The destination LayerZero endpoint ID for the destination chain.
-    /// @param _predepositExecutor The address of the the PredepositExecutor on the destination chain.
+    /// @param _depositExecutor The address of the the DepositExecutor on the destination chain.
     /// @param _recipeMarketHub The address of the recipe market hub used to create markets on the source chain.
-    /// @param _predepositTokens The tokens to bridge to the destination chain from the source chain. (source chain addresses)
-    /// @param _lzOApps The corresponding LayerZero OApp instances for each predeposit token on the source chain.
+    /// @param _depositTokens The tokens to bridge to the destination chain from the source chain. (source chain addresses)
+    /// @param _lzOApps The corresponding LayerZero OApp instances for each deposit token on the source chain.
     constructor(
         address _owner,
         uint32 _dstChainLzEid,
-        address _predepositExecutor,
+        address _depositExecutor,
         RecipeMarketHubBase _recipeMarketHub,
-        ERC20[] memory _predepositTokens,
+        ERC20[] memory _depositTokens,
         IOFT[] memory _lzOApps
     )
         Ownable(_owner)
     {
         // Check that each token that will be bridged has a corresponding LZOApp instance
-        require(_predepositTokens.length == _lzOApps.length, ArrayLengthMismatch());
+        require(_depositTokens.length == _lzOApps.length, ArrayLengthMismatch());
 
         // Initialize the contract state
-        for (uint256 i = 0; i < _predepositTokens.length; ++i) {
+        for (uint256 i = 0; i < _depositTokens.length; ++i) {
             // Check that the token has a valid corresponding lzOApp
-            require(_lzOApps[i].token() == address(_predepositTokens[i]), InvalidLzOAppForToken());
-            tokenToLzOApp[_predepositTokens[i]] = _lzOApps[i];
+            require(_lzOApps[i].token() == address(_depositTokens[i]), InvalidLzOAppForToken());
+            tokenToLzOApp[_depositTokens[i]] = _lzOApps[i];
         }
         RECIPE_MARKET_HUB = _recipeMarketHub;
         dstChainLzEid = _dstChainLzEid;
-        predepositExecutor = _predepositExecutor;
+        depositExecutor = _depositExecutor;
     }
 
     /// @notice Called by the deposit script from the depositor's Weiroll wallet.
@@ -225,7 +225,7 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Prepare SendParam for bridging
         SendParam memory sendParam = SendParam({
             dstEid: dstChainLzEid,
-            to: _addressToBytes32(predepositExecutor),
+            to: _addressToBytes32(depositExecutor),
             amountLD: totalAmountToBridge,
             minAmountLD: totalAmountToBridge,
             extraOptions: OptionsBuilder.newOptions().addExecutorLzComposeOption(0, _executorGasLimit, 0),
@@ -276,10 +276,10 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
         tokenToLzOApp[_token] = _lzOApp;
     }
 
-    /// @notice Sets the PredepositExecutor address.
-    /// @param _predepositExecutor Address of the new PredepositExecutor on the destination chain.
-    function setPredepositExecutor(address _predepositExecutor) external onlyOwner {
-        predepositExecutor = _predepositExecutor;
+    /// @notice Sets the DepositExecutor address.
+    /// @param _depositExecutor Address of the new DepositExecutor on the destination chain.
+    function setDepositExecutor(address _depositExecutor) external onlyOwner {
+        depositExecutor = _depositExecutor;
     }
 
     /// @notice Sets the multisig address for a market.

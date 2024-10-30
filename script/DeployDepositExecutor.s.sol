@@ -3,15 +3,15 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Script.sol";
 
-// Import the PredepositExecutor contract and its dependencies
-import "src/PredepositExecutor.sol";
+// Import the DepositExecutor contract and its dependencies
+import "src/DepositExecutor.sol";
 
-contract PredepositExecutorDeployScript is Script {
+contract DepositExecutorDeployScript is Script {
     // State variables for external contract addresses and arrays
     address public owner;
     address public weirollWalletImplementation;
     address public lzEndpoint;
-    ERC20[] public predepositTokens;
+    ERC20[] public depositTokens;
     address[] public lzOApps;
 
     function setUp() public {
@@ -28,7 +28,7 @@ contract PredepositExecutorDeployScript is Script {
 
         // Initialize the arrays directly in the script
         // Example addresses for ERC20 tokens
-        predepositTokens.push(ERC20(address(0x3253a335E7bFfB4790Aa4C25C4250d206E9b9773))); // USDC on ARB Sepolia
+        depositTokens.push(ERC20(address(0x3253a335E7bFfB4790Aa4C25C4250d206E9b9773))); // USDC on ARB Sepolia
 
         // Corresponding Stargate instances for each token
         lzOApps.push(address(0x543BdA7c6cA4384FE90B1F5929bb851F52888983)); // StargatePoolUSDC on ARB Sepolia
@@ -48,13 +48,13 @@ contract PredepositExecutorDeployScript is Script {
         }
 
         // Ensure arrays have the same length
-        require(predepositTokens.length == lzOApps.length, "Array lengths of predeposit tokens and lzOApps must match");
+        require(depositTokens.length == lzOApps.length, "Array lengths of deposit tokens and lzOApps must match");
 
-        // Deploy the PredepositExecutor contract
-        PredepositExecutor executor = new PredepositExecutor(owner, weirollWalletImplementation, lzEndpoint, predepositTokens, lzOApps);
+        // Deploy the DepositExecutor contract
+        DepositExecutor executor = new DepositExecutor(owner, weirollWalletImplementation, lzEndpoint, depositTokens, lzOApps);
 
-        // Output the address of the deployed PredepositExecutor contract
-        console.log("PredepositExecutor deployed at:", address(executor));
+        // Output the address of the deployed DepositExecutor contract
+        console.log("DepositExecutor deployed at:", address(executor));
 
         // Stop broadcasting transactions
         vm.stopBroadcast();

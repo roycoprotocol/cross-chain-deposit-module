@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-// Import the PredepositLocker contract and its dependencies
-import { PredepositLocker, RecipeMarketHubBase, ERC20 } from "src/PredepositLocker.sol";
+// Import the DepositLocker contract and its dependencies
+import { DepositLocker, RecipeMarketHubBase, ERC20 } from "src/DepositLocker.sol";
 import { RecipeMarketHubTestBase, RecipeMarketHubBase, WeirollWalletHelper, WeirollWallet, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
-import { PredepositExecutor } from "src/PredepositExecutor.sol";
+import { DepositExecutor } from "src/DepositExecutor.sol";
 import { IOFT } from "src/interfaces/IOFT.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
 import { Vm } from "lib/forge-std/src/Vm.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
 
 // Test deploying deposits via weiroll recipes post bridge
-contract Test_PredepositExecutor is RecipeMarketHubTestBase {
+contract Test_DepositExecutor is RecipeMarketHubTestBase {
     using FixedPointMathLib for uint256;
 
     address IP_ADDRESS;
@@ -54,41 +54,41 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
         weirollImplementation = new WeirollWallet();
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        ERC20[] memory predepositTokens = new ERC20[](1);
+        ERC20[] memory depositTokens = new ERC20[](1);
         address[] memory lzOApps = new address[](1);
 
-        predepositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
+        depositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
         lzOApps[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS; // Stargate USDC Pool on Polygon Mainnet
 
-        PredepositExecutor predepositExecutor =
-            new PredepositExecutor(OWNER_ADDRESS, address(weirollImplementation), POLYGON_LZ_ENDPOINT, predepositTokens, lzOApps);
+        DepositExecutor depositExecutor =
+            new DepositExecutor(OWNER_ADDRESS, address(weirollImplementation), POLYGON_LZ_ENDPOINT, depositTokens, lzOApps);
 
         vm.startPrank(OWNER_ADDRESS);
-        predepositExecutor.createPredepositCampaign(sourceMarketHash, IP_ADDRESS, ERC20(USDC_POLYGON_ADDRESS));
+        depositExecutor.createDepositCampaign(sourceMarketHash, IP_ADDRESS, ERC20(USDC_POLYGON_ADDRESS));
         vm.stopPrank();
 
         vm.startPrank(IP_ADDRESS);
-        predepositExecutor.setPredepositCampaignLocktime(sourceMarketHash, unlockTimestamp);
+        depositExecutor.setDepositCampaignLocktime(sourceMarketHash, unlockTimestamp);
         vm.stopPrank();
 
-        PredepositExecutor.Recipe memory DEPOSIT_RECIPE = _buildBurnDepositRecipe(address(walletHelper), USDC_POLYGON_ADDRESS);
+        DepositExecutor.Recipe memory DEPOSIT_RECIPE = _buildBurnDepositRecipe(address(walletHelper), USDC_POLYGON_ADDRESS);
 
         vm.startPrank(IP_ADDRESS);
-        predepositExecutor.setDepositRecipe(sourceMarketHash, DEPOSIT_RECIPE);
+        depositExecutor.setDepositRecipe(sourceMarketHash, DEPOSIT_RECIPE);
         vm.stopPrank();
 
         // Fund the Executor (bridge simulation)
-        deal(USDC_POLYGON_ADDRESS, address(predepositExecutor), offerAmount);
+        deal(USDC_POLYGON_ADDRESS, address(depositExecutor), offerAmount);
 
         for (uint256 i = 0; i < numDepositors; i++) {
             // Check that tokens being deposited into weiroll wallet
             vm.expectEmit(true, false, false, false, USDC_POLYGON_ADDRESS);
-            emit ERC20.Transfer(address(predepositExecutor), address(0), depositAmounts[i]);
+            emit ERC20.Transfer(address(depositExecutor), address(0), depositAmounts[i]);
         }
 
         vm.recordLogs();
         vm.startPrank(POLYGON_LZ_ENDPOINT);
-        predepositExecutor.lzCompose(
+        depositExecutor.lzCompose(
             STARGATE_USDC_POOL_POLYGON_ADDRESS,
             guid,
             OFTComposeMsgCodec.encode(uint64(0), uint32(0), uint256(0), abi.encodePacked(bytes32(0), getSlice(188, encodedPayload))),
@@ -104,7 +104,7 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
 
             // Check wallet state is correct
             assertEq(weirollWalletForDepositor.owner(), depositors[i]);
-            assertEq(weirollWalletForDepositor.recipeMarketHub(), address(predepositExecutor));
+            assertEq(weirollWalletForDepositor.recipeMarketHub(), address(depositExecutor));
             assertEq(weirollWalletForDepositor.amount(), depositAmounts[i]);
             assertEq(weirollWalletForDepositor.lockedUntil(), unlockTimestamp);
             assertEq(weirollWalletForDepositor.isForfeitable(), false);
@@ -128,7 +128,7 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
         }
 
         vm.startPrank(IP_ADDRESS);
-        predepositExecutor.executeDepositRecipes(sourceMarketHash, weirollWallets);
+        depositExecutor.executeDepositRecipes(sourceMarketHash, weirollWallets);
         vm.stopPrank();
 
         for (uint256 i = 0; i < numDepositors; i++) {
@@ -170,25 +170,25 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
 
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        ERC20[] memory predepositTokens = new ERC20[](2);
+        ERC20[] memory depositTokens = new ERC20[](2);
         IOFT[] memory lzOApps = new IOFT[](2);
 
-        predepositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
+        depositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
         lzOApps[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
-        predepositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
+        depositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
         lzOApps[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
-        PredepositLocker predepositLocker = new PredepositLocker(
-            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, predepositTokens, lzOApps
+        DepositLocker depositLocker = new DepositLocker(
+            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, depositTokens, lzOApps
         );
 
-        numDepositors = bound(numDepositors, 1, predepositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
         actualNumberOfDepositors = numDepositors;
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
-            _buildDepositRecipe(PredepositLocker.deposit.selector, address(walletHelper), USDC_MAINNET_ADDRESS, address(predepositLocker));
-        RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(PredepositLocker.withdraw.selector, address(predepositLocker));
+            _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), USDC_MAINNET_ADDRESS, address(depositLocker));
+        RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(DepositLocker.withdraw.selector, address(depositLocker));
 
         uint256 frontendFee = recipeMarketHub.minimumFrontendFee();
         marketHash = recipeMarketHub.createMarket(USDC_MAINNET_ADDRESS, 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
@@ -225,21 +225,21 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
             address payable weirollWallet = payable(address(uint160(uint256(vm.getRecordedLogs()[0].topics[2]))));
 
             depositorWallets[i] = weirollWallet;
-            depositAmounts[i] = predepositLocker.marketHashToDepositorToAmountDeposited(marketHash, weirollWallet);
+            depositAmounts[i] = depositLocker.marketHashToDepositorToAmountDeposited(marketHash, weirollWallet);
         }
 
         vm.startPrank(OWNER_ADDRESS);
-        predepositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
+        depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
         vm.stopPrank();
 
         vm.startPrank(MULTISIG_ADDRESS);
-        predepositLocker.setGreenLight(marketHash, true);
+        depositLocker.setGreenLight(marketHash, true);
         vm.stopPrank();
 
         vm.recordLogs();
         // Record the logs to capture Transfer events to get Weiroll wallet address
         vm.startPrank(IP_ADDRESS);
-        predepositLocker.bridge{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridge{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
         vm.stopPrank();
 
         // Get the encoded payload which will be passed in compose call on the destination chain

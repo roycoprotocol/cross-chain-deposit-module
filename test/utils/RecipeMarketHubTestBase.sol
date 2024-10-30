@@ -5,7 +5,7 @@ import "@royco/test/mocks/MockRecipeMarketHub.sol";
 
 import { MockERC20 } from "@royco/test/mocks/MockERC20.sol";
 import { MockERC4626 } from "@royco/test/mocks/MockERC4626.sol";
-import { PredepositExecutor } from "src/PredepositExecutor.sol";
+import { DepositExecutor } from "src/DepositExecutor.sol";
 
 import { RoycoTestBase } from "./RoycoTestBase.sol";
 import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
@@ -280,7 +280,7 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         bytes4 _depositSelector,
         address _helper,
         address _tokenAddress,
-        address _predepositLocker
+        address _depositLocker
     )
         internal
         pure
@@ -289,7 +289,7 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         bytes32[] memory commands = new bytes32[](3);
         bytes[] memory state = new bytes[](2);
 
-        state[0] = abi.encode(_predepositLocker);
+        state[0] = abi.encode(_depositLocker);
 
         // GET FILL AMOUNT
 
@@ -306,7 +306,7 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         // Encode args and add command to RecipeMarketHubBase.Recipe
         commands[0] = (bytes32(abi.encodePacked(WeirollWalletHelper.amount.selector, f, inputData, o, _helper)));
 
-        // APPROVE Predeposit Locker to spend tokens
+        // APPROVE Deposit Locker to spend tokens
 
         // CALL
         f = uint8(0x01);
@@ -321,7 +321,7 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         // Encode args and add command to RecipeMarketHubBase.Recipe
         commands[1] = (bytes32(abi.encodePacked(ERC20.approve.selector, f, inputData, o, _tokenAddress)));
 
-        // CALL DEPOSIT() in Predeposit Locker
+        // CALL DEPOSIT() in Deposit Locker
         f = uint8(0x01);
 
         // Input list: No arguments (END_OF_ARGS = 0xff)
@@ -332,12 +332,12 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         o = uint8(0xff);
 
         // Encode args and add command to RecipeMarketHubBase.Recipe
-        commands[2] = (bytes32(abi.encodePacked(_depositSelector, f, inputData, o, _predepositLocker)));
+        commands[2] = (bytes32(abi.encodePacked(_depositSelector, f, inputData, o, _depositLocker)));
 
         return RecipeMarketHubBase.Recipe(commands, state);
     }
 
-    function _buildWithdrawalRecipe(bytes4 _withdrawalSelector, address _predepositLocker) internal pure returns (RecipeMarketHubBase.Recipe memory) {
+    function _buildWithdrawalRecipe(bytes4 _withdrawalSelector, address _depositLocker) internal pure returns (RecipeMarketHubBase.Recipe memory) {
         bytes32[] memory commands = new bytes32[](1);
         bytes[] memory state = new bytes[](0);
 
@@ -356,13 +356,13 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         uint8 o = uint8(0xff);
 
         // Encode args and add command to RecipeMarketHubBase.Recipe
-        commands[0] = (bytes32(abi.encodePacked(_withdrawalSelector, f, inputData, o, _predepositLocker)));
+        commands[0] = (bytes32(abi.encodePacked(_withdrawalSelector, f, inputData, o, _depositLocker)));
 
         return RecipeMarketHubBase.Recipe(commands, state);
     }
 
     // Burn tokens that were deposited
-    function _buildBurnDepositRecipe(address _helper, address _tokenAddress) internal pure returns (PredepositExecutor.Recipe memory) {
+    function _buildBurnDepositRecipe(address _helper, address _tokenAddress) internal pure returns (DepositExecutor.Recipe memory) {
         bytes32[] memory commands = new bytes32[](2);
         bytes[] memory state = new bytes[](2);
 
@@ -380,7 +380,7 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         // 0xff ignores the output if any
         uint8 o = 0x01;
 
-        // Encode args and add command to PredepositExecutor.Recipe
+        // Encode args and add command to DepositExecutor.Recipe
         commands[0] = (bytes32(abi.encodePacked(WeirollWalletHelper.amount.selector, f, inputData, o, _helper)));
 
         // Send tokens to burn address
@@ -395,9 +395,9 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         // 0xff ignores the output if any
         o = 0xff;
 
-        // Encode args and add command to PredepositExecutor.Recipe
+        // Encode args and add command to DepositExecutor.Recipe
         commands[1] = (bytes32(abi.encodePacked(ERC20.transfer.selector, f, inputData, o, _tokenAddress)));
 
-        return PredepositExecutor.Recipe(commands, state);
+        return DepositExecutor.Recipe(commands, state);
     }
 }

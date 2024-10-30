@@ -3,14 +3,14 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Script.sol";
 
-// Import the PredepositExecutor contract and its dependencies
+// Import the DepositExecutor contract and its dependencies
 import { RecipeMarketHub, RewardStyle } from "@royco/src/RecipeMarketHub.sol";
 import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
-import "src/PredepositLocker.sol";
+import "src/DepositLocker.sol";
 
 contract SourceBridgeScript is Script {
     address constant weirollHelperAddress = 0xf8E66EaC95D27DD30A756ee1A2D2D96D392b61CB;
-    address payable constant predepositLockerAddress = payable(0x844F6B31f7D1240134B3d63ffC2b6f1c7F2612b6);
+    address payable constant depositLockerAddress = payable(0x844F6B31f7D1240134B3d63ffC2b6f1c7F2612b6);
     address constant usdc_address = 0x488327236B65C61A6c083e8d811a4E0D3d1D4268; // Stargate USDC on OP Sepolia
     uint256 constant numDepositors = 150;
     uint256 constant offerSize = 1e9 * numDepositors;
@@ -33,8 +33,8 @@ contract SourceBridgeScript is Script {
         // Create Market
 
         // RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
-        //     _buildDepositRecipe(PredepositLocker.deposit.selector, weirollHelperAddress, usdc_address, predepositLockerAddress);
-        // RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(PredepositLocker.withdraw.selector, predepositLockerAddress);
+        //     _buildDepositRecipe(DepositLocker.deposit.selector, weirollHelperAddress, usdc_address, depositLockerAddress);
+        // RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(DepositLocker.withdraw.selector, depositLockerAddress);
         // bytes32 marketHash = recipeMarketHub.createMarket(usdc_address, 8 weeks, 0.001e18, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
 
         bytes32 marketHash = bytes32(0xcd520b87754ed96438e199c82c143337c3024af70d0e26ea04f614377e687de8);
@@ -61,13 +61,13 @@ contract SourceBridgeScript is Script {
             depositorWallets[i] = weirollWallet;
         }
 
-        PredepositLocker predepositLocker = PredepositLocker(predepositLockerAddress);
+        DepositLocker depositLocker = DepositLocker(depositLockerAddress);
 
-        predepositLocker.setMulitsig(marketHash, deployer);
+        depositLocker.setMulitsig(marketHash, deployer);
 
-        predepositLocker.setGreenLight(marketHash, true);
+        depositLocker.setGreenLight(marketHash, true);
 
-        predepositLocker.bridge{ value: 1 ether }(marketHash, 25_000_000, depositorWallets);
+        depositLocker.bridge{ value: 1 ether }(marketHash, 25_000_000, depositorWallets);
 
         // Stop broadcasting transactions
         vm.stopBroadcast();
@@ -78,7 +78,7 @@ contract SourceBridgeScript is Script {
         bytes4 _depositSelector,
         address _helper,
         address _tokenAddress,
-        address _predepositLockerAddress
+        address _depositLockerAddress
     )
         internal
         pure
@@ -87,7 +87,7 @@ contract SourceBridgeScript is Script {
         bytes32[] memory commands = new bytes32[](3);
         bytes[] memory state = new bytes[](2);
 
-        state[0] = abi.encode(_predepositLockerAddress);
+        state[0] = abi.encode(_depositLockerAddress);
 
         // GET FILL AMOUNT
 
@@ -104,7 +104,7 @@ contract SourceBridgeScript is Script {
         // Encode args and add command to RecipeMarketHubBase.Recipe
         commands[0] = (bytes32(abi.encodePacked(WeirollWalletHelper.amount.selector, f, inputData, o, _helper)));
 
-        // APPROVE Predeposit Locker to spend tokens
+        // APPROVE Deposit Locker to spend tokens
 
         // CALL
         f = uint8(0x01);
@@ -119,7 +119,7 @@ contract SourceBridgeScript is Script {
         // Encode args and add command to RecipeMarketHubBase.Recipe
         commands[1] = (bytes32(abi.encodePacked(ERC20.approve.selector, f, inputData, o, _tokenAddress)));
 
-        // CALL DEPOSIT() in Predeposit Locker
+        // CALL DEPOSIT() in Deposit Locker
         f = uint8(0x01);
 
         // Input list: No arguments (END_OF_ARGS = 0xff)
@@ -130,12 +130,12 @@ contract SourceBridgeScript is Script {
         o = uint8(0xff);
 
         // Encode args and add command to RecipeMarketHubBase.Recipe
-        commands[2] = (bytes32(abi.encodePacked(_depositSelector, f, inputData, o, _predepositLockerAddress)));
+        commands[2] = (bytes32(abi.encodePacked(_depositSelector, f, inputData, o, _depositLockerAddress)));
 
         return RecipeMarketHubBase.Recipe(commands, state);
     }
 
-    function _buildWithdrawalRecipe(bytes4 _withdrawalSelector, address _predepositLockerAddress) internal pure returns (RecipeMarketHubBase.Recipe memory) {
+    function _buildWithdrawalRecipe(bytes4 _withdrawalSelector, address _depositLockerAddress) internal pure returns (RecipeMarketHubBase.Recipe memory) {
         bytes32[] memory commands = new bytes32[](1);
         bytes[] memory state = new bytes[](0);
 
@@ -154,7 +154,7 @@ contract SourceBridgeScript is Script {
         uint8 o = uint8(0xff);
 
         // Encode args and add command to RecipeMarketHubBase.Recipe
-        commands[0] = (bytes32(abi.encodePacked(_withdrawalSelector, f, inputData, o, _predepositLockerAddress)));
+        commands[0] = (bytes32(abi.encodePacked(_withdrawalSelector, f, inputData, o, _depositLockerAddress)));
 
         return RecipeMarketHubBase.Recipe(commands, state);
     }
