@@ -9,6 +9,7 @@ import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
 import { Ownable2Step, Ownable } from "@openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
 /// @title DepositLocker
+/// @author Shivaansh Kapoor, Jack Cordrry
 /// @notice A singleton contract for managing deposits for the destination chain on the source chain.
 /// @notice Facilitates deposits, withdrawals, and bridging deposits for all deposit markets.
 contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {

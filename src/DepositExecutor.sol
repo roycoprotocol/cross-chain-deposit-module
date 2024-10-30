@@ -11,6 +11,7 @@ import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 /// @title DepositExecutor
+/// @author Shivaansh Kapoor, Jack Cordrry
 /// @notice A singleton contract for receiving and deploying bridged deposits on the destination chain for all deposit campaigns.
 /// @notice This contract implements ILayerZeroComposer to act on compose messages sent from the source chain.
 contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTransient {
