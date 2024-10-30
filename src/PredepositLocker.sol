@@ -268,7 +268,7 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
         dstChainLzEid = _dstChainLzEid;
     }
 
-    /// @notice Sets the LayerZero Omnichain app instance for a given token.
+    /// @notice Sets the LayerZero Omnichain App instance for a given token.
     /// @param _token Token to set the LayerZero Omnichain App for.
     /// @param _lzOApp LayerZero Omnichain Application to use to bridge the specified token.
     function setLzOAppForToken(ERC20 _token, IOFT _lzOApp) external onlyOwner {
@@ -277,7 +277,7 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /// @notice Sets the PredepositExecutor address.
-    /// @param _predepositExecutor Address of the new PredepositExecutor.
+    /// @param _predepositExecutor Address of the new PredepositExecutor on the destination chain.
     function setPredepositExecutor(address _predepositExecutor) external onlyOwner {
         predepositExecutor = _predepositExecutor;
     }

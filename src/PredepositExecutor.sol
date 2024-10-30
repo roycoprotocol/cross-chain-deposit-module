@@ -11,7 +11,7 @@ import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 /// @title PredepositExecutor
-/// @notice A singleton contract for deploying bridged funds on the destination chain.
+/// @notice A singleton contract for receiving and deploying bridged deposits on the destination chain for all predeposit campaigns.
 /// @notice This contract implements ILayerZeroComposer to act on compose messages sent from the source chain.
 contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTransient {
     using ClonesWithImmutableArgs for address;
@@ -32,8 +32,8 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     /// @dev Represents a Predeposit Campaign on the destination chain.
     /// @custom:field dstInputToken The deposit token for the campaign on the destination chain.
     /// @custom:field unlockTimestamp  The ABSOLUTE timestamp until deposits will be locked for this campaign.
-    /// @custom:field depositRecipe The weiroll script executed on deposit (specified by the IP/owner of the campaign).
-    /// @custom:field withdrawalRecipe The weiroll script executed on withdrawal (specified by the IP/owner of the campaign).
+    /// @custom:field depositRecipe The Weiroll recipe executed on deposit (specified by the owner of the campaign).
+    /// @custom:field withdrawalRecipe The Weiroll recipe executed on withdrawal (specified by the owner of the campaign).
     struct PredepositCampaign {
         ERC20 dstInputToken;
         uint256 unlockTimestamp;
@@ -91,7 +91,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
 
     /// @notice Error emitted when setting a lzOApp for a token that doesn't match the OApp's underlying token
     error InvalidLzOAppForToken();
-    
+
     /// @notice Error emitted when the caller is not the owner of the Weiroll wallet.
     error NotOwner();
 
@@ -148,7 +148,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     /// @param _lzEndpoint The address of the LayerZero endpoint.
     /// @param _predepositTokens The tokens that are bridged to the destination chain from the source chain. (dest chain addresses)
     /// @param _lzOApps The corresponding LayerZero OApp instances for each predeposit token on the destination chain.
-    constructor(
+    constructor( 
         address _owner,
         address _weirollWalletImplementation,
         address _lzEndpoint,
@@ -189,7 +189,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
         lzEndpoint = _newLzEndpoint;
     }
 
-    /// @notice Sets the LayerZero Omnichain app instance for a given token.
+    /// @notice Sets the LayerZero Omnichain App instance for a given token.
     /// @param _token Token to set the LayerZero Omnichain App for.
     /// @param _lzOApp LayerZero Omnichain Application to use to bridge the specified token.
     function setLzOAppForToken(ERC20 _token, address _lzOApp) external onlyOwner {
