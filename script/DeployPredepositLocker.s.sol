@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Script.sol";
 
 // Import the PredepositLocker contract and its dependencies
-import "src/PredepositLocker.flattened.sol";
+import "src/PredepositLocker.sol";
 
 contract PredepositLockerDeployScript is Script {
     // State variables for external contract addresses and arrays
@@ -12,7 +12,7 @@ contract PredepositLockerDeployScript is Script {
     uint32 public chainDstEid;
     address public predepositExecutor;
     ERC20[] public predepositTokens;
-    IStargate[] public stargates;
+    IOFT[] public lzOApps;
     RecipeMarketHubBase public recipeMarketHub;
 
     function setUp() public {
@@ -32,7 +32,7 @@ contract PredepositLockerDeployScript is Script {
         predepositTokens.push(ERC20(address(0x488327236B65C61A6c083e8d811a4E0D3d1D4268))); // USDC on OP Sepolia
 
         // Corresponding Stargate instances for each token
-        stargates.push(IStargate(address(0x314B753272a3C79646b92A87dbFDEE643237033a))); // StargatePoolUSDC on OP Sepolia
+        lzOApps.push(IOFT(address(0x314B753272a3C79646b92A87dbFDEE643237033a))); // StargatePoolUSDC on OP Sepolia
 
         // Set the RecipeMarketHubBase contract address
         recipeMarketHub = RecipeMarketHubBase(address(0x828223B512BF1892229FeC61C5c1376BDED3a285)); // RecipeMarketHub on OP Sepolia
@@ -52,10 +52,10 @@ contract PredepositLockerDeployScript is Script {
         }
 
         // Ensure arrays have the same length
-        require(predepositTokens.length == stargates.length, "Array lengths of predeposit tokens and stargates must match");
+        require(predepositTokens.length == lzOApps.length, "Array lengths of predeposit tokens and lzOApps must match");
 
         // Deploy the PredepositLocker contract
-        PredepositLocker locker = new PredepositLocker(owner, chainDstEid, predepositExecutor, predepositTokens, stargates, recipeMarketHub);
+        PredepositLocker locker = new PredepositLocker(owner, chainDstEid, predepositExecutor, recipeMarketHub, predepositTokens, lzOApps);
 
         // Output the address of the deployed PredepositLocker contract
         console.log("PredepositLocker deployed at:", address(locker));

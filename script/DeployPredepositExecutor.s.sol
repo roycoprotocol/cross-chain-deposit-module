@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Script.sol";
 
 // Import the PredepositExecutor contract and its dependencies
-import "src/PredepositExecutor.flattened.sol";
+import "src/PredepositExecutor.sol";
 
 contract PredepositExecutorDeployScript is Script {
     // State variables for external contract addresses and arrays
@@ -12,7 +12,7 @@ contract PredepositExecutorDeployScript is Script {
     address public weirollWalletImplementation;
     address public lzEndpoint;
     ERC20[] public predepositTokens;
-    address[] public stargates;
+    address[] public lzOApps;
 
     function setUp() public {
         // Initialize state variables
@@ -31,7 +31,7 @@ contract PredepositExecutorDeployScript is Script {
         predepositTokens.push(ERC20(address(0x3253a335E7bFfB4790Aa4C25C4250d206E9b9773))); // USDC on ARB Sepolia
 
         // Corresponding Stargate instances for each token
-        stargates.push(address(0x543BdA7c6cA4384FE90B1F5929bb851F52888983)); // StargatePoolUSDC on ARB Sepolia
+        lzOApps.push(address(0x543BdA7c6cA4384FE90B1F5929bb851F52888983)); // StargatePoolUSDC on ARB Sepolia
     }
 
     function run() public {
@@ -48,10 +48,10 @@ contract PredepositExecutorDeployScript is Script {
         }
 
         // Ensure arrays have the same length
-        require(predepositTokens.length == stargates.length, "Array lengths of predeposit tokens and stargates must match");
+        require(predepositTokens.length == lzOApps.length, "Array lengths of predeposit tokens and lzOApps must match");
 
         // Deploy the PredepositExecutor contract
-        PredepositExecutor executor = new PredepositExecutor(owner, weirollWalletImplementation, lzEndpoint, predepositTokens, stargates);
+        PredepositExecutor executor = new PredepositExecutor(owner, weirollWalletImplementation, lzEndpoint, predepositTokens, lzOApps);
 
         // Output the address of the deployed PredepositExecutor contract
         console.log("PredepositExecutor deployed at:", address(executor));

@@ -5,7 +5,7 @@ pragma solidity ^0.8.0;
 import { PredepositLocker, RecipeMarketHubBase, ERC20 } from "src/PredepositLocker.sol";
 import { RecipeMarketHubTestBase, RecipeMarketHubBase, WeirollWalletHelper, WeirollWallet, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
 import { PredepositExecutor } from "src/PredepositExecutor.sol";
-import { IStargate, IOFT } from "src/interfaces/IStargate.sol";
+import { IOFT } from "src/interfaces/IOFT.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
 import { Vm } from "lib/forge-std/src/Vm.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
@@ -55,13 +55,13 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
         ERC20[] memory predepositTokens = new ERC20[](1);
-        address[] memory stargates = new address[](1);
+        address[] memory lzOApps = new address[](1);
 
         predepositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
-        stargates[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS; // Stargate USDC Pool on Polygon Mainnet
+        lzOApps[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS; // Stargate USDC Pool on Polygon Mainnet
 
         PredepositExecutor predepositExecutor =
-            new PredepositExecutor(OWNER_ADDRESS, address(weirollImplementation), POLYGON_LZ_ENDPOINT, predepositTokens, stargates);
+            new PredepositExecutor(OWNER_ADDRESS, address(weirollImplementation), POLYGON_LZ_ENDPOINT, predepositTokens, lzOApps);
 
         vm.startPrank(OWNER_ADDRESS);
         predepositExecutor.createPredepositCampaign(sourceMarketHash, IP_ADDRESS, ERC20(USDC_POLYGON_ADDRESS));
@@ -170,15 +170,17 @@ contract Test_PredepositExecutor is RecipeMarketHubTestBase {
 
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        ERC20[] memory predepositTokens = new ERC20[](1);
-        IStargate[] memory stargates = new IStargate[](1);
+        ERC20[] memory predepositTokens = new ERC20[](2);
+        IOFT[] memory lzOApps = new IOFT[](2);
 
         predepositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
-        stargates[0] = IStargate(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
+        lzOApps[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
+        predepositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
+        lzOApps[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
         PredepositLocker predepositLocker = new PredepositLocker(
-            OWNER_ADDRESS, 30_284, address(0xbeef), WBTC_MAINNET_ADDRESS, IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS), recipeMarketHub, predepositTokens, stargates
+            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, predepositTokens, lzOApps
         );
 
         numDepositors = bound(numDepositors, 1, predepositLocker.MAX_DEPOSITORS_PER_BRIDGE());

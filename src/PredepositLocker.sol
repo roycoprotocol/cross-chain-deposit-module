@@ -4,13 +4,13 @@ pragma solidity ^0.8.0;
 import { RecipeMarketHubBase, ERC20, SafeTransferLib } from "@royco/src/RecipeMarketHub.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
-import { IStargate, IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src/interfaces/IStargate.sol";
+import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src/interfaces/IOFT.sol";
 import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
 import { Ownable2Step, Ownable } from "@openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
 /// @title PredepositLocker
 /// @notice A singleton contract for managing predeposits for the destination chain on the source chain.
-/// @notice Manages deposits, withdrawals, and bridging deposits for all predeposit markets.
+/// @notice Facilitates deposits, withdrawals, and bridging deposits for all predeposit markets.
 contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
     using SafeTransferLib for ERC20;
     using OptionsBuilder for bytes;
@@ -26,20 +26,14 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The RecipeMarketHub keeping track of all markets and offers.
     RecipeMarketHubBase public immutable RECIPE_MARKET_HUB;
 
-    // Address of wBTC on source chain
-    // Bridge needs to be handled through LayerZero OFT instead of Stargate
-    address public immutable WBTC_ADDRESS;
-
-    // Address of wBTC OFT Adapter on source chain - Facilitates wBTC bridging
-    IOFT public immutable WBTC_OFT_ADAPTER;
-
     /// @notice The LayerZero endpoint ID for the destination chain.
     uint32 public dstChainLzEid;
 
-    /// @notice Mapping of ERC20 token to its corresponding Stargate bridge entrypoint.
-    mapping(ERC20 => IStargate) public tokenToStargatePool;
+    /// @notice Mapping of an ERC20 token to its corresponding LayerZero Omnichain Application (Stargate Pool, Stargate Hydra, OFT Adapters, etc.)
+    mapping(ERC20 => IOFT) public tokenToLzOApp;
 
     /// @notice Address of the PredepositExecutor on the destination chain.
+    /// @notice This address will receive all bridged tokens and be responsible for executing all lzCompose logic on the destination chain.
     address public predepositExecutor;
 
     /// @notice Mapping from Royco Market Hash to the multisig address between the market's IP and the destination chain.
@@ -64,11 +58,8 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Emitted when funds are bridged to the destination chain.
     event BridgedToDestinationChain(bytes32 indexed guid, uint64 indexed nonce, bytes32 indexed marketHash, uint256 amountBridged);
 
-    /// @notice Error emitted when setting an OFT adapter for wBTC that doesn't match the OFT's underlying token
-    error InvalidOFTAdapterForWBTC();
-
-    /// @notice Error emitted when setting a stargate pool for a token that doesn't match the pool's underlying token
-    error InvalidStargatePoolForToken();
+    /// @notice Error emitted when setting a lzOApp for a token that doesn't match the OApp's underlying token
+    error InvalidLzOAppForToken();
 
     /// @notice Error emitted when calling withdraw with nothing deposited
     error NothingToWithdraw();
@@ -85,8 +76,11 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when attempting to bridge more than the bridge limit
     error ExceededDepositorsPerBridgeLimit();
 
-    /// @notice Error emitted when insufficient ETH is provided for the bridge fee.
-    error InsufficientEthForBridge();
+    /// @notice Error emitted when attempting to bridge 0 depositors.
+    error MustBridgeAtLeastOneDepositor();
+
+    /// @notice Error emitted when insufficient msg.value is provided for the bridge fee.
+    error InsufficientMsgValueForBridge();
 
     /// @notice Error emitted when bridging all the specified deposits fails.
     error FailedToBridgeAllDeposits();
@@ -111,43 +105,33 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
                                    Functions
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Constructor to initialize the contract.
+    /// @notice Initialize the PredepositLocker Contract.
     /// @param _owner The address of the owner of the contract.
-    /// @param _dstChainLzEid Destination LayerZero endpoint ID for the destination chain.
-    /// @param _predepositExecutor Address of the the PredepositExecutor on the destination chain.
-    /// @param _wBTC_Address The address of wBTC on the source chain.
-    /// @param _wBTC_OFT_Adapter The LayerZero wBTC OFT Adapter on the source chain.
-    /// @param _recipe_market_hub Address of the recipe market hub used to create markets on the source chain.
-    /// @param _stargatePredepositTokens The tokens to bridge to the destination chain using stargate on the source chain.
-    /// @param _stargatePools The corresponding stargate pool instances for each stargate supported token on the source chain.
+    /// @param _dstChainLzEid The destination LayerZero endpoint ID for the destination chain.
+    /// @param _predepositExecutor The address of the the PredepositExecutor on the destination chain.
+    /// @param _recipeMarketHub The address of the recipe market hub used to create markets on the source chain.
+    /// @param _predepositTokens The tokens to bridge to the destination chain from the source chain. (source chain addresses)
+    /// @param _lzOApps The corresponding LayerZero OApp instances for each predeposit token on the source chain.
     constructor(
         address _owner,
         uint32 _dstChainLzEid,
         address _predepositExecutor,
-        address _wBTC_Address,
-        IOFT _wBTC_OFT_Adapter,
-        RecipeMarketHubBase _recipe_market_hub,
-        ERC20[] memory _stargatePredepositTokens,
-        IStargate[] memory _stargatePools
+        RecipeMarketHubBase _recipeMarketHub,
+        ERC20[] memory _predepositTokens,
+        IOFT[] memory _lzOApps
     )
         Ownable(_owner)
     {
-        // Check that each token that will be bridged using stargate has a corresponding stargate pool
-        require(_stargatePredepositTokens.length == _stargatePools.length, ArrayLengthMismatch());
-        // Check that wBTC OFT Adapter is valid
-        require(_wBTC_OFT_Adapter.token() == address(_wBTC_Address), InvalidOFTAdapterForWBTC());
-
-        // Set immutable variables
-        RECIPE_MARKET_HUB = _recipe_market_hub;
-        WBTC_ADDRESS = _wBTC_Address;
-        WBTC_OFT_ADAPTER = _wBTC_OFT_Adapter;
+        // Check that each token that will be bridged has a corresponding LZOApp instance
+        require(_predepositTokens.length == _lzOApps.length, ArrayLengthMismatch());
 
         // Initialize the contract state
-        for (uint256 i = 0; i < _stargatePredepositTokens.length; ++i) {
-            // Check that the token has a valid corresponding stargate pool
-            require(_stargatePools[i].token() == address(_stargatePredepositTokens[i]), InvalidStargatePoolForToken());
-            tokenToStargatePool[_stargatePredepositTokens[i]] = _stargatePools[i];
+        for (uint256 i = 0; i < _predepositTokens.length; ++i) {
+            // Check that the token has a valid corresponding lzOApp
+            require(_lzOApps[i].token() == address(_predepositTokens[i]), InvalidLzOAppForToken());
+            tokenToLzOApp[_predepositTokens[i]] = _lzOApps[i];
         }
+        RECIPE_MARKET_HUB = _recipeMarketHub;
         dstChainLzEid = _dstChainLzEid;
         predepositExecutor = _predepositExecutor;
     }
@@ -222,21 +206,21 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 totalAmountToBridge;
 
         for (uint256 i = 0; i < _depositorWeirollWallets.length; ++i) {
-            WeirollWallet wallet = WeirollWallet(_depositorWeirollWallets[i]);
-
-            // Get deposited amount
-            uint96 depositAmount = uint96(marketHashToDepositorToAmountDeposited[_marketHash][_depositorWeirollWallets[i]]);
+            // Get amount deposited by the Weiroll Wallet
+            uint256 depositAmount = marketHashToDepositorToAmountDeposited[_marketHash][_depositorWeirollWallets[i]];
             if (depositAmount == 0 || depositAmount > type(uint96).max) {
                 continue; // Skip if didn't deposit or deposit amount is too much to bridge
             }
+            // Update the total amount to bridge and clear the depositor's deposit amount
             totalAmountToBridge += depositAmount;
             delete marketHashToDepositorToAmountDeposited[_marketHash][_depositorWeirollWallets[i]];
 
-            // Encode depositor's payload
-            bytes32 apPayload = bytes32(abi.encodePacked(wallet.owner(), depositAmount));
-            // Concatenate depositor's payload with compose message
-            composeMsg = abi.encodePacked(composeMsg, apPayload);
+            // Concatenate depositor's payload (32 bytes) to the lz compose message
+            composeMsg = abi.encodePacked(composeMsg, WeirollWallet(_depositorWeirollWallets[i]).owner(), uint96(depositAmount));
         }
+
+        // Ensure that at least one depositor was included in the bridge payload
+        require(totalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
         // Prepare SendParam for bridging
         SendParam memory sendParam = SendParam({
@@ -252,41 +236,24 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the market's input token
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
 
-        // Declare variables used for bridge
-        MessagingFee memory messagingFee;
-        MessagingReceipt memory messageReceipt;
-        OFTReceipt memory bridgeReceipt;
+        // Get the lzOApp for the market's input token
+        IOFT lzOApp = tokenToLzOApp[marketInputToken];
 
-        if (address(marketInputToken) == WBTC_ADDRESS) {
-            // If the token to bridge is wBTC use the LZ OFT adapter
-            // Get fee quote for bridging
-            messagingFee = WBTC_OFT_ADAPTER.quoteSend(sendParam, false);
-            require(msg.value >= messagingFee.nativeFee, InsufficientEthForBridge());
+        // Get fee quote for bridging
+        MessagingFee memory messagingFee = lzOApp.quoteSend(sendParam, false);
+        require(msg.value >= messagingFee.nativeFee, InsufficientMsgValueForBridge());
 
-            // Approve the wBTC OFT adapter to bridge tokens
-            marketInputToken.safeApprove(address(WBTC_OFT_ADAPTER), totalAmountToBridge);
+        // Approve the lzOApp to bridge tokens
+        marketInputToken.safeApprove(address(lzOApp), totalAmountToBridge);
 
-            // Execute the bridge transaction
-            (messageReceipt, bridgeReceipt) = WBTC_OFT_ADAPTER.send{ value: messagingFee.nativeFee }(sendParam, messagingFee, address(this));
-        } else {
-            // If the token to bridge isn't wBTC use the corresponding Stargate Pool
-            IStargate stargate = tokenToStargatePool[marketInputToken];
-
-            // Get fee quote for bridging
-            messagingFee = stargate.quoteSend(sendParam, false);
-            require(msg.value >= messagingFee.nativeFee, InsufficientEthForBridge());
-
-            // Approve Stargate to bridge tokens
-            marketInputToken.safeApprove(address(stargate), totalAmountToBridge);
-
-            // Execute the bridge transaction
-            (messageReceipt, bridgeReceipt,) = stargate.sendToken{ value: messagingFee.nativeFee }(sendParam, messagingFee, address(this));
-        }
+        // Execute the bridge transaction
+        (MessagingReceipt memory messageReceipt, OFTReceipt memory bridgeReceipt) =
+            lzOApp.send{ value: messagingFee.nativeFee }(sendParam, messagingFee, address(this));
 
         // Ensure that all deposits were bridged
         require(totalAmountToBridge == bridgeReceipt.amountReceivedLD, FailedToBridgeAllDeposits());
 
-        // Refund excess ETH
+        // Refund excess value sent with the transaction
         if (msg.value > messagingFee.nativeFee) {
             payable(msg.sender).transfer(msg.value - messagingFee.nativeFee);
         }
@@ -301,12 +268,12 @@ contract PredepositLocker is Ownable2Step, ReentrancyGuardTransient {
         dstChainLzEid = _dstChainLzEid;
     }
 
-    /// @notice Sets the Stargate instance for a given token.
-    /// @param _token Token to set a Stargate pool instance for.
-    /// @param _stargatePool Stargate pool instance to set for the specified token.
-    function setStargatePool(ERC20 _token, IStargate _stargatePool) external onlyOwner {
-        require(_stargatePool.token() == address(_token), InvalidStargatePoolForToken());
-        tokenToStargatePool[_token] = _stargatePool;
+    /// @notice Sets the LayerZero Omnichain app instance for a given token.
+    /// @param _token Token to set the LayerZero Omnichain App for.
+    /// @param _lzOApp LayerZero Omnichain Application to use to bridge the specified token.
+    function setLzOAppForToken(ERC20 _token, IOFT _lzOApp) external onlyOwner {
+        require(_lzOApp.token() == address(_token), InvalidLzOAppForToken());
+        tokenToLzOApp[_token] = _lzOApp;
     }
 
     /// @notice Sets the PredepositExecutor address.

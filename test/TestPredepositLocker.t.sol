@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 // Import the PredepositLocker contract and its dependencies
 import { PredepositLocker, RecipeMarketHubBase, ERC20 } from "src/PredepositLocker.sol";
 import { RecipeMarketHubTestBase, RecipeMarketHubBase, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
-import { IStargate, IOFT } from "src/interfaces/IStargate.sol";
+import { IOFT } from "src/interfaces/IOFT.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
 import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
 import { MockWBtcOftAdapter } from "test/mocks/MockWBtcOftAdapter.sol";
@@ -18,7 +18,7 @@ contract Test_DepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase
     address FRONTEND_FEE_RECIPIENT;
 
     ERC20[] public predepositTokens;
-    IStargate[] public stargates;
+    IOFT[] public lzOApps;
 
     PredepositLocker predepositLocker;
     WeirollWalletHelper walletHelper;
@@ -38,7 +38,7 @@ contract Test_DepositsAndWithdrawals_PredepositLocker is RecipeMarketHubTestBase
 
         MockWBtcOftAdapter adapter = new MockWBtcOftAdapter();
 
-        predepositLocker = new PredepositLocker(OWNER_ADDRESS, 0, address(0), WBTC_MAINNET_ADDRESS, IOFT(adapter), recipeMarketHub, predepositTokens, stargates);
+        predepositLocker = new PredepositLocker(OWNER_ADDRESS, 0, address(0), recipeMarketHub, predepositTokens, lzOApps);
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(PredepositLocker.deposit.selector, address(walletHelper), address(mockLiquidityToken), address(predepositLocker));

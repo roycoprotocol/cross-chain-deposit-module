@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 // Import the PredepositLocker contract and its dependencies
 import { PredepositLocker, RecipeMarketHubBase, ERC20 } from "src/PredepositLocker.sol";
 import { RecipeMarketHubTestBase, RecipeMarketHubBase, WeirollWalletHelper, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
-import { IStargate, IOFT } from "src/interfaces/IStargate.sol";
+import { IOFT } from "src/interfaces/IOFT.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
 
 // Test Bridging Deposits on ETH Mainnet fork
@@ -37,16 +37,16 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
 
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        ERC20[] memory predepositTokens = new ERC20[](1);
-        IStargate[] memory stargates = new IStargate[](1);
+        ERC20[] memory predepositTokens = new ERC20[](2);
+        IOFT[] memory lzOApps = new IOFT[](2);
 
         predepositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
-        stargates[0] = IStargate(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
+        lzOApps[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
+        predepositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
+        lzOApps[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
-        PredepositLocker predepositLocker = new PredepositLocker(
-            OWNER_ADDRESS, 30_284, address(0xbeef), WBTC_MAINNET_ADDRESS, IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS), recipeMarketHub, predepositTokens, stargates
-        );
+        PredepositLocker predepositLocker = new PredepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, predepositTokens, lzOApps);
 
         numDepositors = bound(numDepositors, 1, predepositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -100,7 +100,7 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         vm.expectEmit(true, true, true, true, USDC_MAINNET_ADDRESS);
-        emit ERC20.Transfer(address(predepositLocker), address(predepositLocker.tokenToStargatePool(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
+        emit ERC20.Transfer(address(predepositLocker), address(predepositLocker.tokenToLzOApp(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
 
         vm.expectEmit(false, false, true, false, address(predepositLocker));
         emit PredepositLocker.BridgedToDestinationChain(bytes32(0), 0, marketHash, offerAmount);
@@ -125,13 +125,16 @@ contract Test_BridgeDeposits_PredepositLocker is RecipeMarketHubTestBase {
 
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        ERC20[] memory predepositTokens = new ERC20[](0);
-        IStargate[] memory stargates = new IStargate[](0);
+        ERC20[] memory predepositTokens = new ERC20[](2);
+        IOFT[] memory lzOApps = new IOFT[](2);
+
+        predepositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
+        lzOApps[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
+        predepositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
+        lzOApps[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to Avax
-        PredepositLocker predepositLocker = new PredepositLocker(
-            OWNER_ADDRESS, 30_106, address(0xbeef), WBTC_MAINNET_ADDRESS, IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS), recipeMarketHub, predepositTokens, stargates
-        );
+        PredepositLocker predepositLocker = new PredepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, predepositTokens, lzOApps);
 
         numDepositors = bound(numDepositors, 1, predepositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 

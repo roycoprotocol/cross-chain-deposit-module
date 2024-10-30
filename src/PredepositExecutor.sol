@@ -6,11 +6,12 @@ import { Ownable2Step, Ownable } from "@openzeppelin-contracts/contracts/access/
 import { ILayerZeroComposer } from "src/interfaces/ILayerZeroComposer.sol";
 import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
 import { ClonesWithImmutableArgs } from "@clones-with-immutable-args/ClonesWithImmutableArgs.sol";
+import { IOFT } from "src/interfaces/IOFT.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 /// @title PredepositExecutor
-/// @notice A singleton contract for deploying bridged funds to the appropriate protocols on Berachain.
+/// @notice A singleton contract for deploying bridged funds on the destination chain.
 /// @notice This contract implements ILayerZeroComposer to act on compose messages sent from the source chain.
 contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTransient {
     using ClonesWithImmutableArgs for address;
@@ -20,21 +21,21 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
                                Structures
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Represents the recipe containing weiroll commands and state.
-    /// @custom:field weirollCommands The weiroll script executed on an AP's weiroll wallet after receiving the inputToken.
-    /// @custom:field weirollState State of the weiroll VM, necessary for executing the weiroll script.
+    /// @dev Represents a recipe containing Weiroll commands and state.
+    /// @custom:field weirollCommands The weiroll script executed on an depositor's Weiroll Wallet.
+    /// @custom:field weirollState State of the Weiroll VM, necessary for executing the Weiroll script.
     struct Recipe {
         bytes32[] weirollCommands;
         bytes[] weirollState;
     }
 
-    /// @dev Represents a campaign with associated input token and recipes.
-    /// @custom:field inputToken The deposit token for the campaign.
+    /// @dev Represents a Predeposit Campaign on the destination chain.
+    /// @custom:field dstInputToken The deposit token for the campaign on the destination chain.
     /// @custom:field unlockTimestamp  The ABSOLUTE timestamp until deposits will be locked for this campaign.
     /// @custom:field depositRecipe The weiroll script executed on deposit (specified by the IP/owner of the campaign).
     /// @custom:field withdrawalRecipe The weiroll script executed on withdrawal (specified by the IP/owner of the campaign).
     struct PredepositCampaign {
-        ERC20 inputToken;
+        ERC20 dstInputToken;
         uint256 unlockTimestamp;
         Recipe depositRecipe;
         Recipe withdrawalRecipe;
@@ -50,13 +51,13 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     /// @notice The address of the LayerZero endpoint.
     address public lzEndpoint;
 
-    /// @notice Mapping of ERC20 token to its corresponding Stargate bridge entrypoint.
-    mapping(ERC20 => address) public tokenToStargatePool;
+    /// @notice Mapping of an ERC20 token to its corresponding LayerZero Omnichain Application (Stargate Pool, Stargate Hydra, OFT Adapters, etc.)
+    mapping(ERC20 => address) public tokenToLzOApp;
 
-    /// @dev Mapping from campaign hash to owner address.
+    /// @dev Mapping from a market hash on the source chain to its owner's address.
     mapping(bytes32 => address) public sourceMarketHashToOwner;
 
-    /// @dev Mapping from campaign hash to PredepositCampaign struct.
+    /// @dev Mapping from a market hash on the source chain to its PredepositCampaign struct.
     mapping(bytes32 => PredepositCampaign) public sourceMarketHashToPredepositCampaign;
 
     /*//////////////////////////////////////////////////////////////
@@ -88,6 +89,9 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     /// @notice Error emitted when array lengths mismatch.
     error ArrayLengthMismatch();
 
+    /// @notice Error emitted when setting a lzOApp for a token that doesn't match the OApp's underlying token
+    error InvalidLzOAppForToken();
+    
     /// @notice Error emitted when the caller is not the owner of the Weiroll wallet.
     error NotOwner();
 
@@ -97,11 +101,11 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     /// @notice Error emitted when trying to execute deposit recipe more than once.
     error DepositRecipeAlreadyExecuted();
 
-    /// @notice Error emitted when the caller of the lzCompose function isn't the valid endpoint address.
-    error NotFromValidEndpoint();
+    /// @notice Error emitted when the caller of the lzCompose function isn't the LZ endpoint address for destination chain.
+    error NotFromLzEndpoint();
 
-    /// @notice Error emitted when the _from in the lzCompose function isn't the correct Stargate address.
-    error NotFromStargatePool();
+    /// @notice Error emitted when the _from in the lzCompose function isn't the correct LayerZero OApp address.
+    error NotFromLzOApp();
 
     /// @notice Error emitted when reading from bytes array is out of bounds.
     error EOF();
@@ -138,26 +142,28 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
                              Constructor
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Constructor to initialize the contract.
+    /// @notice Initialize the PredepositExecutor Contract.
     /// @param _owner The address of the owner of this contract.
     /// @param _weirollWalletImplementation The address of the Weiroll wallet implementation.
     /// @param _lzEndpoint The address of the LayerZero endpoint.
-    /// @param _predepositTokens The tokens to bridge to Berachain.
-    /// @param _stargatePools The corresponding stargate pools instances for each bridgable token.
+    /// @param _predepositTokens The tokens that are bridged to the destination chain from the source chain. (dest chain addresses)
+    /// @param _lzOApps The corresponding LayerZero OApp instances for each predeposit token on the destination chain.
     constructor(
         address _owner,
         address _weirollWalletImplementation,
         address _lzEndpoint,
         ERC20[] memory _predepositTokens,
-        address[] memory _stargatePools
+        address[] memory _lzOApps
     )
         Ownable(_owner)
     {
-        require(_predepositTokens.length == _stargatePools.length, ArrayLengthMismatch());
+        require(_predepositTokens.length == _lzOApps.length, ArrayLengthMismatch());
 
         // Initialize the contract state
         for (uint256 i = 0; i < _predepositTokens.length; ++i) {
-            tokenToStargatePool[_predepositTokens[i]] = _stargatePools[i];
+            // Check that the token has a valid corresponding lzOApp
+            require(IOFT(_lzOApps[i]).token() == address(_predepositTokens[i]), InvalidLzOAppForToken());
+            tokenToLzOApp[_predepositTokens[i]] = _lzOApps[i];
         }
 
         WEIROLL_WALLET_IMPLEMENTATION = _weirollWalletImplementation;
@@ -171,10 +177,10 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
     /// @notice Creates a new campaign with the specified parameters.
     /// @param _sourceMarketHash The unique identifier for the campaign.
     /// @param _owner The address of the campaign owner.
-    /// @param _inputToken The ERC20 token used as input for the campaign.
-    function createPredepositCampaign(bytes32 _sourceMarketHash, address _owner, ERC20 _inputToken) external onlyOwner {
+    /// @param _dstInputToken The ERC20 token used as input for the campaign.
+    function createPredepositCampaign(bytes32 _sourceMarketHash, address _owner, ERC20 _dstInputToken) external onlyOwner {
         sourceMarketHashToOwner[_sourceMarketHash] = _owner;
-        sourceMarketHashToPredepositCampaign[_sourceMarketHash].inputToken = _inputToken;
+        sourceMarketHashToPredepositCampaign[_sourceMarketHash].dstInputToken = _dstInputToken;
     }
 
     /// @notice Sets the LayerZero endpoint address for this chain.
@@ -183,11 +189,12 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
         lzEndpoint = _newLzEndpoint;
     }
 
-    /// @notice Sets the Stargate instance for a given token.
-    /// @param _token Token to set a Stargate pool instance for.
-    /// @param _stargatePool Stargate pool instance to set for the specified token.
-    function setStargatePool(ERC20 _token, address _stargatePool) external onlyOwner {
-        tokenToStargatePool[_token] = _stargatePool;
+    /// @notice Sets the LayerZero Omnichain app instance for a given token.
+    /// @param _token Token to set the LayerZero Omnichain App for.
+    /// @param _lzOApp LayerZero Omnichain Application to use to bridge the specified token.
+    function setLzOAppForToken(ERC20 _token, address _lzOApp) external onlyOwner {
+        require(IOFT(_lzOApp).token() == address(_token), InvalidLzOAppForToken());
+        tokenToLzOApp[_token] = _lzOApp;
     }
 
     /// @notice Sets a new owner for the specified campaign.
@@ -226,7 +233,7 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
      */
     function lzCompose(address _from, bytes32 _guid, bytes calldata _message, address, bytes calldata) external payable nonReentrant {
         // Ensure the caller is the LayerZero endpoint
-        require(msg.sender == lzEndpoint, NotFromValidEndpoint());
+        require(msg.sender == lzEndpoint, NotFromLzEndpoint());
 
         // Extract the compose message from the _message
         bytes memory composeMessage = OFTComposeMsgCodec.composeMsg(_message);
@@ -241,13 +248,15 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
                 sourceMarketHash := mload(add(composeMessage, 32))
             }
 
+            PredepositCampaign storage predepositCampaign = sourceMarketHashToPredepositCampaign[sourceMarketHash];
+
             // Get the market's input token
-            ERC20 campaignInputToken = sourceMarketHashToPredepositCampaign[sourceMarketHash].inputToken;
+            ERC20 campaignInputToken = predepositCampaign.dstInputToken;
 
-            // Ensure that the _from address is the expected Stargate contract
-            require(_from == tokenToStargatePool[campaignInputToken], NotFromStargatePool());
+            // Ensure that the _from address is the expected LayerZero OApp contract for this token
+            require(_from == tokenToLzOApp[campaignInputToken], NotFromLzOApp());
 
-            uint256 unlockTimestampForPredepositCampaign = sourceMarketHashToPredepositCampaign[sourceMarketHash].unlockTimestamp;
+            uint256 unlockTimestamp = predepositCampaign.unlockTimestamp;
 
             // Calculate the offset to start reading depositor data
             uint256 offset = 32; // Start at the byte after the sourceMarketHash
@@ -269,12 +278,12 @@ contract PredepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuard
                 offset += 12;
 
                 // Deploy or retrieve the Weiroll wallet for the depositor
-                address weirollWallet = _deployWeirollWallet(sourceMarketHash, apAddress, depositAmount, unlockTimestampForPredepositCampaign);
+                address weirollWallet = _deployWeirollWallet(sourceMarketHash, apAddress, depositAmount, unlockTimestamp);
 
                 // Transfer the deposited tokens to the Weiroll wallet
                 campaignInputToken.safeTransfer(weirollWallet, depositAmount);
 
-                // Push fresh weiroll wallet to creation array
+                // Push fresh weiroll wallet to wallets created array
                 weirollWalletsCreated[currIndex++] = weirollWallet;
             }
 
