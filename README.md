@@ -8,7 +8,7 @@ This module allows users to deposit funds on one chain (source) and have those f
 
 ### Key Components
 
-1. **[RecipeMarketHub](https://github.com/roycoprotocol/royco/blob/main/src/RecipeMarketHub.sol)**: A hub for all interactions between APs and IPs on Royco
+1. **[RecipeMarketHub](https://github.com/roycoprotocol/royco/blob/main/src/RecipeMarketHub.sol)**: A hub for all recipe market interactions between APs and IPs on Royco
    - Permissionless market creation, offer creation, and offer filling
    - Creation of Weiroll Wallets and automatic execution of deposit recipes for APs upon filling an offer
    - Allows APs to execute withdrawal recipes to reclaim their funds as per the market's parameters
