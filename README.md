@@ -1,4 +1,4 @@
-# Cross-Chain Deposit Module (CCDM)
+# Cross-Chain Deposit Module (CCDM) [![Tests](https://github.com/roycoprotocol/cross-chain-deposit-module/actions/workflows/test.yml/badge.svg)](https://github.com/roycoprotocol/cross-chain-deposit-module/actions/workflows/test.yml)
 
 The Cross-Chain Deposit Module (CCDM) is a sophisticated system designed to facilitate cross-chain deposit campaigns for protocols that want users (APs) to commit liquidity from a source chain into protocols on a destination chain. It consists of two main components: the ```DepositLocker``` on the source chain and the ```DepositExecutor``` on the destination chain.
 
