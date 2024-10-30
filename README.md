@@ -30,10 +30,9 @@ This module allows users to deposit funds on one chain and have those funds brid
 
 ## Key Features
 
-- Integration with RecipeMarketHub for market management, offer creation and fulfillment, and Weiroll Wallet executions
-- Bridging funds and a composed payload using LayerZero
-- Customizable deposit and withdrawal recipes on the destination chain
-- Flexible locking mechanisms for deposited funds
+- Integration with RecipeMarketHub for market management, offer creation and fulfillment, and Weiroll Wallet executions on the source chain
+- Bridging funds and a payload containing depositor information using LayerZero
+- Weiroll Wallets created for each depositor on the destination chain with the ability to deposit and withdraw assets as specified by the campaign's recipes
 
 ## CPM Flow
 1. AP (depositor) fills an offer for a predeposit market in the RecipeMarketHub
