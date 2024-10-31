@@ -41,7 +41,7 @@ jobs:
           version: nightly
 
       - name: Run Solhint linter
-        run: npx solhint "src/*.sol"
+        run: npx solhint "src/core/*.sol" && npx solhint "src/periphery/*.sol"
 
       - name: Test
         run: yarn test
