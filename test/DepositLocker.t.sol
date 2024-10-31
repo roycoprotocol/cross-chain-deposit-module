@@ -7,7 +7,6 @@ import { RecipeMarketHubTestBase, RecipeMarketHubBase, RewardStyle, Points } fro
 import { IOFT } from "src/interfaces/IOFT.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
 import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
-import { MockWBtcOftAdapter } from "test/mocks/MockWBtcOftAdapter.sol";
 
 // Test depositing and withdrawing to/from the DepositLocker through a Royco Market
 // This will simulate the expected behaviour on the source chain of a Deposit Campaign
@@ -35,8 +34,6 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
 
         IP_ADDRESS = ALICE_ADDRESS;
         FRONTEND_FEE_RECIPIENT = CHARLIE_ADDRESS;
-
-        MockWBtcOftAdapter adapter = new MockWBtcOftAdapter();
 
         depositLocker = new DepositLocker(OWNER_ADDRESS, 0, address(0), recipeMarketHub, depositTokens, lzOApps);
 
