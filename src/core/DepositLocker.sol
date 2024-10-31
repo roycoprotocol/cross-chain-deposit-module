@@ -14,7 +14,7 @@ enum BridgeType {
 }
 
 /// @title DepositLocker
-/// @author Shivaansh Kapoor, Jack Cordrry
+/// @author Shivaansh Kapoor, Jack Corddry
 /// @notice A singleton contract for managing deposits for the destination chain on the source chain.
 /// @notice Facilitates deposits, withdrawals, and bridging deposits for all deposit markets.
 contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {

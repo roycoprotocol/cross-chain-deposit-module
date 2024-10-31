@@ -12,7 +12,7 @@ import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/Reentran
 import { BridgeType } from "src/core/DepositLocker.sol";
 
 /// @title DepositExecutor
-/// @author Shivaansh Kapoor, Jack Cordrry
+/// @author Shivaansh Kapoor, Jack Corddry
 /// @notice A singleton contract for receiving and deploying bridged deposits on the destination chain for all deposit campaigns.
 /// @notice This contract implements ILayerZeroComposer to act on compose messages sent from the source chain.
 contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTransient {
