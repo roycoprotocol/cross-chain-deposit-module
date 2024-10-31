@@ -8,6 +8,11 @@ import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src
 import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
 import { Ownable2Step, Ownable } from "@openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
+enum BridgeType {
+    SINGLE_TOKEN,
+    DUAL_TOKEN
+}
+
 /// @title DepositLocker
 /// @author Shivaansh Kapoor, Jack Cordrry
 /// @notice A singleton contract for managing deposits for the destination chain on the source chain.
@@ -30,8 +35,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The LayerZero endpoint ID for the destination chain.
     uint32 public dstChainLzEid;
 
-    /// @notice Mapping of an ERC20 token to its corresponding LayerZero Omnichain Application (Stargate Pool, Stargate Hydra, OFT Adapters, etc.)
-    mapping(ERC20 => IOFT) public tokenToLzOApp;
+    /// @notice Mapping of an ERC20 token to its corresponding LayerZero V2 OFT (OFTs, OFT Adapters, Stargate V2 Pools, Stargate Hydras, etc.)
+    mapping(ERC20 => IOFT) public tokenToLzV2OFT;
 
     /// @notice Address of the DepositExecutor on the destination chain.
     /// @notice This address will receive all bridged tokens and be responsible for executing all lzCompose logic on the destination chain.
@@ -130,7 +135,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
             // Check that the token has a valid corresponding lzOApp
             require(_lzOApps[i].token() == address(_depositTokens[i]), InvalidLzOAppForToken());
-            tokenToLzOApp[_depositTokens[i]] = _lzOApps[i];
+            tokenToLzV2OFT[_depositTokens[i]] = _lzOApps[i];
         }
         RECIPE_MARKET_HUB = _recipeMarketHub;
         dstChainLzEid = _dstChainLzEid;
@@ -174,12 +179,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         emit UserWithdrawn(targetMarketHash, msg.sender, amountToWithdraw);
     }
 
-    /// @notice Bridges depositors from the source chain to the destination chain.
+    /// @notice Bridges depositors in single token markets from the source chain to the destination chain.
     /// @dev Green light must be given before calling.
     /// @param _marketHash The hash of the market to bridge tokens for.
     /// @param _executorGasLimit The gas limit of the executor on the destination chain.
     /// @param _depositorWeirollWallets The addresses of the Weiroll wallets used to deposit.
-    function bridge(
+    function bridgeSingleToken(
         bytes32 _marketHash,
         uint128 _executorGasLimit,
         address payable[] calldata _depositorWeirollWallets
@@ -193,15 +198,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         /*
         Payload Structure:
-            - marketHash: bytes32 (32 byte)
-        Per Depositor:
-            - AP / Wallet owner address: address (20 bytes)
-            - Amount Deposited: uint96 (12 bytes)
-            Total per depositor: 32 bytes
+            Per Payload:
+                - Bridge Type: uint8 (1 byte)
+                - marketHash: bytes32 (32 byte)
+            Per Depositor:
+                - AP / Wallet owner address: address (20 bytes)
+                - Amount Deposited: uint96 (12 bytes)
+                Total per depositor: 32 bytes
         */
 
-        // Initialize compose message - first 32 bytes is the market hash
-        bytes memory composeMsg = abi.encodePacked(_marketHash);
+        // Initialize compose message - first 33 bytes are BRIDGE_TYPE and market hash
+        bytes memory composeMsg = abi.encodePacked(BridgeType.SINGLE_TOKEN, _marketHash);
 
         // Keep track of total amount of deposits to bridge
         uint256 totalAmountToBridge;
@@ -217,7 +224,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             delete marketHashToDepositorToAmountDeposited[_marketHash][_depositorWeirollWallets[i]];
 
             // Concatenate depositor's payload (32 bytes) to the lz compose message
-            composeMsg = abi.encodePacked(composeMsg, bytes20(uint160(WeirollWallet(_depositorWeirollWallets[i]).owner())), uint96(depositAmount));
+            composeMsg = abi.encodePacked(composeMsg, WeirollWallet(_depositorWeirollWallets[i]).owner(), uint96(depositAmount));
         }
 
         // Ensure that at least one depositor was included in the bridge payload
@@ -238,7 +245,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
 
         // Get the lzOApp for the market's input token
-        IOFT lzOApp = tokenToLzOApp[marketInputToken];
+        IOFT lzOApp = tokenToLzV2OFT[marketInputToken];
 
         // Get fee quote for bridging
         MessagingFee memory messagingFee = lzOApp.quoteSend(sendParam, false);
@@ -271,10 +278,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Sets the LayerZero Omnichain App instance for a given token.
     /// @param _token Token to set the LayerZero Omnichain App for.
-    /// @param _lzOApp LayerZero Omnichain Application to use to bridge the specified token.
+    /// @param _lzOApp LayerZero OFT to use to bridge the specified token.
     function setLzOAppForToken(ERC20 _token, IOFT _lzOApp) external onlyOwner {
         require(_lzOApp.token() == address(_token), InvalidLzOAppForToken());
-        tokenToLzOApp[_token] = _lzOApp;
+        tokenToLzV2OFT[_token] = _lzOApp;
     }
 
     /// @notice Sets the DepositExecutor address.

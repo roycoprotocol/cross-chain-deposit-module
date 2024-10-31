@@ -9,6 +9,7 @@ import { ClonesWithImmutableArgs } from "@clones-with-immutable-args/ClonesWithI
 import { IOFT } from "src/interfaces/IOFT.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import { BridgeType } from "src/core/DepositLocker.sol";
 
 /// @title DepositExecutor
 /// @author Shivaansh Kapoor, Jack Cordrry
@@ -52,8 +53,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice The address of the LayerZero V2 Endpoint.
     address public lzV2Endpoint;
 
-    /// @notice Mapping of an ERC20 token to its corresponding LayerZero Omnichain Application (Stargate Pool, Stargate Hydra, OFT Adapters, etc.)
-    mapping(ERC20 => address) public tokenToLzOApp;
+    /// @notice Mapping of an ERC20 token to its corresponding LayerZero OFT (Stargate Pool, Stargate Hydra, OFT Adapters, etc.)
+    mapping(ERC20 => address) public tokenToLzV2OFT;
 
     /// @dev Mapping from a market hash on the source chain to its owner's address.
     mapping(bytes32 => address) public sourceMarketHashToOwner;
@@ -149,7 +150,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @param _lzV2Endpoint The address of the LayerZero V2 Endpoint.
     /// @param _depositTokens The tokens that are bridged to the destination chain from the source chain. (dest chain addresses)
     /// @param _lzOApps The corresponding LayerZero OApp instances for each deposit token on the destination chain.
-    constructor( 
+    constructor(
         address _owner,
         address _weirollWalletImplementation,
         address _lzV2Endpoint,
@@ -164,7 +165,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
             // Check that the token has a valid corresponding lzOApp
             require(IOFT(_lzOApps[i]).token() == address(_depositTokens[i]), InvalidLzOAppForToken());
-            tokenToLzOApp[_depositTokens[i]] = _lzOApps[i];
+            tokenToLzV2OFT[_depositTokens[i]] = _lzOApps[i];
         }
 
         WEIROLL_WALLET_IMPLEMENTATION = _weirollWalletImplementation;
@@ -192,10 +193,10 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /// @notice Sets the LayerZero Omnichain App instance for a given token.
     /// @param _token Token to set the LayerZero Omnichain App for.
-    /// @param _lzOApp LayerZero Omnichain Application to use to bridge the specified token.
+    /// @param _lzOApp LayerZero OFT to use to bridge the specified token.
     function setLzOAppForToken(ERC20 _token, address _lzOApp) external onlyOwner {
         require(IOFT(_lzOApp).token() == address(_token), InvalidLzOAppForToken());
-        tokenToLzOApp[_token] = _lzOApp;
+        tokenToLzV2OFT[_token] = _lzOApp;
     }
 
     /// @notice Sets a new owner for the specified campaign.
@@ -237,58 +238,59 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         require(msg.sender == lzV2Endpoint, NotFromLzV2Endpoint());
 
         // Extract the compose message from the _message
-        bytes memory composeMessage = OFTComposeMsgCodec.composeMsg(_message);
+        bytes memory composeMsg = OFTComposeMsgCodec.composeMsg(_message);
 
-        // Make sure at least one AP was bridged (32 bytes for sourceMarketHash + 32 bytes for AP payload)
-        require(composeMessage.length >= 64, EOF());
+        // Make sure at least one AP was bridged (1 byte for BridgeType + 32 bytes for sourceMarketHash + 32 bytes for AP payload)
+        require(composeMsg.length >= 65, EOF());
 
         unchecked {
-            // Extract the source market's hash (first 32 bytes)
-            bytes32 sourceMarketHash;
-            assembly ("memory-safe") {
-                sourceMarketHash := mload(add(composeMessage, 32))
-            }
+            // Extract the BridgeType (1 byte) source market's hash (first 32 bytes)
+            (BridgeType bridgeType, bytes32 sourceMarketHash) = _readComposeMsgMetadata(composeMsg);
 
             DepositCampaign storage depositCampaign = sourceMarketHashToDepositCampaign[sourceMarketHash];
 
             // Get the market's input token
             ERC20 campaignInputToken = depositCampaign.dstInputToken;
 
-            // Ensure that the _from address is the expected LayerZero OApp contract for this token
-            require(_from == tokenToLzOApp[campaignInputToken], NotFromLzOApp());
+            // Ensure that the _from address is the expected LayerZero OFT contract for this token
+            require(_from == tokenToLzV2OFT[campaignInputToken], NotFromLzOApp());
 
             uint256 unlockTimestamp = depositCampaign.unlockTimestamp;
 
-            // Calculate the offset to start reading depositor data
-            uint256 offset = 32; // Start at the byte after the sourceMarketHash
+            // Start offset at 33 bytes (after BridgeType and sourceMarketHash)
+            uint256 offset = 33;
 
-            // Num depositors bridged = ((bytes of composeMsg - 32 byte sourceMarketHash) / 32 bytes per depositor)
-            uint256 numDepositorsBridged = (composeMessage.length - 32) / 32;
-            // Keep track of weiroll wallets created for event emission (to be used in deposit recipe execution phase)
-            address[] memory weirollWalletsCreated = new address[](numDepositorsBridged);
-            uint256 currIndex = 0;
+            if (bridgeType == BridgeType.SINGLE_TOKEN) {
+                // Num depositors bridged = ((bytes of composeMsg - 33 bytes for metadata) / 32 bytes per depositor)
+                uint256 numDepositorsBridged = (composeMsg.length - 33) / 32;
+                // Keep track of weiroll wallets created for event emission (to be used in deposit recipe execution phase)
+                address[] memory weirollWalletsCreated = new address[](numDepositorsBridged);
+                uint256 currIndex = 0;
 
-            // Loop through the compose message and process each depositor
-            while (offset + 32 <= composeMessage.length) {
-                // Extract AP address (20 bytes)
-                address apAddress = _readAddress(composeMessage, offset);
-                offset += 20;
+                // Loop through the compose message and process each depositor
+                while (offset + 32 <= composeMsg.length) {
+                    // Extract AP address (20 bytes)
+                    address apAddress = _readAddress(composeMsg, offset);
+                    offset += 20;
 
-                // Extract deposit amount (12 bytes)
-                uint96 depositAmount = _readUint96(composeMessage, offset);
-                offset += 12;
+                    // Extract deposit amount (12 bytes)
+                    uint96 depositAmount = _readUint96(composeMsg, offset);
+                    offset += 12;
 
-                // Deploy or retrieve the Weiroll wallet for the depositor
-                address weirollWallet = _deployWeirollWallet(sourceMarketHash, apAddress, depositAmount, unlockTimestamp);
+                    // Deploy or retrieve the Weiroll wallet for the depositor
+                    address weirollWallet = _deployWeirollWallet(sourceMarketHash, apAddress, depositAmount, unlockTimestamp);
 
-                // Transfer the deposited tokens to the Weiroll wallet
-                campaignInputToken.safeTransfer(weirollWallet, depositAmount);
+                    // Transfer the deposited tokens to the Weiroll wallet
+                    campaignInputToken.safeTransfer(weirollWallet, depositAmount);
 
-                // Push fresh weiroll wallet to wallets created array
-                weirollWalletsCreated[currIndex++] = weirollWallet;
+                    // Push fresh weiroll wallet to wallets created array
+                    weirollWalletsCreated[currIndex++] = weirollWallet;
+                }
+
+                emit FreshWeirollWalletsCreated(_guid, sourceMarketHash, weirollWalletsCreated);
+            } else if (bridgeType == BridgeType.DUAL_TOKEN) {
+                // Handle Dual Token Weiroll Wallet Creation
             }
-
-            emit FreshWeirollWalletsCreated(_guid, sourceMarketHash, weirollWalletsCreated);
         }
     }
 
@@ -389,23 +391,36 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         wallet.executeWeiroll(campaign.withdrawalRecipe.weirollCommands, campaign.withdrawalRecipe.weirollState);
     }
 
+    /// @dev Reads the BridgeType (first byte) and source market hash (following 32 bytes) from the composeMsg
+    /// @param composeMsg The compose message received in lzCompose
+    function _readComposeMsgMetadata(bytes memory composeMsg) internal pure returns (BridgeType bridgeType, bytes32 sourceMarketHash) {
+        assembly ("memory-safe") {
+            // Pointer to the start of the compose message
+            let ptr := add(composeMsg, 32)
+            // Read the first byte as bridgeType
+            bridgeType := byte(0, mload(ptr))
+            // Read the next 32 bytes as sourceMarketHash
+            sourceMarketHash := mload(add(ptr, 1))
+        }
+    }
+
     /// @dev Reads an address from bytes at a specific offset.
-    /// @param data The bytes array.
+    /// @param composeMsg The compose message received in lzCompose
     /// @param offset The offset to start reading from.
     /// @return addr The address read from the bytes array.
-    function _readAddress(bytes memory data, uint256 offset) internal pure returns (address addr) {
+    function _readAddress(bytes memory composeMsg, uint256 offset) internal pure returns (address addr) {
         assembly ("memory-safe") {
-            addr := shr(96, mload(add(add(data, 32), offset)))
+            addr := shr(96, mload(add(add(composeMsg, 32), offset)))
         }
     }
 
     /// @dev Reads a uint96 from bytes at a specific offset.
-    /// @param data The bytes array.
+    /// @param composeMsg The compose message received in lzCompose
     /// @param offset The offset to start reading from.
     /// @return value The uint96 value read from the bytes array.
-    function _readUint96(bytes memory data, uint256 offset) internal pure returns (uint96 value) {
+    function _readUint96(bytes memory composeMsg, uint256 offset) internal pure returns (uint96 value) {
         assembly ("memory-safe") {
-            value := shr(160, mload(add(add(data, 32), offset)))
+            value := shr(160, mload(add(add(composeMsg, 32), offset)))
         }
     }
 }

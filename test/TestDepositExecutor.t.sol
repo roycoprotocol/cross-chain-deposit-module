@@ -239,7 +239,7 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         vm.recordLogs();
         // Record the logs to capture Transfer events to get Weiroll wallet address
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridge{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
         vm.stopPrank();
 
         // Get the encoded payload which will be passed in compose call on the destination chain

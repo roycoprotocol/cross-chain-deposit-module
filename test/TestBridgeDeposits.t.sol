@@ -100,13 +100,13 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         vm.expectEmit(true, true, true, true, USDC_MAINNET_ADDRESS);
-        emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzOApp(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
+        emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
 
         vm.expectEmit(false, false, true, false, address(depositLocker));
         emit DepositLocker.BridgedToDestinationChain(bytes32(0), 0, marketHash, offerAmount);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridge{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
         vm.stopPrank();
     }
 
@@ -194,7 +194,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit DepositLocker.BridgedToDestinationChain(bytes32(0), 0, marketHash, offerAmount);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridge{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
         vm.stopPrank();
     }
 }
