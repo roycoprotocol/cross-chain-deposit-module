@@ -6,7 +6,7 @@ import "forge-std/Script.sol";
 // Import the DepositExecutor contract and its dependencies
 import { RecipeMarketHub, RewardStyle } from "@royco/src/RecipeMarketHub.sol";
 import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
-import "src/DepositLocker.sol";
+import "src/core/DepositLocker.sol";
 
 contract SourceBridgeScript is Script {
     address constant weirollHelperAddress = 0xf8E66EaC95D27DD30A756ee1A2D2D96D392b61CB;

@@ -17,13 +17,13 @@ This module allows users to deposit funds on one chain (source) and have those f
    - Used on the source chain to deposit funds for bridging and withdraw funds (rage quit) to/from the DepositLocker
    - Used on the destination chain to hold a depositor's position, execute destination deposit recipes upon bridging, and withdrawals after an absolute locktime
 
-2. **[DepositLocker](https://github.com/roycoprotocol/cross-chain-deposit-module/blob/main/src/DepositLocker.sol)**: Deployed on the source chain
+2. **[DepositLocker](https://github.com/roycoprotocol/cross-chain-deposit-module/blob/main/src/core/DepositLocker.sol)**: Deployed on the source chain
    - Integrates with Royco's RecipeMarketHub to facilitate deposits and withdrawals
    - Accepts deposits from users' Weiroll Wallets upon an AP filling an offer in any Deposit market
    - Allows for withdrawals until deposits are bridged
    - Handles bridging funds to the destination chain in addition to destination execution parameters via LayerZero
 
-3. **[DepositExecutor](https://github.com/roycoprotocol/cross-chain-deposit-module/blob/main/src/DepositExecutor.sol)**: Deployed on the destination chain
+3. **[DepositExecutor](https://github.com/roycoprotocol/cross-chain-deposit-module/blob/main/src/core/DepositExecutor.sol)**: Deployed on the destination chain
    - Receives the bridged funds and parameters via LayerZero and atomically creates Weiroll Wallets for all bridged depositors
    - Executes deposit scripts ONCE after bridge (either by the depositor or the owner of the cross-chain deposit campaign)
    - Allows the depositor to execute the withdrawal recipe after the absolute locktime has passed

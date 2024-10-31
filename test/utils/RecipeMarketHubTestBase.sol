@@ -5,7 +5,7 @@ import "@royco/test/mocks/MockRecipeMarketHub.sol";
 
 import { MockERC20 } from "@royco/test/mocks/MockERC20.sol";
 import { MockERC4626 } from "@royco/test/mocks/MockERC4626.sol";
-import { DepositExecutor } from "src/DepositExecutor.sol";
+import { DepositExecutor } from "src/core/DepositExecutor.sol";
 
 import { RoycoTestBase } from "./RoycoTestBase.sol";
 import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";

@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Script.sol";
 
 // Import the DepositLocker contract and its dependencies
-import "src/DepositLocker.sol";
+import "src/core/DepositLocker.sol";
 
 contract DepositLockerDeployScript is Script {
     // State variables for external contract addresses and arrays
