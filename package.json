@@ -6,7 +6,7 @@
         "build": "forge build",
         "test": "forge test -vvv",
         "coverage": "forge coverage",
-        "hint": "solhint 'src/*.sol'",
+        "hint": "solhint 'src/core/*.sol' && solhint 'src/periphery/*.sol'",
         "sizes": "forge --version && forge build --sizes --optimize --optimizer-runs 200 --skip test --force"
     },
     "devDependencies": {
