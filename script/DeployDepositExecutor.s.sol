@@ -12,7 +12,7 @@ contract DepositExecutorDeployScript is Script {
     address public weirollWalletImplementation;
     address public lzEndpoint;
     ERC20[] public depositTokens;
-    address[] public lzOApps;
+    address[] public lzV2OFTs;
 
     function setUp() public {
         // Initialize state variables
@@ -31,7 +31,7 @@ contract DepositExecutorDeployScript is Script {
         depositTokens.push(ERC20(address(0x3253a335E7bFfB4790Aa4C25C4250d206E9b9773))); // USDC on ARB Sepolia
 
         // Corresponding Stargate instances for each token
-        lzOApps.push(address(0x543BdA7c6cA4384FE90B1F5929bb851F52888983)); // StargatePoolUSDC on ARB Sepolia
+        lzV2OFTs.push(address(0x543BdA7c6cA4384FE90B1F5929bb851F52888983)); // StargatePoolUSDC on ARB Sepolia
     }
 
     function run() public {
@@ -48,10 +48,10 @@ contract DepositExecutorDeployScript is Script {
         }
 
         // Ensure arrays have the same length
-        require(depositTokens.length == lzOApps.length, "Array lengths of deposit tokens and lzOApps must match");
+        require(depositTokens.length == lzV2OFTs.length, "Array lengths of deposit tokens and lzV2OFTs must match");
 
         // Deploy the DepositExecutor contract
-        DepositExecutor executor = new DepositExecutor(owner, weirollWalletImplementation, lzEndpoint, depositTokens, lzOApps);
+        DepositExecutor executor = new DepositExecutor(owner, weirollWalletImplementation, lzEndpoint, depositTokens, lzV2OFTs);
 
         // Output the address of the deployed DepositExecutor contract
         console.log("DepositExecutor deployed at:", address(executor));

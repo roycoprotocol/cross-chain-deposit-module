@@ -12,7 +12,7 @@ contract DepositLockerDeployScript is Script {
     uint32 public chainDstEid;
     address public depositExecutor;
     ERC20[] public depositTokens;
-    IOFT[] public lzOApps;
+    IOFT[] public lzV2OFTs;
     RecipeMarketHubBase public recipeMarketHub;
 
     function setUp() public {
@@ -32,7 +32,7 @@ contract DepositLockerDeployScript is Script {
         depositTokens.push(ERC20(address(0x488327236B65C61A6c083e8d811a4E0D3d1D4268))); // USDC on OP Sepolia
 
         // Corresponding Stargate instances for each token
-        lzOApps.push(IOFT(address(0x314B753272a3C79646b92A87dbFDEE643237033a))); // StargatePoolUSDC on OP Sepolia
+        lzV2OFTs.push(IOFT(address(0x314B753272a3C79646b92A87dbFDEE643237033a))); // StargatePoolUSDC on OP Sepolia
 
         // Set the RecipeMarketHubBase contract address
         recipeMarketHub = RecipeMarketHubBase(address(0x828223B512BF1892229FeC61C5c1376BDED3a285)); // RecipeMarketHub on OP Sepolia
@@ -52,10 +52,10 @@ contract DepositLockerDeployScript is Script {
         }
 
         // Ensure arrays have the same length
-        require(depositTokens.length == lzOApps.length, "Array lengths of deposit tokens and lzOApps must match");
+        require(depositTokens.length == lzV2OFTs.length, "Array lengths of deposit tokens and lzV2OFTs must match");
 
         // Deploy the DepositLocker contract
-        DepositLocker locker = new DepositLocker(owner, chainDstEid, depositExecutor, recipeMarketHub, depositTokens, lzOApps);
+        DepositLocker locker = new DepositLocker(owner, chainDstEid, depositExecutor, recipeMarketHub, depositTokens, lzV2OFTs);
 
         // Output the address of the deployed DepositLocker contract
         console.log("DepositLocker deployed at:", address(locker));

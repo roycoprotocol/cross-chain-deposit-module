@@ -55,13 +55,13 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
         ERC20[] memory depositTokens = new ERC20[](1);
-        address[] memory lzOApps = new address[](1);
+        address[] memory lzV2OFTs = new address[](1);
 
         depositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
-        lzOApps[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS; // Stargate USDC Pool on Polygon Mainnet
+        lzV2OFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS; // Stargate USDC Pool on Polygon Mainnet
 
         DepositExecutor depositExecutor =
-            new DepositExecutor(OWNER_ADDRESS, address(weirollImplementation), POLYGON_LZ_ENDPOINT, depositTokens, lzOApps);
+            new DepositExecutor(OWNER_ADDRESS, address(weirollImplementation), POLYGON_LZ_ENDPOINT, depositTokens, lzV2OFTs);
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.createDepositCampaign(sourceMarketHash, IP_ADDRESS, ERC20(USDC_POLYGON_ADDRESS));
@@ -91,7 +91,7 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         depositExecutor.lzCompose(
             STARGATE_USDC_POOL_POLYGON_ADDRESS,
             guid,
-            OFTComposeMsgCodec.encode(uint64(0), uint32(0), uint256(0), abi.encodePacked(bytes32(0), getSlice(188, encodedPayload))),
+            OFTComposeMsgCodec.encode(uint64(0), uint32(0), offerAmount, abi.encodePacked(bytes32(0), getSlice(188, encodedPayload))),
             address(0),
             bytes(abi.encode(0))
         );
@@ -171,16 +171,16 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
         ERC20[] memory depositTokens = new ERC20[](2);
-        IOFT[] memory lzOApps = new IOFT[](2);
+        IOFT[] memory lzV2OFTs = new IOFT[](2);
 
         depositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
-        lzOApps[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
+        lzV2OFTs[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
         depositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
-        lzOApps[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
+        lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
         DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, depositTokens, lzOApps
+            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, depositTokens, lzV2OFTs
         );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());

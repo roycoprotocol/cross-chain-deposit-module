@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import { RecipeMarketHubBase, ERC20, SafeTransferLib } from "@royco/src/RecipeMarketHub.sol";
+import { RecipeMarketHubBase, ERC20, SafeTransferLib, FixedPointMathLib } from "@royco/src/RecipeMarketHub.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
 import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src/interfaces/IOFT.sol";
 import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
 import { Ownable2Step, Ownable } from "@openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import { DualToken } from "src/periphery/DualToken.sol";
 
 enum BridgeType {
-    SINGLE_TOKEN,
-    DUAL_TOKEN
+    SINGLE_TOKEN, // Bridging a single OFT token
+    DUAL_TOKEN // Bridging a DualToken - must be split into 2 OFT tokens and bridged separately
+
 }
 
 /// @title DepositLocker
@@ -20,6 +22,7 @@ enum BridgeType {
 contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     using SafeTransferLib for ERC20;
     using OptionsBuilder for bytes;
+    using FixedPointMathLib for uint256;
 
     // Limit for how many depositers can be bridged in a single transaction
     // At this limit, ~10m gas will be consumed to execute the lzCompose logic on the destination's DepositExecutor
@@ -61,11 +64,22 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Emitted when a user withdraws funds.
     event UserWithdrawn(bytes32 indexed marketHash, address depositorWeirollWallet, uint256 amountWithdrawn);
 
-    /// @notice Emitted when funds are bridged to the destination chain.
-    event BridgedToDestinationChain(bytes32 indexed guid, uint64 indexed nonce, bytes32 indexed marketHash, uint256 amountBridged);
+    /// @notice Emitted when single tokens are bridged to the destination chain.
+    event SingleTokenBridgeToDestinationChain(bytes32 indexed marketHash, bytes32 guid, uint64 nonce, uint256 amountBridged);
 
-    /// @notice Error emitted when setting a lzOApp for a token that doesn't match the OApp's underlying token
-    error InvalidLzOAppForToken();
+    /// @notice Emitted when dual tokens are bridged to the destination chain.
+    event DualTokenBridgeToDestinationChain(
+        bytes32 indexed marketHash,
+        bytes32 tokenA_guid,
+        uint64 tokenA_nonce,
+        uint256 tokenA_AmountBridged,
+        bytes32 tokenB_guid,
+        uint64 tokenB_nonce,
+        uint256 tokenB_AmountBridged
+    );
+
+    /// @notice Error emitted when setting a lzV2OFT for a token that doesn't match the OApp's underlying token
+    error InvalidLzV2OFTForToken();
 
     /// @notice Error emitted when calling withdraw with nothing deposited
     error NothingToWithdraw();
@@ -117,25 +131,25 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @param _depositExecutor The address of the the DepositExecutor on the destination chain.
     /// @param _recipeMarketHub The address of the recipe market hub used to create markets on the source chain.
     /// @param _depositTokens The tokens to bridge to the destination chain from the source chain. (source chain addresses)
-    /// @param _lzOApps The corresponding LayerZero OApp instances for each deposit token on the source chain.
+    /// @param _lzV2OFTs The corresponding LayerZero OApp instances for each deposit token on the source chain.
     constructor(
         address _owner,
         uint32 _dstChainLzEid,
         address _depositExecutor,
         RecipeMarketHubBase _recipeMarketHub,
         ERC20[] memory _depositTokens,
-        IOFT[] memory _lzOApps
+        IOFT[] memory _lzV2OFTs
     )
         Ownable(_owner)
     {
         // Check that each token that will be bridged has a corresponding LZOApp instance
-        require(_depositTokens.length == _lzOApps.length, ArrayLengthMismatch());
+        require(_depositTokens.length == _lzV2OFTs.length, ArrayLengthMismatch());
 
         // Initialize the contract state
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
-            // Check that the token has a valid corresponding lzOApp
-            require(_lzOApps[i].token() == address(_depositTokens[i]), InvalidLzOAppForToken());
-            tokenToLzV2OFT[_depositTokens[i]] = _lzOApps[i];
+            // Check that the token has a valid corresponding lzV2OFT
+            require(_lzV2OFTs[i].token() == address(_depositTokens[i]), InvalidLzV2OFTForToken());
+            tokenToLzV2OFT[_depositTokens[i]] = _lzV2OFTs[i];
         }
         RECIPE_MARKET_HUB = _recipeMarketHub;
         dstChainLzEid = _dstChainLzEid;
@@ -199,7 +213,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         /*
         Payload Structure:
             Per Payload:
-                - Bridge Type: uint8 (1 byte)
+                - BridgeType: uint8 (1 byte) - SINGLE_TOKEN
                 - marketHash: bytes32 (32 byte)
             Per Depositor:
                 - AP / Wallet owner address: address (20 bytes)
@@ -244,30 +258,133 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the market's input token
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
 
-        // Get the lzOApp for the market's input token
-        IOFT lzOApp = tokenToLzV2OFT[marketInputToken];
-
-        // Get fee quote for bridging
-        MessagingFee memory messagingFee = lzOApp.quoteSend(sendParam, false);
-        require(msg.value >= messagingFee.nativeFee, InsufficientMsgValueForBridge());
-
-        // Approve the lzOApp to bridge tokens
-        marketInputToken.safeApprove(address(lzOApp), totalAmountToBridge);
-
-        // Execute the bridge transaction
-        (MessagingReceipt memory messageReceipt, OFTReceipt memory bridgeReceipt) =
-            lzOApp.send{ value: messagingFee.nativeFee }(sendParam, messagingFee, address(this));
-
-        // Ensure that all deposits were bridged
-        require(totalAmountToBridge == bridgeReceipt.amountReceivedLD, FailedToBridgeAllDeposits());
+        // Bridge the tokens with the marshaled parameters
+        MessagingReceipt memory messageReceipt = _bridgeTokens(marketInputToken, totalAmountToBridge, 0, sendParam);
+        uint256 bridgingFee = messageReceipt.fee.nativeFee;
 
         // Refund excess value sent with the transaction
-        if (msg.value > messagingFee.nativeFee) {
-            payable(msg.sender).transfer(msg.value - messagingFee.nativeFee);
+        if (msg.value > bridgingFee) {
+            payable(msg.sender).transfer(msg.value - bridgingFee);
         }
 
         // Emit event to keep track of bridged deposits
-        emit BridgedToDestinationChain(messageReceipt.guid, messageReceipt.nonce, _marketHash, totalAmountToBridge);
+        emit SingleTokenBridgeToDestinationChain(_marketHash, messageReceipt.guid, messageReceipt.nonce, totalAmountToBridge);
+    }
+
+    /// @notice Bridges depositors in dual token markets from the source chain to the destination chain.
+    /// @dev Green light must be given before calling.
+    /// @param _marketHash The hash of the market to bridge tokens for.
+    /// @param _executorGasLimit The gas limit of the executor on the destination chain.
+    /// @param _depositorWeirollWallets The addresses of the Weiroll wallets used to deposit.
+    function bridgeDualToken(
+        bytes32 _marketHash,
+        uint128 _executorGasLimit,
+        address payable[] calldata _depositorWeirollWallets
+    )
+        external
+        payable
+        greenLightGiven(_marketHash)
+        nonReentrant
+    {
+        require(_depositorWeirollWallets.length <= MAX_DEPOSITORS_PER_BRIDGE, ExceededDepositorsPerBridgeLimit());
+
+        /*
+        Payload Structure:
+            Per Payload:
+                - BridgeType: uint8 (1 byte) - DUAL_TOKEN
+                - marketHash: bytes32 (32 byte)
+            Per Depositor:
+                - AP / Wallet owner address: address (20 bytes)
+                - Amount Deposited: uint96 (12 bytes)
+                Total per depositor: 32 bytes
+        */
+
+        // Get the market's input token
+        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
+
+        // Extract DualToken constituent tokens and amounts
+        DualToken dualToken = DualToken(address(marketInputToken));
+        ERC20 tokenA = dualToken.tokenA();
+        ERC20 tokenB = dualToken.tokenB();
+        uint256 amountOfTokenAPerDT = dualToken.amountOfTokenAPerDT();
+        uint256 amountOfTokenBPerDT = dualToken.amountOfTokenBPerDT();
+
+        // Initialize compose messages for both tokens - first 33 bytes are BRIDGE_TYPE and market hash
+        bytes memory tokenA_ComposeMsg = abi.encodePacked(BridgeType.DUAL_TOKEN, _marketHash);
+        bytes memory tokenB_ComposeMsg = abi.encodePacked(BridgeType.DUAL_TOKEN, _marketHash);
+
+        // Keep track of total amount of deposits to bridge
+        uint256 tokenA_TotalAmountToBridge;
+        uint256 tokenB_TotalAmountToBridge;
+
+        for (uint256 i = 0; i < _depositorWeirollWallets.length; ++i) {
+            // Get amount deposited by the Weiroll Wallet
+            uint256 depositAmount = marketHashToDepositorToAmountDeposited[_marketHash][_depositorWeirollWallets[i]];
+            if (depositAmount == 0 || depositAmount > type(uint96).max) {
+                continue; // Skip if didn't deposit or deposit amount is too much to bridge
+            }
+
+            // Calculate each
+            uint256 tokenA_DepositAmount = depositAmount.mulWadDown(amountOfTokenAPerDT);
+            uint256 tokenB_DepositAmount = depositAmount.mulWadDown(amountOfTokenBPerDT);
+
+            if (tokenA_DepositAmount > type(uint96).max || tokenB_DepositAmount > type(uint96).max) {
+                continue; // Skip if didn't deposit or deposit amount is too much to bridge
+            }
+
+            // Update the total amounts to bridge and clear the depositor's deposit amount
+            tokenA_TotalAmountToBridge += tokenA_DepositAmount;
+            tokenB_TotalAmountToBridge += tokenB_DepositAmount;
+            delete marketHashToDepositorToAmountDeposited[_marketHash][_depositorWeirollWallets[i]];
+
+            // Concatenate depositor's payload (32 bytes) to the lz compose message
+            address owner = WeirollWallet(_depositorWeirollWallets[i]).owner();
+            tokenA_ComposeMsg = abi.encodePacked(tokenA_ComposeMsg, owner, uint96(tokenA_DepositAmount));
+            tokenB_ComposeMsg = abi.encodePacked(tokenB_ComposeMsg, owner, uint96(tokenB_DepositAmount));
+        }
+
+        // Ensure that at least one depositor was included in the bridge payload
+        require(tokenA_TotalAmountToBridge > 0 && tokenB_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+
+        // Prepare SendParam for bridging Token A
+        SendParam memory sendParam = SendParam({
+            dstEid: dstChainLzEid,
+            to: _addressToBytes32(depositExecutor),
+            amountLD: tokenA_TotalAmountToBridge,
+            minAmountLD: tokenA_TotalAmountToBridge,
+            extraOptions: OptionsBuilder.newOptions().addExecutorLzComposeOption(0, _executorGasLimit, 0),
+            composeMsg: tokenA_ComposeMsg,
+            oftCmd: ""
+        });
+
+        // Bridge the tokens with the marshaled parameters
+        MessagingReceipt memory tokenA_MessageReceipt = _bridgeTokens(tokenA, tokenA_TotalAmountToBridge, 0, sendParam);
+        uint256 totalBridgingFee = tokenA_MessageReceipt.fee.nativeFee;
+
+        // Modify sendParam to bridge Token B
+        sendParam.amountLD = tokenB_TotalAmountToBridge;
+        sendParam.minAmountLD = tokenB_TotalAmountToBridge;
+        sendParam.composeMsg = tokenB_ComposeMsg;
+
+        // Bridge the tokens with the marshaled parameters
+        MessagingReceipt memory tokenB_MessageReceipt = _bridgeTokens(tokenB, tokenB_TotalAmountToBridge, totalBridgingFee, sendParam);
+        totalBridgingFee += tokenB_MessageReceipt.fee.nativeFee;
+
+        // Refund excess value sent with the transaction
+        if (msg.value > totalBridgingFee) {
+            payable(msg.sender).transfer(msg.value - totalBridgingFee);
+        }
+
+        // Emit event to keep track of bridged deposits
+        emit DualTokenBridgeToDestinationChain(
+            _marketHash,
+            tokenA_MessageReceipt.guid,
+            tokenA_MessageReceipt.nonce,
+            tokenA_TotalAmountToBridge,
+            tokenB_MessageReceipt.guid,
+            tokenB_MessageReceipt.nonce,
+            tokenB_TotalAmountToBridge
+        );
     }
 
     /// @notice Sets the LayerZero endpoint ID for the destination chain.
@@ -278,10 +395,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Sets the LayerZero Omnichain App instance for a given token.
     /// @param _token Token to set the LayerZero Omnichain App for.
-    /// @param _lzOApp LayerZero OFT to use to bridge the specified token.
-    function setLzOAppForToken(ERC20 _token, IOFT _lzOApp) external onlyOwner {
-        require(_lzOApp.token() == address(_token), InvalidLzOAppForToken());
-        tokenToLzV2OFT[_token] = _lzOApp;
+    /// @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
+    function setLzV2OFTForToken(ERC20 _token, IOFT _lzV2OFT) external onlyOwner {
+        require(_lzV2OFT.token() == address(_token), InvalidLzV2OFTForToken());
+        tokenToLzV2OFT[_token] = _lzV2OFT;
     }
 
     /// @notice Sets the DepositExecutor address.
@@ -302,6 +419,25 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @param _greenLightStatus Boolean indicating if funds are ready to bridge.
     function setGreenLight(bytes32 _marketHash, bool _greenLightStatus) external onlyMultisig(_marketHash) {
         marketHashToGreenLight[_marketHash] = _greenLightStatus;
+    }
+
+    function _bridgeTokens(ERC20 token, uint256 amountToBridge, uint256 feesAlreadyPaid, SendParam memory sendParam) internal returns (MessagingReceipt memory messageReceipt) {
+        // Get the lzV2OFT for the market's input token
+        IOFT lzV2OFT = tokenToLzV2OFT[token];
+
+        // Get fee quote for bridging
+        MessagingFee memory messagingFee = lzV2OFT.quoteSend(sendParam, false);
+        require(msg.value - feesAlreadyPaid >= messagingFee.nativeFee, InsufficientMsgValueForBridge());
+
+        // Approve the lzV2OFT to bridge tokens
+        token.safeApprove(address(lzV2OFT), amountToBridge);
+
+        // Execute the bridge transaction
+        OFTReceipt memory bridgeReceipt;
+        (messageReceipt, bridgeReceipt) = lzV2OFT.send{ value: messagingFee.nativeFee }(sendParam, messagingFee, address(this));
+
+        // Ensure that all deposits were bridged
+        require(amountToBridge == bridgeReceipt.amountReceivedLD, FailedToBridgeAllDeposits());
     }
 
     /// @dev Converts an address to bytes32.

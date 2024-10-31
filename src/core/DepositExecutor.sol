@@ -91,8 +91,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice Error emitted when array lengths mismatch.
     error ArrayLengthMismatch();
 
-    /// @notice Error emitted when setting a lzOApp for a token that doesn't match the OApp's underlying token
-    error InvalidLzOAppForToken();
+    /// @notice Error emitted when setting a lzV2OFT for a token that doesn't match the OApp's underlying token
+    error InvalidLzV2OFTForToken();
 
     /// @notice Error emitted when the caller is not the owner of the Weiroll wallet.
     error NotOwner();
@@ -106,8 +106,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice Error emitted when the caller of the lzCompose function isn't the LZ endpoint address for destination chain.
     error NotFromLzV2Endpoint();
 
+    /// @notice Error emitted when the caller of the composeMsg instructs the executor to deploy more funds into Weiroll Wallets than were bridged
+    error CantDepositMoreThanAmountBridged();
+
     /// @notice Error emitted when the _from in the lzCompose function isn't the correct LayerZero OApp address.
-    error NotFromLzOApp();
+    error NotFromLzV2OFT();
 
     /// @notice Error emitted when reading from bytes array is out of bounds.
     error EOF();
@@ -149,23 +152,23 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @param _weirollWalletImplementation The address of the Weiroll wallet implementation.
     /// @param _lzV2Endpoint The address of the LayerZero V2 Endpoint.
     /// @param _depositTokens The tokens that are bridged to the destination chain from the source chain. (dest chain addresses)
-    /// @param _lzOApps The corresponding LayerZero OApp instances for each deposit token on the destination chain.
+    /// @param _lzV2OFTs The corresponding LayerZero OApp instances for each deposit token on the destination chain.
     constructor(
         address _owner,
         address _weirollWalletImplementation,
         address _lzV2Endpoint,
         ERC20[] memory _depositTokens,
-        address[] memory _lzOApps
+        address[] memory _lzV2OFTs
     )
         Ownable(_owner)
     {
-        require(_depositTokens.length == _lzOApps.length, ArrayLengthMismatch());
+        require(_depositTokens.length == _lzV2OFTs.length, ArrayLengthMismatch());
 
         // Initialize the contract state
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
-            // Check that the token has a valid corresponding lzOApp
-            require(IOFT(_lzOApps[i]).token() == address(_depositTokens[i]), InvalidLzOAppForToken());
-            tokenToLzV2OFT[_depositTokens[i]] = _lzOApps[i];
+            // Check that the token has a valid corresponding lzV2OFT
+            require(IOFT(_lzV2OFTs[i]).token() == address(_depositTokens[i]), InvalidLzV2OFTForToken());
+            tokenToLzV2OFT[_depositTokens[i]] = _lzV2OFTs[i];
         }
 
         WEIROLL_WALLET_IMPLEMENTATION = _weirollWalletImplementation;
@@ -193,10 +196,10 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /// @notice Sets the LayerZero Omnichain App instance for a given token.
     /// @param _token Token to set the LayerZero Omnichain App for.
-    /// @param _lzOApp LayerZero OFT to use to bridge the specified token.
-    function setLzOAppForToken(ERC20 _token, address _lzOApp) external onlyOwner {
-        require(IOFT(_lzOApp).token() == address(_token), InvalidLzOAppForToken());
-        tokenToLzV2OFT[_token] = _lzOApp;
+    /// @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
+    function setLzV2OFTForToken(ERC20 _token, address _lzV2OFT) external onlyOwner {
+        require(IOFT(_lzV2OFT).token() == address(_token), InvalidLzV2OFTForToken());
+        tokenToLzV2OFT[_token] = _lzV2OFT;
     }
 
     /// @notice Sets a new owner for the specified campaign.
@@ -239,6 +242,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         // Extract the compose message from the _message
         bytes memory composeMsg = OFTComposeMsgCodec.composeMsg(_message);
+        uint256 amountBridged = OFTComposeMsgCodec.amountLD(_message);
 
         // Make sure at least one AP was bridged (1 byte for BridgeType + 32 bytes for sourceMarketHash + 32 bytes for AP payload)
         require(composeMsg.length >= 65, EOF());
@@ -253,19 +257,22 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             ERC20 campaignInputToken = depositCampaign.dstInputToken;
 
             // Ensure that the _from address is the expected LayerZero OFT contract for this token
-            require(_from == tokenToLzV2OFT[campaignInputToken], NotFromLzOApp());
+            require(_from == tokenToLzV2OFT[campaignInputToken], NotFromLzV2OFT());
 
             uint256 unlockTimestamp = depositCampaign.unlockTimestamp;
 
             // Start offset at 33 bytes (after BridgeType and sourceMarketHash)
             uint256 offset = 33;
 
+            // Keep track of total deposits that the compose message tries to deploy into Weiroll Wallets
+            uint256 amountDeposited;
+
             if (bridgeType == BridgeType.SINGLE_TOKEN) {
                 // Num depositors bridged = ((bytes of composeMsg - 33 bytes for metadata) / 32 bytes per depositor)
                 uint256 numDepositorsBridged = (composeMsg.length - 33) / 32;
                 // Keep track of weiroll wallets created for event emission (to be used in deposit recipe execution phase)
                 address[] memory weirollWalletsCreated = new address[](numDepositorsBridged);
-                uint256 currIndex = 0;
+                uint256 currIndex;
 
                 // Loop through the compose message and process each depositor
                 while (offset + 32 <= composeMsg.length) {
@@ -275,6 +282,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
                     // Extract deposit amount (12 bytes)
                     uint96 depositAmount = _readUint96(composeMsg, offset);
+                    // Check that the total amount deposited into Weiroll Wallets isn't more than the amount bridged
+                    amountDeposited += depositAmount;
+                    require(amountDeposited <= amountBridged, CantDepositMoreThanAmountBridged());
                     offset += 12;
 
                     // Deploy or retrieve the Weiroll wallet for the depositor

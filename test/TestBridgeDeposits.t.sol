@@ -38,15 +38,15 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
         ERC20[] memory depositTokens = new ERC20[](2);
-        IOFT[] memory lzOApps = new IOFT[](2);
+        IOFT[] memory lzV2OFTs = new IOFT[](2);
 
         depositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
-        lzOApps[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
+        lzV2OFTs[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
         depositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
-        lzOApps[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
+        lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
-        DepositLocker depositLocker = new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, depositTokens, lzOApps);
+        DepositLocker depositLocker = new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -103,7 +103,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
 
         vm.expectEmit(false, false, true, false, address(depositLocker));
-        emit DepositLocker.BridgedToDestinationChain(bytes32(0), 0, marketHash, offerAmount);
+        emit DepositLocker.SingleTokenBridgeToDestinationChain(marketHash, bytes32(0), 0, offerAmount);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -126,15 +126,15 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
         ERC20[] memory depositTokens = new ERC20[](2);
-        IOFT[] memory lzOApps = new IOFT[](2);
+        IOFT[] memory lzV2OFTs = new IOFT[](2);
 
         depositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
-        lzOApps[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
+        lzV2OFTs[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
         depositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS); // WBTC on ETH Mainnet
-        lzOApps[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
+        lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to Avax
-        DepositLocker depositLocker = new DepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, depositTokens, lzOApps);
+        DepositLocker depositLocker = new DepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -191,7 +191,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit ERC20.Transfer(address(depositLocker), WBTC_OFT_ADAPTER_MAINNET_ADDRESS, offerAmount);
 
         vm.expectEmit(false, false, true, false, address(depositLocker));
-        emit DepositLocker.BridgedToDestinationChain(bytes32(0), 0, marketHash, offerAmount);
+        emit DepositLocker.SingleTokenBridgeToDestinationChain(marketHash, bytes32(0), 0, offerAmount);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);

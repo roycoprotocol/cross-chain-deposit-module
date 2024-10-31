@@ -17,7 +17,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
     address FRONTEND_FEE_RECIPIENT;
 
     ERC20[] public depositTokens;
-    IOFT[] public lzOApps;
+    IOFT[] public lzV2OFTs;
 
     DepositLocker depositLocker;
     WeirollWalletHelper walletHelper;
@@ -35,7 +35,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         IP_ADDRESS = ALICE_ADDRESS;
         FRONTEND_FEE_RECIPIENT = CHARLIE_ADDRESS;
 
-        depositLocker = new DepositLocker(OWNER_ADDRESS, 0, address(0), recipeMarketHub, depositTokens, lzOApps);
+        depositLocker = new DepositLocker(OWNER_ADDRESS, 0, address(0), recipeMarketHub, depositTokens, lzV2OFTs);
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), address(mockLiquidityToken), address(depositLocker));
