@@ -49,8 +49,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice The address of the Weiroll wallet implementation.
     address public immutable WEIROLL_WALLET_IMPLEMENTATION;
 
-    /// @notice The address of the LayerZero endpoint.
-    address public lzEndpoint;
+    /// @notice The address of the LayerZero V2 Endpoint.
+    address public lzV2Endpoint;
 
     /// @notice Mapping of an ERC20 token to its corresponding LayerZero Omnichain Application (Stargate Pool, Stargate Hydra, OFT Adapters, etc.)
     mapping(ERC20 => address) public tokenToLzOApp;
@@ -103,7 +103,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     error DepositRecipeAlreadyExecuted();
 
     /// @notice Error emitted when the caller of the lzCompose function isn't the LZ endpoint address for destination chain.
-    error NotFromLzEndpoint();
+    error NotFromLzV2Endpoint();
 
     /// @notice Error emitted when the _from in the lzCompose function isn't the correct LayerZero OApp address.
     error NotFromLzOApp();
@@ -146,13 +146,13 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice Initialize the DepositExecutor Contract.
     /// @param _owner The address of the owner of this contract.
     /// @param _weirollWalletImplementation The address of the Weiroll wallet implementation.
-    /// @param _lzEndpoint The address of the LayerZero endpoint.
+    /// @param _lzV2Endpoint The address of the LayerZero V2 Endpoint.
     /// @param _depositTokens The tokens that are bridged to the destination chain from the source chain. (dest chain addresses)
     /// @param _lzOApps The corresponding LayerZero OApp instances for each deposit token on the destination chain.
     constructor( 
         address _owner,
         address _weirollWalletImplementation,
-        address _lzEndpoint,
+        address _lzV2Endpoint,
         ERC20[] memory _depositTokens,
         address[] memory _lzOApps
     )
@@ -168,7 +168,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         }
 
         WEIROLL_WALLET_IMPLEMENTATION = _weirollWalletImplementation;
-        lzEndpoint = _lzEndpoint;
+        lzV2Endpoint = _lzV2Endpoint;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -184,10 +184,10 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         sourceMarketHashToDepositCampaign[_sourceMarketHash].dstInputToken = _dstInputToken;
     }
 
-    /// @notice Sets the LayerZero endpoint address for this chain.
-    /// @param _newLzEndpoint New LayerZero endpoint for this chain
-    function setLzEndpoint(address _newLzEndpoint) external onlyOwner {
-        lzEndpoint = _newLzEndpoint;
+    /// @notice Sets the LayerZero V2 Endpoint address for this chain.
+    /// @param _newLzV2Endpoint New LayerZero V2 Endpoint for this chain
+    function setLzEndpoint(address _newLzV2Endpoint) external onlyOwner {
+        lzV2Endpoint = _newLzV2Endpoint;
     }
 
     /// @notice Sets the LayerZero Omnichain App instance for a given token.
@@ -233,8 +233,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _message The composed message payload in bytes.
      */
     function lzCompose(address _from, bytes32 _guid, bytes calldata _message, address, bytes calldata) external payable nonReentrant {
-        // Ensure the caller is the LayerZero endpoint
-        require(msg.sender == lzEndpoint, NotFromLzEndpoint());
+        // Ensure the caller is the LayerZero V2 Endpoint
+        require(msg.sender == lzV2Endpoint, NotFromLzV2Endpoint());
 
         // Extract the compose message from the _message
         bytes memory composeMessage = OFTComposeMsgCodec.composeMsg(_message);
