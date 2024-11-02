@@ -64,17 +64,17 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
             new DepositExecutor(OWNER_ADDRESS, address(weirollImplementation), POLYGON_LZ_ENDPOINT, depositTokens, lzV2OFTs);
 
         vm.startPrank(OWNER_ADDRESS);
-        depositExecutor.createDepositCampaign(sourceMarketHash, IP_ADDRESS, ERC20(USDC_POLYGON_ADDRESS));
+        depositExecutor.createSingleTokenDepositCampaign(sourceMarketHash, IP_ADDRESS, ERC20(USDC_POLYGON_ADDRESS));
         vm.stopPrank();
 
         vm.startPrank(IP_ADDRESS);
-        depositExecutor.setDepositCampaignLocktime(sourceMarketHash, unlockTimestamp);
+        depositExecutor.setSingleTokenDepositCampaignUnlockTimestamp(sourceMarketHash, unlockTimestamp);
         vm.stopPrank();
 
         DepositExecutor.Recipe memory DEPOSIT_RECIPE = _buildBurnDepositRecipe(address(walletHelper), USDC_POLYGON_ADDRESS);
 
         vm.startPrank(IP_ADDRESS);
-        depositExecutor.setDepositRecipe(sourceMarketHash, DEPOSIT_RECIPE);
+        depositExecutor.setSingleTokenDepositRecipe(sourceMarketHash, DEPOSIT_RECIPE);
         vm.stopPrank();
 
         // Fund the Executor (bridge simulation)

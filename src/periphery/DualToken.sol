@@ -6,6 +6,7 @@ import { ERC20, SafeTransferLib, FixedPointMathLib } from "@royco/src/RecipeMark
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 /// @title DualToken
+/// @author Shivaansh Kapoor, Jack Corddry
 /// @notice An ERC20 token representing ownership of two underlying tokens at a predefined ratio
 contract DualToken is ERC20, ReentrancyGuardTransient {
     using SafeTransferLib for ERC20;
@@ -80,17 +81,9 @@ contract DualToken is ERC20, ReentrancyGuardTransient {
         uint256 tokenAAmount = amount.mulWadUp(amountOfTokenAPerDT);
         uint256 tokenBAmount = amount.mulWadUp(amountOfTokenBPerDT);
 
-        // Transfer tokenA from the user to this contract
-        uint256 initialTokenBalance = tokenA.balanceOf(address(this));
+        // Transfer amounts of tokenA and tokenB from the user to this contract
         tokenA.safeTransferFrom(msg.sender, address(this), tokenAAmount);
-        uint256 resultingTokenBalance = tokenA.balanceOf(address(this));
-        require(resultingTokenBalance - initialTokenBalance == tokenAAmount, SafeTransferFromFailed());
-
-        // Transfer tokenB from the user to this contract
-        initialTokenBalance = tokenB.balanceOf(address(this));
         tokenB.safeTransferFrom(msg.sender, address(this), tokenBAmount);
-        resultingTokenBalance = tokenB.balanceOf(address(this));
-        require(resultingTokenBalance - initialTokenBalance == tokenBAmount, SafeTransferFromFailed());
 
         // Mint DualTokens to the user
         _mint(msg.sender, amount);
