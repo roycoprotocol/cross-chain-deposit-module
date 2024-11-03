@@ -68,10 +68,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Emitted when a user deposits funds.
-    event UserDeposited(bytes32 indexed marketHash, address depositor, uint256 amountDeposited);
+    event UserDeposited(bytes32 indexed marketHash, address indexed depositor, uint256 amountDeposited);
 
     /// @notice Emitted when a user withdraws funds.
-    event UserWithdrawn(bytes32 indexed marketHash, address depositor, uint256 amountWithdrawn);
+    event UserWithdrawn(bytes32 indexed marketHash, address indexed depositor, uint256 amountWithdrawn);
 
     /// @notice Emitted when single tokens are bridged to the destination chain.
     event SingleTokenBridgeToDestinationChain(bytes32 indexed marketHash, bytes32 lz_guid, uint64 lz_nonce, uint256 amountBridged);

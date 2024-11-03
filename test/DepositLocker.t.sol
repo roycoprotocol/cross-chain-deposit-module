@@ -72,8 +72,13 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
             vm.expectEmit(false, true, false, false, address(mockLiquidityToken));
             emit ERC20.Transfer(address(0), address(depositLocker), fillAmount);
 
-            vm.expectEmit(true, false, false, false, address(depositLocker));
-            emit DepositLocker.UserDeposited(marketHash, address(0), fillAmount);
+            if (i == (numDepositors - 1)) {
+                vm.expectEmit(true, true, false, false, address(depositLocker));
+                emit DepositLocker.UserDeposited(marketHash, ap, fillAmount);
+            } else {
+                vm.expectEmit(true, true, false, true, address(depositLocker));
+                emit DepositLocker.UserDeposited(marketHash, ap, fillAmount);
+            }
 
             // Record the logs to capture Transfer events to get Weiroll wallet address
             vm.recordLogs();
@@ -85,12 +90,17 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
             address weirollWallet = address(uint160(uint256(vm.getRecordedLogs()[0].topics[2])));
 
             if (i == (numDepositors - 1)) {
-                assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, weirollWallet), offerAmount - filledSoFar);
+                assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, ap), offerAmount - filledSoFar);
+                assertEq(depositLocker.depositorToWeirollWalletToAmount(ap, weirollWallet), offerAmount - filledSoFar);
             } else {
-                assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, weirollWallet), fillAmount);
+                assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, ap), fillAmount);
+                assertEq(depositLocker.depositorToWeirollWalletToAmount(ap, weirollWallet), fillAmount);
                 filledSoFar += fillAmount;
                 assertEq(mockLiquidityToken.balanceOf(address(depositLocker)), filledSoFar);
             }
+
+            address depositorWeirollWallet = depositLocker.marketHashToDepositorToWeirollWallets(marketHash, ap, 0);
+            assertEq(depositorWeirollWallet, weirollWallet);
 
             assertEq(mockLiquidityToken.balanceOf(weirollWallet), 0);
         }
@@ -153,22 +163,25 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
                 fillAmount = offerAmount - (fillAmount * (numDepositors - 1));
             }
 
+            uint256 preWithdrawApTokenBalance = mockLiquidityToken.balanceOf(aps[i]);
+
             vm.startPrank(aps[i]);
 
             vm.expectEmit(true, true, false, true, address(mockLiquidityToken));
-            emit ERC20.Transfer(address(depositLocker), depositorWallets[i], fillAmount);
+            emit ERC20.Transfer(address(depositLocker), aps[i], fillAmount);
 
-            vm.expectEmit(true, false, false, true, address(depositLocker));
-            emit DepositLocker.UserWithdrawn(marketHash, depositorWallets[i], fillAmount);
+            vm.expectEmit(true, true, false, true, address(depositLocker));
+            emit DepositLocker.UserWithdrawn(marketHash, aps[i], fillAmount);
 
             recipeMarketHub.forfeit(depositorWallets[i], true);
             vm.stopPrank();
 
             withdrawnSoFar += fillAmount;
 
-            assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, depositorWallets[i]), 0);
+            assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, aps[i]), 0);
+            assertEq(depositLocker.depositorToWeirollWalletToAmount(aps[i], depositorWallets[i]), 0);
 
-            assertEq(mockLiquidityToken.balanceOf(depositorWallets[i]), fillAmount);
+            assertEq(mockLiquidityToken.balanceOf(aps[i]), preWithdrawApTokenBalance + fillAmount);
             assertEq(mockLiquidityToken.balanceOf(address(depositLocker)), offerAmount - withdrawnSoFar);
         }
     }
