@@ -416,6 +416,17 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                           Internal Functions
     //////////////////////////////////////////////////////////////*/
 
+    /**
+     * @notice Creates Weiroll wallets for single token deposits and transfers the deposited tokens to them.
+     * @dev Processes the compose message to extract depositor addresses and deposit amounts, creates Weiroll wallets for each depositor, and transfers the
+     * corresponding deposit amounts to each wallet.
+     * @param _sourceMarketHash The market hash from the source chain identifying the deposit campaign.
+     * @param _composeMsg The compose message containing depositor information (addresses and deposit amounts).
+     * @param _depositToken The ERC20 token that was bridged and will be deposited into the Weiroll wallets.
+     * @param _tokenAmountBridged The total amount of tokens that were bridged and available for deposits.
+     * @param _campaignUnlockTimestamp The absolute timestamp when the Weiroll wallets can be unlocked.
+     * @return weirollWalletsCreated An array of addresses of the Weiroll wallets that were created for the depositors.
+     */
     function _createWeirollWalletsForSingleTokenDeposits(
         bytes32 _sourceMarketHash,
         bytes memory _composeMsg,
@@ -434,7 +445,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         uint256 offset = DepositPayloadLib.SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET;
 
         // Num depositors bridged = (bytes for the part of the composeMsg with depositor information / Bytes per depositor)
-        uint256 numDepositorsBridged = (_composeMsg.length - DepositPayloadLib.SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET) / DepositPayloadLib.BYTES_PER_DEPOSITOR;
+        uint256 numDepositorsBridged =
+            (_composeMsg.length - DepositPayloadLib.SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET) / DepositPayloadLib.BYTES_PER_DEPOSITOR;
 
         // Keep track of weiroll wallets created for event emission (to be used in deposit recipe execution phase)
         weirollWalletsCreated = new address[](numDepositorsBridged);
@@ -454,7 +466,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             offset += 12;
 
             // Deploy the Weiroll wallet for the depositor
-            address weirollWallet = _deployWeirollWallet(_sourceMarketHash, depositorAddress, depositAmount, _campaignUnlockTimestamp);
+            address weirollWallet = _createWeirollWallet(_sourceMarketHash, depositorAddress, depositAmount, _campaignUnlockTimestamp);
 
             // Transfer the deposited tokens to the Weiroll wallet
             _depositToken.safeTransfer(weirollWallet, depositAmount);
@@ -464,6 +476,19 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         }
     }
 
+    /**
+     * @notice Creates Weiroll wallets for dual token deposits, transfers the first constituent tokens, and caches the wallets for the second constituent
+     * transfer.
+     * @dev Processes the compose message to extract depositor addresses and deposit amounts, creates Weiroll wallets for each depositor, transfers the first
+     * constituent tokens to each wallet, and caches the wallet addresses for later transfer of the second constituent tokens.
+     * @param _sourceMarketHash The market hash from the source chain identifying the deposit campaign.
+     * @param _nonce The unique nonce associated with the dual token bridge, used to match the two constituent token transfers.
+     * @param _composeMsg The compose message containing depositor information (addresses and deposit amounts).
+     * @param _depositToken The first constituent ERC20 token that was bridged and will be deposited into the Weiroll wallets.
+     * @param _tokenAmountBridged The total amount of the first constituent tokens that were bridged and available for deposits.
+     * @param _campaignUnlockTimestamp The absolute timestamp when the Weiroll wallets can be unlocked.
+     * @return weirollWalletsCreated An array of addresses of the Weiroll wallets that were created for the depositors.
+     */
     function _createWeirollWalletsForDualTokenDeposits(
         bytes32 _sourceMarketHash,
         uint256 _nonce,
@@ -483,7 +508,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         uint256 offset = DepositPayloadLib.DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET;
 
         // Num depositors bridged = (bytes for the part of the composeMsg with depositor information / Bytes per depositor)
-        uint256 numDepositorsBridged = (_composeMsg.length - DepositPayloadLib.DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET) / DepositPayloadLib.BYTES_PER_DEPOSITOR;
+        uint256 numDepositorsBridged =
+            (_composeMsg.length - DepositPayloadLib.DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET) / DepositPayloadLib.BYTES_PER_DEPOSITOR;
 
         // Keep track of weiroll wallets created for event emission (to be used in deposit recipe execution phase)
         weirollWalletsCreated = new address[](numDepositorsBridged);
@@ -503,7 +529,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             offset += 12;
 
             // Deploy the Weiroll wallet for the depositor
-            address weirollWallet = _deployWeirollWallet(_sourceMarketHash, depositorAddress, depositAmount, _campaignUnlockTimestamp);
+            address weirollWallet = _createWeirollWallet(_sourceMarketHash, depositorAddress, depositAmount, _campaignUnlockTimestamp);
 
             // Transfer the deposited tokens to the Weiroll wallet
             _depositToken.safeTransfer(weirollWallet, depositAmount);
@@ -516,6 +542,15 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         }
     }
 
+    /**
+     * @notice Transfers the second constituent tokens for a dual token bridge to the cached Weiroll wallets.
+     * @dev Processes the compose message to extract depositor addresses and deposit amounts, retrieves the cached Weiroll wallets using the nonce, transfers
+     * the second constituent tokens to each wallet, and clears the cache for the nonce and depositors.
+     * @param _nonce The unique nonce associated with the dual token bridge, used to match the two constituent token transfers.
+     * @param _composeMsg The compose message containing depositor information (addresses and deposit amounts).
+     * @param _depositToken The second constituent ERC20 token that was bridged and will be transferred to the cached Weiroll wallets.
+     * @param _tokenAmountBridged The total amount of the second constituent tokens that were bridged and available for deposits.
+     */
     function _transferSecondConstituentForDualTokenBridge(
         uint256 _nonce,
         bytes memory _composeMsg,
@@ -561,7 +596,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @param _amount The amount deposited.
     /// @param _lockedUntil The timestamp until which the wallet is locked.
     /// @return weirollWallet The address of the Weiroll wallet.
-    function _deployWeirollWallet(
+    function _createWeirollWallet(
         bytes32 _sourceMarketHash,
         address _owner,
         uint256 _amount,
