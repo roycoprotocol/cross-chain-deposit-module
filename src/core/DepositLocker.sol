@@ -132,7 +132,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /*//////////////////////////////////////////////////////////////
-                                Functions
+                            External Functions
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Initialize the DepositLocker Contract.
@@ -425,6 +425,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     function setGreenLight(bytes32 _marketHash, bool _greenLightStatus) external onlyMultisig(_marketHash) {
         marketHashToGreenLight[_marketHash] = _greenLightStatus;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                          Internal Functions
+    //////////////////////////////////////////////////////////////*/
 
     /**
      * @notice Processes a single token depositor by updating the compose message and clearing depositor data.
