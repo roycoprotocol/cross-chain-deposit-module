@@ -59,8 +59,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Mapping from market hash to green light status for bridging funds.
     mapping(bytes32 => bool) public marketHashToGreenLight;
 
-    /// @notice Used to keep track of dual token bridges
-    /// @notice Bridging a dual token will result in 2 OFT bridges (each with the same nonce)
+    /// @notice Used to keep track of DUAL_TOKEN bridges
+    /// @notice A DUAL_TOKEN bridge will result in 2 OFT bridges (each with the same nonce)
     uint256 public nonce;
 
     /*//////////////////////////////////////////////////////////////
@@ -79,6 +79,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Emitted when dual tokens are bridged to the destination chain.
     event DualTokenBridgeToDestinationChain(
         bytes32 indexed marketHash,
+        uint256 indexed dt_bridge_nonce,
         bytes32 lz_tokenA_guid,
         uint64 lz_tokenA_nonce,
         uint256 lz_tokenA_AmountBridged,
@@ -319,7 +320,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Initialize compose messages for both tokens - first 65 bytes are BRIDGE_TYPE, market hash, and nonce
         bytes memory tokenA_ComposeMsg = DepositPayloadLib.initDualTokenComposeMsg(_marketHash, nonce);
-        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualTokenComposeMsg(_marketHash, nonce++); // Increment the nonce after encoding
+        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualTokenComposeMsg(_marketHash, nonce);
 
         // Keep track of total amount of deposits to bridge
         uint256 dt_totalAmountToBridge;
@@ -378,8 +379,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Emit event to keep track of bridged deposits
+        // Increment the nonce after emission
         emit DualTokenBridgeToDestinationChain(
             _marketHash,
+            nonce++,
             tokenA_MessageReceipt.guid,
             tokenA_MessageReceipt.nonce,
             tokenA_TotalAmountToBridge,
