@@ -426,32 +426,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         marketHashToGreenLight[_marketHash] = _greenLightStatus;
     }
 
-    /// @notice Bridges LayerZero V2 OFT tokens
-    /// @param _token The token to bridge
-    /// @param _feesAlreadyPaid The amount of fees already paid in this transaction prior to this bridge
-    /// @param _sendParam The send parameter passed to the quoteSend and send OFT functions
-    function _bridgeTokens(ERC20 _token, uint256 _feesAlreadyPaid, SendParam memory _sendParam) internal returns (MessagingReceipt memory messageReceipt) {
-        // The amount of the token to bridge in local decimals
-        uint256 amountToBridge = _sendParam.amountLD;
-
-        // Get the lzV2OFT for the market's input token
-        IOFT lzV2OFT = tokenToLzV2OFT[_token];
-
-        // Get fee quote for bridging
-        MessagingFee memory messagingFee = lzV2OFT.quoteSend(_sendParam, false);
-        require(msg.value - _feesAlreadyPaid >= messagingFee.nativeFee, InsufficientMsgValueForBridge());
-
-        // Approve the lzV2OFT to bridge tokens
-        _token.safeApprove(address(lzV2OFT), amountToBridge);
-
-        // Execute the bridge transaction
-        OFTReceipt memory bridgeReceipt;
-        (messageReceipt, bridgeReceipt) = lzV2OFT.send{ value: messagingFee.nativeFee }(_sendParam, messagingFee, address(this));
-
-        // Ensure that all deposits were bridged
-        require(amountToBridge == bridgeReceipt.amountReceivedLD, FailedToBridgeAllDeposits());
-    }
-
     /**
      * @notice Processes a single token depositor by updating the compose message and clearing depositor data.
      * @dev Updates the compose message with the depositor's information if the deposit amount is valid.
@@ -519,15 +493,41 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         return (dt_DepositAmount, tokenA_DepositAmount, tokenB_DepositAmount, _tokenA_ComposeMsg, _tokenB_ComposeMsg);
     }
 
+    /// @notice Bridges LayerZero V2 OFT tokens
+    /// @param _token The token to bridge
+    /// @param _feesAlreadyPaid The amount of fees already paid in this transaction prior to this bridge
+    /// @param _sendParam The send parameter passed to the quoteSend and send OFT functions
+    function _bridgeTokens(ERC20 _token, uint256 _feesAlreadyPaid, SendParam memory _sendParam) internal returns (MessagingReceipt memory messageReceipt) {
+        // The amount of the token to bridge in local decimals
+        uint256 amountToBridge = _sendParam.amountLD;
+
+        // Get the lzV2OFT for the market's input token
+        IOFT lzV2OFT = tokenToLzV2OFT[_token];
+
+        // Get fee quote for bridging
+        MessagingFee memory messagingFee = lzV2OFT.quoteSend(_sendParam, false);
+        require(msg.value - _feesAlreadyPaid >= messagingFee.nativeFee, InsufficientMsgValueForBridge());
+
+        // Approve the lzV2OFT to bridge tokens
+        _token.safeApprove(address(lzV2OFT), amountToBridge);
+
+        // Execute the bridge transaction
+        OFTReceipt memory bridgeReceipt;
+        (messageReceipt, bridgeReceipt) = lzV2OFT.send{ value: messagingFee.nativeFee }(_sendParam, messagingFee, address(this));
+
+        // Ensure that all deposits were bridged
+        require(amountToBridge == bridgeReceipt.amountReceivedLD, FailedToBridgeAllDeposits());
+    }
+
     /// @notice Deletes all Weiroll Wallet state and deposit amounts associated with this depositor for the specified market
     /// @param _marketHash The market hash to clear the depositor data for
     /// @param _depositor The depositor to clear the depositor data for
     function _clearDepositorData(bytes32 _marketHash, address _depositor) internal {
         // Mark all currently deposited Weiroll Wallets from this depositor as bridged
         address[] storage depositorWeirollWallets = marketHashToDepositorToWeirollWallets[_marketHash][_depositor];
-        for (uint256 j = 0; j < depositorWeirollWallets.length; ++j) {
+        for (uint256 i = 0; i < depositorWeirollWallets.length; ++i) {
             // Set the amount deposited by the Weiroll Wallet to zero
-            delete depositorToWeirollWalletToAmount[_depositor][depositorWeirollWallets[j]];
+            delete depositorToWeirollWalletToAmount[_depositor][depositorWeirollWallets[i]];
         }
         // Set length of currently deposited wallets list to zero
         delete marketHashToDepositorToWeirollWallets[_marketHash][_depositor];
