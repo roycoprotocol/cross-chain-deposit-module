@@ -61,9 +61,10 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         // Create a fillable IP offer for points
         (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
 
-        address payable[] memory depositorWallets = new address payable[](numDepositors);
+        address[] memory depositorWallets = new address[](numDepositors);
         for (uint256 i = 0; i < numDepositors; i++) {
             (address ap,) = makeAddrAndKey(string(abi.encode(i)));
+            depositorWallets[i] = ap;
 
             // Fund the AP
             deal(USDC_MAINNET_ADDRESS, ap, offerAmount);
@@ -78,17 +79,9 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
                 fillAmount = type(uint256).max;
             }
 
-            // Record the logs to capture Transfer events to get Weiroll wallet address
-            vm.recordLogs();
             // AP Fills the offer (no funding vault)
-
             recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
-
-            // Extract the Weiroll wallet address (the 'to' address from the Transfer event - third event in logs)
-            address payable weirollWallet = payable(address(uint160(uint256(vm.getRecordedLogs()[0].topics[2]))));
-
-            depositorWallets[i] = weirollWallet;
         }
 
         vm.startPrank(OWNER_ADDRESS);
@@ -149,9 +142,10 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         // Create a fillable IP offer for points
         (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
 
-        address payable[] memory depositorWallets = new address payable[](numDepositors);
+        address[] memory depositorWallets = new address[](numDepositors);
         for (uint256 i = 0; i < numDepositors; i++) {
             (address ap,) = makeAddrAndKey(string(abi.encode(i)));
+            depositorWallets[i] = ap;
 
             // Fund the AP
             deal(WBTC_MAINNET_ADDRESS, ap, offerAmount);
@@ -166,17 +160,9 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
                 fillAmount = type(uint256).max;
             }
 
-            // Record the logs to capture Transfer events to get Weiroll wallet address
-            vm.recordLogs();
             // AP Fills the offer (no funding vault)
-
             recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
-
-            // Extract the Weiroll wallet address (the 'to' address from the Transfer event - third event in logs)
-            address payable weirollWallet = payable(address(uint160(uint256(vm.getRecordedLogs()[0].topics[2]))));
-
-            depositorWallets[i] = weirollWallet;
         }
 
         vm.startPrank(OWNER_ADDRESS);

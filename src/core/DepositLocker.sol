@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
+import { Ownable2Step, Ownable } from "@openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { RecipeMarketHubBase, ERC20, SafeTransferLib, FixedPointMathLib } from "@royco/src/RecipeMarketHub.sol";
 import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
 import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src/interfaces/IOFT.sol";
 import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
-import { Ownable2Step, Ownable } from "@openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import { DualToken } from "src/periphery/DualToken.sol";
 import { DepositType, DepositPayloadLib } from "src/libraries/DepositPayloadLib.sol";
 
@@ -50,7 +51,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     mapping(bytes32 => mapping(address => uint256)) public marketHashToDepositorToAmountDeposited;
 
     /// @notice Mapping Depositor (AP) to Weiroll Wallets they have deposited with
-    mapping(address => address[]) public depositorToWeirollWallets;
+    mapping(bytes32 => mapping(address => address[])) public marketHashToDepositorToWeirollWallets;
 
     /// @notice Mapping Depositor (AP) to Weiroll Wallet to amount deposited by that Weiroll Wallet
     mapping(address => mapping(address => uint256)) public depositorToWeirollWalletToAmount;
@@ -166,44 +167,44 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Called by the deposit script from the depositor's Weiroll wallet.
     function deposit() external nonReentrant {
-        // Get Weiroll Wallet's market hash, owner (AP), and amount deposited
+        // Get Weiroll Wallet's market hash, depositor/owner/AP, and amount deposited
         WeirollWallet wallet = WeirollWallet(payable(msg.sender));
         bytes32 targetMarketHash = wallet.marketHash();
-        address ap = wallet.owner();
+        address depositor = wallet.owner();
         uint256 amountDeposited = wallet.amount();
 
         // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
         // Account for deposit
-        marketHashToDepositorToAmountDeposited[targetMarketHash][ap] += amountDeposited;
-        depositorToWeirollWallets[ap].push(msg.sender);
-        depositorToWeirollWalletToAmount[ap][msg.sender] = amountDeposited;
+        marketHashToDepositorToAmountDeposited[targetMarketHash][depositor] += amountDeposited;
+        marketHashToDepositorToWeirollWallets[targetMarketHash][depositor].push(msg.sender);
+        depositorToWeirollWalletToAmount[depositor][msg.sender] = amountDeposited;
 
         // Emit deposit event
-        emit UserDeposited(targetMarketHash, ap, amountDeposited);
+        emit UserDeposited(targetMarketHash, depositor, amountDeposited);
     }
 
     /// @notice Called by the withdraw script from the depositor's Weiroll wallet.
     function withdraw() external nonReentrant {
-        // Get Weiroll Wallet's market hash and owner (AP)
+        // Get Weiroll Wallet's market hash and depositor/owner/AP
         WeirollWallet wallet = WeirollWallet(payable(msg.sender));
         bytes32 targetMarketHash = wallet.marketHash();
-        address ap = wallet.owner();
+        address depositor = wallet.owner();
 
         // Get amount to withdraw for this Weiroll Wallet
-        uint256 amountToWithdraw = depositorToWeirollWalletToAmount[ap][msg.sender];
+        uint256 amountToWithdraw = depositorToWeirollWalletToAmount[depositor][msg.sender];
         require(amountToWithdraw > 0, NothingToWithdraw());
         // Account for the withdrawal
-        marketHashToDepositorToAmountDeposited[targetMarketHash][ap] -= amountToWithdraw;
-        delete depositorToWeirollWalletToAmount[ap][msg.sender];
+        marketHashToDepositorToAmountDeposited[targetMarketHash][depositor] -= amountToWithdraw;
+        delete depositorToWeirollWalletToAmount[depositor][msg.sender];
 
         // Transfer back the amount deposited directly to the AP
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
-        marketInputToken.safeTransfer(ap, amountToWithdraw);
+        marketInputToken.safeTransfer(depositor, amountToWithdraw);
 
         // Emit withdrawal event
-        emit UserWithdrawn(targetMarketHash, ap, amountToWithdraw);
+        emit UserWithdrawn(targetMarketHash, depositor, amountToWithdraw);
     }
 
     /// @notice Bridges depositors in single token markets from the source chain to the destination chain.
@@ -240,31 +241,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 totalAmountToBridge;
 
         for (uint256 i = 0; i < _depositors.length; ++i) {
-            // Get the depositor (AP)
-            address depositor = _depositors[i];
+            // Get the deposit amount for this depositor
+            uint256 depositAmount;
 
-            // Get amount deposited by the depositor (AP)
-            uint256 depositAmount = marketHashToDepositorToAmountDeposited[_marketHash][depositor];
-            if (depositAmount == 0 || depositAmount > type(uint96).max) {
-                continue; // Skip if didn't deposit or deposit amount is too much to bridge
-            }
-
-            // Mark all currently deposited Weiroll Wallets from this depositor as bridged
-            address[] storage depositorWeirollWallets = depositorToWeirollWallets[depositor];
-            for (uint256 j = 0; j < depositorWeirollWallets.length; ++j) {
-                // Set the amount deposited by the Weiroll Wallet to zero
-                delete depositorToWeirollWalletToAmount[depositor][depositorWeirollWallets[j]];
-            }
-            // Set length of currently deposited wallets list to zero
-            delete depositorToWeirollWallets[depositor];
+            // Process depositor and update compose message
+            (depositAmount, composeMsg) = _processSingleTokenDepositor(_marketHash, _depositors[i], composeMsg);
 
             // Update the total amount to bridge
             totalAmountToBridge += depositAmount;
-            // Set the depositor's deposit amount to zero
-            delete marketHashToDepositorToAmountDeposited[_marketHash][depositor];
-
-            // Add a depositor to the lz compose message
-            composeMsg = composeMsg.writeDepositor(depositor, uint96(depositAmount));
         }
 
         // Ensure that at least one depositor was included in the bridge payload
@@ -343,48 +327,26 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 tokenB_TotalAmountToBridge;
 
         for (uint256 i = 0; i < _depositors.length; ++i) {
-            // Get the depositor (AP)
-            address depositor = _depositors[i];
+            // Get the deposit amounts for the dual token and each constituent for this depositor
+            uint256 dt_depositAmount;
+            uint256 tokenA_DepositAmount;
+            uint256 tokenB_DepositAmount;
 
-            // Get amount deposited by the depositor (AP)
-            uint256 depositAmount = marketHashToDepositorToAmountDeposited[_marketHash][depositor];
-            if (depositAmount == 0 || depositAmount > type(uint96).max) {
-                continue; // Skip if didn't deposit or deposit amount is too much to bridge
-            }
+            // Process the depositor and update the compose messages
+            (dt_depositAmount, tokenA_DepositAmount, tokenB_DepositAmount, tokenA_ComposeMsg, tokenB_ComposeMsg) =
+                _processDualTokenDepositor(_marketHash, _depositors[i], amountOfTokenAPerDT, amountOfTokenBPerDT, tokenA_ComposeMsg, tokenB_ComposeMsg);
 
-            // Calculate amount of each constituent to bridge
-            uint256 tokenA_DepositAmount = depositAmount.mulWadDown(amountOfTokenAPerDT);
-            uint256 tokenB_DepositAmount = depositAmount.mulWadDown(amountOfTokenBPerDT);
-
-            if (tokenA_DepositAmount > type(uint96).max || tokenB_DepositAmount > type(uint96).max) {
-                continue; // Skip if deposit amount is too much to bridge for either token
-            }
-
-            // Mark all currently deposited Weiroll Wallets from this depositor as bridged
-            address[] storage depositorWeirollWallets = depositorToWeirollWallets[depositor];
-            for (uint256 j = 0; j < depositorWeirollWallets.length; ++j) {
-                // Set the amount deposited by the Weiroll Wallet to zero
-                delete depositorToWeirollWalletToAmount[depositor][depositorWeirollWallets[j]];
-            }
-            // Set length of currently deposited wallets list to zero
-            delete depositorToWeirollWallets[depositor];
-
-            // Update the total amounts to bridge and clear the depositor's deposit amount
-            dt_totalAmountToBridge += depositAmount;
+            // Update total amounts
+            dt_totalAmountToBridge += dt_depositAmount;
             tokenA_TotalAmountToBridge += tokenA_DepositAmount;
             tokenB_TotalAmountToBridge += tokenB_DepositAmount;
-            delete marketHashToDepositorToAmountDeposited[_marketHash][depositor];
-
-            // Write depositor with corresponding amount to each lz compose message
-            tokenA_ComposeMsg = tokenA_ComposeMsg.writeDepositor(depositor, uint96(tokenA_DepositAmount));
-            tokenB_ComposeMsg = tokenB_ComposeMsg.writeDepositor(depositor, uint96(tokenB_DepositAmount));
         }
-
-        // Burn the dual tokens to receive the constituents in the PredepositLocker
-        dualToken.burn(dt_totalAmountToBridge);
 
         // Ensure that at least one depositor was included in the bridge payload
         require(tokenA_TotalAmountToBridge > 0 && tokenB_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+
+        // Burn the dual tokens to receive the constituents in the DepositLocker
+        dualToken.burn(dt_totalAmountToBridge);
 
         // Prepare SendParam for bridging Token A
         SendParam memory sendParam = SendParam({
@@ -397,7 +359,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             oftCmd: ""
         });
 
-        // Bridge the tokens with the marshaled parameters
+        // Bridge the tokens with the marshaled send parameters
         MessagingReceipt memory tokenA_MessageReceipt = _bridgeTokens(dualToken.tokenA(), 0, sendParam);
         uint256 totalBridgingFee = tokenA_MessageReceipt.fee.nativeFee;
 
@@ -406,7 +368,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         sendParam.minAmountLD = tokenB_TotalAmountToBridge;
         sendParam.composeMsg = tokenB_ComposeMsg;
 
-        // Bridge the tokens with the marshaled parameters
+        // Bridge the tokens with the marshaled send parameters
         MessagingReceipt memory tokenB_MessageReceipt = _bridgeTokens(dualToken.tokenB(), totalBridgingFee, sendParam);
         totalBridgingFee += tokenB_MessageReceipt.fee.nativeFee;
 
@@ -485,6 +447,89 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Ensure that all deposits were bridged
         require(amountToBridge == bridgeReceipt.amountReceivedLD, FailedToBridgeAllDeposits());
+    }
+
+    /**
+     * @notice Processes a single token depositor by updating the compose message and clearing depositor data.
+     * @dev Updates the compose message with the depositor's information if the deposit amount is valid.
+     * @param _marketHash The hash of the market to process.
+     * @param _depositor The address of the depositor.
+     * @param _composeMsg The current compose message to be updated.
+     * @return The updated compose message and the depositor's deposit amount.
+     */
+    function _processSingleTokenDepositor(bytes32 _marketHash, address _depositor, bytes memory _composeMsg) internal returns (uint256, bytes memory) {
+        // Get amount deposited by the depositor (AP)
+        uint256 depositAmount = marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
+        if (depositAmount == 0 || depositAmount > type(uint96).max) {
+            return (0, _composeMsg); // Skip if no deposit or deposit amount exceeds limit
+        }
+
+        // Delete all Weiroll Wallet state and deposit amounts associated with this depositor
+        _clearDepositorData(_marketHash, _depositor);
+
+        // Add depositor to the compose message
+        _composeMsg = _composeMsg.writeDepositor(_depositor, uint96(depositAmount));
+
+        return (depositAmount, _composeMsg);
+    }
+
+    /**
+     * @notice Processes a dual token depositor by updating compose messages and clearing depositor data.
+     * @dev Calculates the amount of each constituent token and updates the compose messages accordingly.
+     * @param _marketHash The hash of the market to process.
+     * @param _depositor The address of the depositor.
+     * @param _amountOfTokenAPerDT The amount of Token A per dual token.
+     * @param _amountOfTokenBPerDT The amount of Token B per dual token.
+     * @param _tokenA_ComposeMsg The current compose message for Token A to be updated.
+     * @param _tokenB_ComposeMsg The current compose message for Token B to be updated.
+     * @return The updated compose messages and the amounts of tokens to bridge.
+     */
+    function _processDualTokenDepositor(
+        bytes32 _marketHash,
+        address _depositor,
+        uint256 _amountOfTokenAPerDT,
+        uint256 _amountOfTokenBPerDT,
+        bytes memory _tokenA_ComposeMsg,
+        bytes memory _tokenB_ComposeMsg
+    )
+        internal
+        returns (uint256, uint256, uint256, bytes memory, bytes memory)
+    {
+        // Get amount deposited by the depositor (AP)
+        uint256 dt_DepositAmount = marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
+
+        // Calculate amount of each constituent to bridge
+        uint256 tokenA_DepositAmount = dt_DepositAmount.mulWadDown(_amountOfTokenAPerDT);
+        uint256 tokenB_DepositAmount = dt_DepositAmount.mulWadDown(_amountOfTokenBPerDT);
+
+        if (tokenA_DepositAmount > type(uint96).max || tokenB_DepositAmount > type(uint96).max) {
+            return (0, 0, 0, _tokenA_ComposeMsg, _tokenB_ComposeMsg); // Skip if deposit amount exceeds limit
+        }
+
+        // Delete all Weiroll Wallet state and deposit amounts associated with this depositor
+        _clearDepositorData(_marketHash, _depositor);
+
+        // Update compose messages
+        _tokenA_ComposeMsg = _tokenA_ComposeMsg.writeDepositor(_depositor, uint96(tokenA_DepositAmount));
+        _tokenB_ComposeMsg = _tokenB_ComposeMsg.writeDepositor(_depositor, uint96(tokenB_DepositAmount));
+
+        return (dt_DepositAmount, tokenA_DepositAmount, tokenB_DepositAmount, _tokenA_ComposeMsg, _tokenB_ComposeMsg);
+    }
+
+    /// @notice Deletes all Weiroll Wallet state and deposit amounts associated with this depositor for the specified market
+    /// @param _marketHash The market hash to clear the depositor data for
+    /// @param _depositor The depositor to clear the depositor data for
+    function _clearDepositorData(bytes32 _marketHash, address _depositor) internal {
+        // Mark all currently deposited Weiroll Wallets from this depositor as bridged
+        address[] storage depositorWeirollWallets = marketHashToDepositorToWeirollWallets[_marketHash][_depositor];
+        for (uint256 j = 0; j < depositorWeirollWallets.length; ++j) {
+            // Set the amount deposited by the Weiroll Wallet to zero
+            delete depositorToWeirollWalletToAmount[_depositor][depositorWeirollWallets[j]];
+        }
+        // Set length of currently deposited wallets list to zero
+        delete marketHashToDepositorToWeirollWallets[_marketHash][_depositor];
+        // Set the total deposit amount from this depositor (AP) to zero
+        delete marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
     }
 
     /// @dev Converts an address to bytes32.

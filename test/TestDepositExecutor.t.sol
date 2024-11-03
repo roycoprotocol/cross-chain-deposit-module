@@ -196,7 +196,6 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         // Create a fillable IP offer for points
         (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
 
-        address payable[] memory depositorWallets = new address payable[](numDepositors);
         depositors = new address[](numDepositors);
         depositAmounts = new uint256[](numDepositors);
 
@@ -216,16 +215,11 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
                 fillAmount = type(uint256).max;
             }
 
-            // Record the logs to capture Transfer events to get Weiroll wallet address
-            vm.recordLogs();
             // AP Fills the offer (no funding vault)
             recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
-            // Extract the Weiroll wallet address (the 'to' address from the Transfer event - third event in logs)
-            address payable weirollWallet = payable(address(uint160(uint256(vm.getRecordedLogs()[0].topics[2]))));
 
-            depositorWallets[i] = weirollWallet;
-            depositAmounts[i] = depositLocker.marketHashToDepositorToAmountDeposited(marketHash, weirollWallet);
+            depositAmounts[i] = depositLocker.marketHashToDepositorToAmountDeposited(marketHash, ap);
         }
 
         vm.startPrank(OWNER_ADDRESS);
@@ -239,7 +233,7 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         vm.recordLogs();
         // Record the logs to capture Transfer events to get Weiroll wallet address
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositors);
         vm.stopPrank();
 
         // Get the encoded payload which will be passed in compose call on the destination chain

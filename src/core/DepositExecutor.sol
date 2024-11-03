@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import { ERC20, SafeTransferLib } from "@royco/src/RecipeMarketHub.sol";
 import { Ownable2Step, Ownable } from "@openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { ILayerZeroComposer } from "src/interfaces/ILayerZeroComposer.sol";
+import { ERC20, SafeTransferLib } from "@royco/src/RecipeMarketHub.sol";
 import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
 import { ClonesWithImmutableArgs } from "@clones-with-immutable-args/ClonesWithImmutableArgs.sol";
 import { IOFT } from "src/interfaces/IOFT.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
-import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { DepositType, DepositPayloadLib } from "src/libraries/DepositPayloadLib.sol";
 
 /// @title DepositExecutor
@@ -19,30 +19,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     using ClonesWithImmutableArgs for address;
     using SafeTransferLib for ERC20;
     using DepositPayloadLib for bytes;
-
-    /*//////////////////////////////////////////////////////////////
-                               Constants
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Minimum size of a SINGLE_TOKEN Bridge Payload
-    // (1 byte for DepositType + 32 bytes for sourceMarketHash + 32 bytes for single depositor payload) = 65 bytes
-    uint256 private constant MIN_SINGLE_TOKEN_PAYLOAD_SIZE = 65;
-
-    /// @notice Offset to first depositor in a SINGLE_TOKEN payload
-    // (1 byte for DepositType + 32 bytes for sourceMarketHash) = 33 bytes
-    uint256 private constant SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET = 33;
-
-    /// @notice Minimum size of a DUAL_TOKEN Bridge Payload
-    // (1 byte for DepositType + 32 bytes for sourceMarketHash + 32 bytes for nonce + 32 bytes for single depositor payload) = 97 bytes
-    uint256 private constant MIN_DUAL_TOKEN_PAYLOAD_SIZE = 97;
-
-    /// @notice Offset to first depositor in a DUAL_TOKEN payload
-    // (1 byte for DepositType + 32 bytes for sourceMarketHash + 32 bytes for nonce) = 65 bytes
-    uint256 private constant DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET = 65;
-
-    /// @notice Bytes used per depositor position in the payload
-    // (20 bytes for depositor address + 12 bytes for the corresponding deposit amount) = 32 bytes
-    uint256 private constant BYTES_PER_DEPOSITOR = 32;
 
     /// @notice The address of the Weiroll wallet implementation on the destination chain.
     address public immutable WEIROLL_WALLET_IMPLEMENTATION;
@@ -104,25 +80,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @dev Mapping from a market hash on the source chain to its SingleTokenDepositCampaign struct.
     mapping(bytes32 => DualTokenDepositCampaign) public sourceMarketHashToDualTokenDepositCampaign;
 
-    /// @dev Mapping from a DUAL_TOKEN nonce to the depositor to the address of the weiroll wallet created upon bridging the first constituent
+    /// @dev Mapping from a DUAL_TOKEN bridge nonce to the depositor address to the address of the weiroll wallet created upon bridging the first constituent
     mapping(uint256 => mapping(address => address)) public nonceToDepositorToWeirollWallet;
 
     /*//////////////////////////////////////////////////////////////
                            Events and Errors
     //////////////////////////////////////////////////////////////*/
-
-    /// @notice Emitted when a Weiroll wallet executes a withdrawal.
-    /// @param weirollWallet The address of the weiroll wallet that executed the withdrawal recipe.
-    event WeirollWalletExecutedWithdrawal(address indexed weirollWallet);
-
-    /// @notice Emitted when a Weiroll wallet executes a deposit.
-    /// @param weirollWallet The address of the weiroll wallet that executed the deposit recipe.
-    event WeirollWalletExecutedDeposit(address indexed weirollWallet);
-
-    /// @notice Emitted on batch execute of Weiroll Wallet deposits.
-    /// @param sourceMarketHash The source market hash of the Weiroll Wallets.
-    /// @param weirollWallets The addresses of the weiroll wallets that executed the market's deposit recipe.
-    event WeirollWalletsExecutedDeposits(bytes32 indexed sourceMarketHash, address[] weirollWallets);
 
     /// @notice Emitted when bridged deposits are put in fresh Weiroll Wallets for SINGLE_TOKEN deposits.
     /// @param guid The global unique identifier of the bridge transaction.
@@ -144,6 +107,19 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @param sourceMarketHash The source market hash of the deposits received.
     /// @param nonce The nonce associated with this DUAL_TOKEN deposits bridge.
     event DualTokenDepositsCompleted(bytes32 indexed guid, bytes32 indexed sourceMarketHash, uint256 indexed nonce);
+
+    /// @notice Emitted when a Weiroll wallet executes a deposit.
+    /// @param weirollWallet The address of the weiroll wallet that executed the deposit recipe.
+    event WeirollWalletExecutedDeposit(address indexed weirollWallet);
+
+    /// @notice Emitted on batch execute of Weiroll Wallet deposits.
+    /// @param sourceMarketHash The source market hash of the Weiroll Wallets.
+    /// @param weirollWallets The addresses of the weiroll wallets that executed the market's deposit recipe.
+    event WeirollWalletsExecutedDeposits(bytes32 indexed sourceMarketHash, address[] weirollWallets);
+
+    /// @notice Emitted when a Weiroll wallet executes a withdrawal.
+    /// @param weirollWallet The address of the weiroll wallet that executed the withdrawal recipe.
+    event WeirollWalletExecutedWithdrawal(address indexed weirollWallet);
 
     /// @notice Error emitted when the caller is not the owner of the campaign.
     error OnlyOwnerOfSingleTokenDepositCampaign();
@@ -333,7 +309,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         if (depositType == DepositType.SINGLE_TOKEN) {
             // Make sure at least one depositor was bridged
-            require(composeMsg.length >= MIN_SINGLE_TOKEN_PAYLOAD_SIZE, EOF());
+            require(composeMsg.length >= DepositPayloadLib.MIN_SINGLE_TOKEN_PAYLOAD_SIZE, EOF());
 
             // Get the SINGLE_TOKEN deposit campaign
             SingleTokenDepositCampaign storage depositCampaign = sourceMarketHashToSingleTokenDepositCampaign[sourceMarketHash];
@@ -349,7 +325,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             emit FreshWeirollWalletsCreatedForSingleTokenDeposits(_guid, sourceMarketHash, weirollWalletsCreated);
         } else if (depositType == DepositType.DUAL_TOKEN) {
             // Make sure at least one depositor was bridged
-            require(composeMsg.length >= MIN_DUAL_TOKEN_PAYLOAD_SIZE, EOF());
+            require(composeMsg.length >= DepositPayloadLib.MIN_DUAL_TOKEN_PAYLOAD_SIZE, EOF());
 
             // Get the nonce for the DUAL_TOKEN deposits bridge
             uint256 nonce = composeMsg.readNonce();
@@ -374,7 +350,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
             // Check if this is the first constituent being bridged for the DUAL_TOKEN bridge nonce
             bool isFirstBridgeForDualToken =
-                nonceToDepositorToWeirollWallet[nonce][composeMsg.readAddress(DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET)] == address(0);
+                nonceToDepositorToWeirollWallet[nonce][composeMsg.readAddress(DepositPayloadLib.DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET)] == address(0);
 
             if (isFirstBridgeForDualToken) {
                 // Create and cache the weiroll wallets for subsequent constituent token bridge
@@ -455,17 +431,17 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         uint256 amountDeposited = 0;
 
         // Initialize first depositor offset for SINGLE_TOKEN payload
-        uint256 offset = SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET;
+        uint256 offset = DepositPayloadLib.SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET;
 
         // Num depositors bridged = (bytes for the part of the composeMsg with depositor information / Bytes per depositor)
-        uint256 numDepositorsBridged = (_composeMsg.length - SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET) / BYTES_PER_DEPOSITOR;
+        uint256 numDepositorsBridged = (_composeMsg.length - DepositPayloadLib.SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET) / DepositPayloadLib.BYTES_PER_DEPOSITOR;
 
         // Keep track of weiroll wallets created for event emission (to be used in deposit recipe execution phase)
         weirollWalletsCreated = new address[](numDepositorsBridged);
         uint256 currIndex = 0;
 
         // Loop through the compose message and process each depositor
-        while (offset + BYTES_PER_DEPOSITOR <= _composeMsg.length) {
+        while (offset + DepositPayloadLib.BYTES_PER_DEPOSITOR <= _composeMsg.length) {
             // Extract AP address (20 bytes)
             address depositorAddress = _composeMsg.readAddress(offset);
             offset += 20;
@@ -504,17 +480,17 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         uint256 amountDeposited = 0;
 
         // Initialize first depositor offset for DUAL_TOKEN payload
-        uint256 offset = DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET;
+        uint256 offset = DepositPayloadLib.DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET;
 
         // Num depositors bridged = (bytes for the part of the composeMsg with depositor information / Bytes per depositor)
-        uint256 numDepositorsBridged = (_composeMsg.length - DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET) / BYTES_PER_DEPOSITOR;
+        uint256 numDepositorsBridged = (_composeMsg.length - DepositPayloadLib.DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET) / DepositPayloadLib.BYTES_PER_DEPOSITOR;
 
         // Keep track of weiroll wallets created for event emission (to be used in deposit recipe execution phase)
         weirollWalletsCreated = new address[](numDepositorsBridged);
         uint256 currIndex = 0;
 
         // Loop through the compose message and process each depositor
-        while (offset + BYTES_PER_DEPOSITOR <= _composeMsg.length) {
+        while (offset + DepositPayloadLib.BYTES_PER_DEPOSITOR <= _composeMsg.length) {
             // Extract AP address (20 bytes)
             address depositorAddress = _composeMsg.readAddress(offset);
             offset += 20;
@@ -553,10 +529,10 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         uint256 amountDeposited = 0;
 
         // Initialize first depositor offset for DUAL_TOKEN payload
-        uint256 offset = DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET;
+        uint256 offset = DepositPayloadLib.DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET;
 
         // Loop through the compose message and process each depositor
-        while (offset + BYTES_PER_DEPOSITOR <= _composeMsg.length) {
+        while (offset + DepositPayloadLib.BYTES_PER_DEPOSITOR <= _composeMsg.length) {
             // Extract AP address (20 bytes)
             address depositorAddress = _composeMsg.readAddress(offset);
             offset += 20;

@@ -13,7 +13,31 @@ enum DepositType {
 /// @notice A library for encoding and decoding CCDM payloads
 library DepositPayloadLib {
     /*//////////////////////////////////////////////////////////////
-                                ENCODE
+                               Constants
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Minimum size of a SINGLE_TOKEN Bridge Payload
+    // (1 byte for DepositType + 32 bytes for sourceMarketHash + 32 bytes for single depositor payload) = 65 bytes
+    uint256 internal constant MIN_SINGLE_TOKEN_PAYLOAD_SIZE = 65;
+
+    /// @notice Offset to first depositor in a SINGLE_TOKEN payload
+    // (1 byte for DepositType + 32 bytes for sourceMarketHash) = 33 bytes
+    uint256 internal constant SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET = 33;
+
+    /// @notice Minimum size of a DUAL_TOKEN Bridge Payload
+    // (1 byte for DepositType + 32 bytes for sourceMarketHash + 32 bytes for nonce + 32 bytes for single depositor payload) = 97 bytes
+    uint256 internal constant MIN_DUAL_TOKEN_PAYLOAD_SIZE = 97;
+
+    /// @notice Offset to first depositor in a DUAL_TOKEN payload
+    // (1 byte for DepositType + 32 bytes for sourceMarketHash + 32 bytes for nonce) = 65 bytes
+    uint256 internal constant DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET = 65;
+
+    /// @notice Bytes used per depositor position in the payload
+    // (20 bytes for depositor address + 12 bytes for the corresponding deposit amount) = 32 bytes
+    uint256 internal constant BYTES_PER_DEPOSITOR = 32;
+
+    /*//////////////////////////////////////////////////////////////
+                            Encoding Functions
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Initializes a compose message for SINGLE_TOKEN cross-chain deposits
@@ -36,7 +60,7 @@ library DepositPayloadLib {
     }
 
     /*//////////////////////////////////////////////////////////////
-                                DECODE
+                            Decoding Functions
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Reads the DepositType (first byte) and source market hash (following 32 bytes) from the _composeMsg
