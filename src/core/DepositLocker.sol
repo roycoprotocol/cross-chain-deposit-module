@@ -164,7 +164,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
             address bridgeToken = _lzV2OFTs[i].token();
             // Check that the token has a valid corresponding lzV2OFT
-            require(bridgeToken == address(_depositTokens[i] || bridgeToken == address(0)), InvalidLzV2OFTForToken());
+            require(bridgeToken == address(_depositTokens[i]) || bridgeToken == address(0), InvalidLzV2OFTForToken());
             tokenToLzV2OFT[_depositTokens[i]] = _lzV2OFTs[i];
         }
         RECIPE_MARKET_HUB = _recipeMarketHub;
@@ -409,7 +409,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @param _token Token to set the LayerZero Omnichain App for.
     /// @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
     function setLzV2OFTForToken(ERC20 _token, IOFT _lzV2OFT) external onlyOwner {
-        address bridgeToken = _lzV2OFTs[i].token();
+        address bridgeToken = _lzV2OFT.token();
         require(bridgeToken == address(_token) || bridgeToken == address(0), InvalidLzV2OFTForToken());
         tokenToLzV2OFT[_token] = _lzV2OFT;
     }
