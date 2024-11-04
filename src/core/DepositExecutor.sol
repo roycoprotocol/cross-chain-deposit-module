@@ -20,9 +20,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     using SafeTransferLib for ERC20;
     using DepositPayloadLib for bytes;
 
-    /// @notice The address of the Weiroll wallet implementation on the destination chain.
-    address public immutable WEIROLL_WALLET_IMPLEMENTATION;
-
     /*//////////////////////////////////////////////////////////////
                                Structures
     //////////////////////////////////////////////////////////////*/
@@ -64,6 +61,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /*//////////////////////////////////////////////////////////////
                             State Variables
     //////////////////////////////////////////////////////////////*/
+
+    /// @notice The address of the Weiroll wallet implementation on the destination chain.
+    address public immutable WEIROLL_WALLET_IMPLEMENTATION;
 
     /// @notice The address of the LayerZero V2 Endpoint.
     address public lzV2Endpoint;
@@ -377,24 +377,13 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         onlyOwnerOfSingleTokenDepositCampaign(_sourceMarketHash)
         nonReentrant
     {
-        // Keep track of actual wallets that executed the deposit recipe (based on _sourceMarketHash matching the wallet's market hash)
-        // address[] memory walletsExecutedDeposit = new address[](_weirollWallets.length);
-        // uint256 executedCount = 0;
         // Executed deposit recipes
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             if (WeirollWallet(payable(_weirollWallets[i])).marketHash() == _sourceMarketHash) {
+                // Only execute deposit if the wallet belongs to this market
                 _executeDepositRecipe(_sourceMarketHash, _weirollWallets[i]);
-                // walletsExecutedDeposit[executedCount] = _weirollWallets[i];
-                // unchecked {
-                //     ++executedCount;
-                // }
             }
         }
-        // // Resize the array to the actual number of wallets that executed the deposit recipe
-        // assembly ("memory-safe") {
-        //     mstore(walletsExecutedDeposit, executedCount)
-        // }
-        // emit WeirollWalletsExecutedDeposits(_sourceMarketHash, walletsExecutedDeposit);
         emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
     }
 
