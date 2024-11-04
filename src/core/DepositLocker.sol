@@ -6,6 +6,7 @@ import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/Reentran
 import { RecipeMarketHubBase, ERC20, SafeTransferLib, FixedPointMathLib } from "@royco/src/RecipeMarketHub.sol";
 import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
 import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src/interfaces/IOFT.sol";
+import { IWETH } from "src/interfaces/IWETH.sol";
 import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
 import { DualToken } from "src/periphery/DualToken.sol";
 import { DepositType, DepositPayloadLib } from "src/libraries/DepositPayloadLib.sol";
@@ -29,6 +30,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice The RecipeMarketHub keeping track of all Royco markets and offers.
     RecipeMarketHubBase public immutable RECIPE_MARKET_HUB;
+
+    /// @notice The wrapped native asset token on the source chain
+    IWETH public immutable WRAPPED_NATIVE_ASSET_TOKEN;
 
     /*//////////////////////////////////////////////////////////////
                                 State
@@ -147,6 +151,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint32 _dstChainLzEid,
         address _depositExecutor,
         RecipeMarketHubBase _recipeMarketHub,
+        IWETH _wrapped_native_asset_token,
         ERC20[] memory _depositTokens,
         IOFT[] memory _lzV2OFTs
     )
@@ -157,11 +162,13 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Initialize the contract state
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
+            address bridgeToken = _lzV2OFTs[i].token();
             // Check that the token has a valid corresponding lzV2OFT
-            require(_lzV2OFTs[i].token() == address(_depositTokens[i]), InvalidLzV2OFTForToken());
+            require(bridgeToken == address(_depositTokens[i] || bridgeToken == address(0)), InvalidLzV2OFTForToken());
             tokenToLzV2OFT[_depositTokens[i]] = _lzV2OFTs[i];
         }
         RECIPE_MARKET_HUB = _recipeMarketHub;
+        WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
         dstChainLzEid = _dstChainLzEid;
         depositExecutor = _depositExecutor;
     }
@@ -402,7 +409,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @param _token Token to set the LayerZero Omnichain App for.
     /// @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
     function setLzV2OFTForToken(ERC20 _token, IOFT _lzV2OFT) external onlyOwner {
-        require(_lzV2OFT.token() == address(_token), InvalidLzV2OFTForToken());
+        address bridgeToken = _lzV2OFTs[i].token();
+        require(bridgeToken == address(_token) || bridgeToken == address(0), InvalidLzV2OFTForToken());
         tokenToLzV2OFT[_token] = _lzV2OFT;
     }
 
@@ -512,12 +520,20 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         MessagingFee memory messagingFee = lzV2OFT.quoteSend(_sendParam, false);
         require(msg.value - _feesAlreadyPaid >= messagingFee.nativeFee, InsufficientMsgValueForBridge());
 
-        // Approve the lzV2OFT to bridge tokens
-        _token.safeApprove(address(lzV2OFT), amountToBridge);
-
-        // Execute the bridge transaction
         OFTReceipt memory bridgeReceipt;
-        (messageReceipt, bridgeReceipt) = lzV2OFT.send{ value: messagingFee.nativeFee }(_sendParam, messagingFee, address(this));
+        if (lzV2OFT.token() == address(0)) {
+            // If OFT expects native token, unwrap the native asset tokens to bridge
+            WRAPPED_NATIVE_ASSET_TOKEN.withdraw(amountToBridge);
+
+            // Execute the bridge transaction by sending native assets to bridge + bridging fee
+            (messageReceipt, bridgeReceipt) = lzV2OFT.send{ value: messagingFee.nativeFee + amountToBridge }(_sendParam, messagingFee, address(this));
+        } else {
+            // Approve the lzV2OFT to bridge tokens
+            _token.safeApprove(address(lzV2OFT), amountToBridge);
+
+            // Execute the bridge transaction
+            (messageReceipt, bridgeReceipt) = lzV2OFT.send{ value: messagingFee.nativeFee }(_sendParam, messagingFee, address(this));
+        }
 
         // Ensure that all deposits were bridged
         require(amountToBridge == bridgeReceipt.amountReceivedLD, FailedToBridgeAllDeposits());

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 // Import the DepositLocker contract and its dependencies
-import { DepositLocker, RecipeMarketHubBase, ERC20 } from "src/core/DepositLocker.sol";
+import { DepositLocker, RecipeMarketHubBase, ERC20, IWETH } from "src/core/DepositLocker.sol";
 import { RecipeMarketHubTestBase, RecipeMarketHubBase, WeirollWalletHelper, WeirollWallet, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
 import { DepositExecutor } from "src/core/DepositExecutor.sol";
 import { IOFT } from "src/interfaces/IOFT.sol";
@@ -187,7 +187,8 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
-        DepositLocker depositLocker = new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, depositTokens, lzV2OFTs);
+        DepositLocker depositLocker =
+            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
         result.actualNumberOfDepositors = numDepositors;

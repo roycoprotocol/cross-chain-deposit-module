@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 // Import the DepositLocker contract and its dependencies
-import { DepositLocker, RecipeMarketHubBase, ERC20, DualToken } from "src/core/DepositLocker.sol";
+import { DepositLocker, RecipeMarketHubBase, ERC20, DualToken, IWETH } from "src/core/DepositLocker.sol";
 import { RecipeMarketHubTestBase, RecipeMarketHubBase, WeirollWalletHelper, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
 import { IOFT } from "src/interfaces/IOFT.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
@@ -48,7 +48,8 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
-        DepositLocker depositLocker = new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, depositTokens, lzV2OFTs);
+        DepositLocker depositLocker =
+            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -129,7 +130,8 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to Avax
-        DepositLocker depositLocker = new DepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, depositTokens, lzV2OFTs);
+        DepositLocker depositLocker =
+            new DepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -210,13 +212,14 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(STARGATE_USDT_POOL_MAINNET_ADDRESS); // Stargate USDT Pool on ETH Mainnet
 
         // Locker for bridging to IOTA (hydra on IOTA so its feeless)
-        DepositLocker depositLocker = new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, depositTokens, lzV2OFTs);
+        DepositLocker depositLocker =
+            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
         // New DualToken
         // 1 DT = 1 USDT and 0.99 USDC
-        DualToken dualToken = new DualToken("USDT/USDC", "DT-0", ERC20(USDT_MAINNET_ADDRESS), ERC20(USDC_MAINNET_ADDRESS), 1e6, 0.99e6);
+        DualToken dualToken = new DualToken("USDT/USDC", "DT-0", ERC20(USDT_MAINNET_ADDRESS), ERC20(USDC_MAINNET_ADDRESS), 1e6, 0.9e6);
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), address(dualToken), address(depositLocker));

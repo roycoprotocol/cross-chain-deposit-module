@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 // Import the DepositLocker contract and its dependencies
-import { DepositLocker, RecipeMarketHubBase, ERC20 } from "src/core/DepositLocker.sol";
+import { DepositLocker, RecipeMarketHubBase, ERC20, IWETH } from "src/core/DepositLocker.sol";
 import { RecipeMarketHubTestBase, RecipeMarketHubBase, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
 import { IOFT } from "src/interfaces/IOFT.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
@@ -35,7 +35,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         IP_ADDRESS = ALICE_ADDRESS;
         FRONTEND_FEE_RECIPIENT = CHARLIE_ADDRESS;
 
-        depositLocker = new DepositLocker(OWNER_ADDRESS, 0, address(0), recipeMarketHub, depositTokens, lzV2OFTs);
+        depositLocker = new DepositLocker(OWNER_ADDRESS, 0, address(0), recipeMarketHub, IWETH(address(0)), depositTokens, lzV2OFTs);
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), address(mockLiquidityToken), address(depositLocker));
