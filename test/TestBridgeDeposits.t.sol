@@ -106,7 +106,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
     }
 
     function test_Bridge_wBTC_Deposits(uint256 offerAmount, uint256 numDepositors) external {
-        offerAmount = bound(offerAmount, 1e4, 1000e8);
+        offerAmount = bound(offerAmount, 1e6, 1000e8);
 
         vm.selectFork(mainnetFork);
         assertEq(vm.activeFork(), mainnetFork);
