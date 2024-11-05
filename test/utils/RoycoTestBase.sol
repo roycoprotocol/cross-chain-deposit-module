@@ -23,11 +23,13 @@ contract RoycoTestBase is Test {
     address USDC_MAINNET_ADDRESS = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address USDT_MAINNET_ADDRESS = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
 
+    address STARGATE_USDC_POOL_MAINNET_ADDRESS = 0xc026395860Db2d07ee33e05fE50ed7bD583189C7;
+    address STARGATE_USDT_POOL_MAINNET_ADDRESS = 0x933597a323Eb81cAe705C5bC29985172fd5A3973;
+    address STARGATE_POOL_NATIVE_MAINNET_ADDRESS = 0x77b2043768d28E9C9aB44E1aBfC95944bcE57931;
+
     address USDC_POLYGON_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
     address USDT_POLYGON_ADDRESS = 0xc2132D05D31c914a87C6611C10748AEb04B58e8F;
 
-    address STARGATE_USDC_POOL_MAINNET_ADDRESS = 0xc026395860Db2d07ee33e05fE50ed7bD583189C7;
-    address STARGATE_USDT_POOL_MAINNET_ADDRESS = 0x933597a323Eb81cAe705C5bC29985172fd5A3973;
     address STARGATE_USDC_POOL_POLYGON_ADDRESS = 0x9Aa02D4Fae7F58b8E8f34c66E756cC734DAc7fe4;
 
     // -----------------------------------------
@@ -110,5 +112,18 @@ contract RoycoTestBase is Test {
         mockLiquidityToken = new MockERC20("Mock Liquidity Token", "MLT");
         mockIncentiveToken = new MockERC20("Mock Incentive Token", "MIT");
         pointsFactory = new PointsFactory(POINTS_FACTORY_OWNER_ADDRESS);
+    }
+
+    /**
+     * @dev Internal function to remove dust from the given local decimal amount.
+     * @param _amountLD The amount in local decimals.
+     * @return amountLD The amount after removing dust.
+     *
+     * @dev Prevents the loss of dust when moving amounts between chains with different decimals.
+     * @dev eg. uint(123) with a conversion rate of 100 becomes uint(100).
+     */
+    function _removeDust(uint256 _amountLD, uint8 _localDecimals, uint8 _sharedDecimals) internal view virtual returns (uint256 amountLD) {
+        uint256 decimalConversionRate = 10 ** (_localDecimals - _sharedDecimals);
+        return (_amountLD / decimalConversionRate) * decimalConversionRate;
     }
 }

@@ -65,10 +65,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice The address of the Weiroll wallet implementation on the destination chain.
     address public immutable WEIROLL_WALLET_IMPLEMENTATION;
 
-    /// @notice The address of the LayerZero V2 Endpoint.
+    /// @notice The address of the LayerZero V2 Endpoint on the destination chain.
     address public lzV2Endpoint;
 
-    /// @notice Mapping of an ERC20 token to its corresponding LayerZero OFT (Stargate Pool, Stargate Hydra, OFT Adapters, etc.)
+    /// @notice Mapping of an ERC20 token to its corresponding LayerZero OFT (Native OFT, OFT Adapter, Stargate Pool, Stargate Hydra, etc.)
+    /// @dev Must implement the IOFT interface.
     mapping(ERC20 => address) public tokenToLzV2OFT;
 
     /// @dev Mapping from a market hash on the source chain to its owner's address.
@@ -96,7 +97,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice Emitted when bridged deposits are put in fresh Weiroll Wallets for DUAL_TOKEN deposits.
     /// @param guid The global unique identifier of the bridge transaction.
     /// @param sourceMarketHash The source market hash of the deposits received.
-    /// @param nonce The nonce associated with this DUAL_TOKEN deposits bridge.
+    /// @param nonce The nonce associated with this DUAL_TOKEN deposits bridge - not to be confused with the LZ bridge transaction nonce.
     /// @param weirollWalletsCreated The addresses of the fresh Weiroll Wallets that were created on destination.
     event FreshWeirollWalletsCreatedForDualTokenDeposits(
         bytes32 indexed guid, bytes32 indexed sourceMarketHash, uint256 indexed nonce, address[] weirollWalletsCreated
@@ -202,8 +203,10 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         // Initialize the contract state
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
-            // Check that the token has a valid corresponding lzV2OFT
-            require(IOFT(_lzV2OFTs[i]).token() == address(_depositTokens[i]), InvalidLzV2OFTForToken());
+            // Get the underlying token for this OFT
+            address underlyingToken = IOFT(_lzV2OFTs[i]).token();
+            // Check that the underlying token is the specified token or the chain's native asset
+            require(underlyingToken == address(_depositTokens[i]) || underlyingToken == address(0), InvalidLzV2OFTForToken());
             tokenToLzV2OFT[_depositTokens[i]] = _lzV2OFTs[i];
         }
 
@@ -234,7 +237,10 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @param _token Token to set the LayerZero Omnichain App for.
     /// @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
     function setLzV2OFTForToken(ERC20 _token, address _lzV2OFT) external onlyOwner {
-        require(IOFT(_lzV2OFT).token() == address(_token), InvalidLzV2OFTForToken());
+        // Get the underlying token for this OFT
+        address underlyingToken = IOFT(_lzV2OFT).token();
+        // Check that the underlying token is the specified token or the chain's native asset
+        require(underlyingToken == address(_token) || underlyingToken == address(0), InvalidLzV2OFTForToken());
         tokenToLzV2OFT[_token] = _lzV2OFT;
     }
 

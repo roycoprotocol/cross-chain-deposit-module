@@ -41,12 +41,16 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The LayerZero endpoint ID for the destination chain.
     uint32 public dstChainLzEid;
 
-    /// @notice Mapping of an ERC20 token to its corresponding LayerZero V2 OFT (OFTs, OFT Adapters, Stargate V2 Pools, Stargate Hydras, etc.)
+    /// @notice Mapping of an ERC20 token to its corresponding LayerZero OFT (Native OFT, OFT Adapter, Stargate Pool, Stargate Hydra, etc.)
+    /// @dev Must implement the IOFT interface.
     mapping(ERC20 => IOFT) public tokenToLzV2OFT;
 
     /// @notice Address of the DepositExecutor on the destination chain.
     /// @notice This address will receive all bridged tokens and be responsible for executing all lzCompose logic on the destination chain.
     address public depositExecutor;
+
+    /// @notice Mapping from Royco Market Hash to the its input token's DepositType: SINGLE_TOKEN or DUAL_TOKEN.
+    mapping(bytes32 => DepositType) public marketHashToDepositType;
 
     /// @notice Mapping from Royco Market Hash to the multisig address between the market's IP and the destination chain.
     mapping(bytes32 => address) public marketHashToMultisig;
@@ -107,6 +111,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when the caller is not the authorized multisig for the market.
     error UnauthorizedMultisigForThisMarket();
 
+    /// @notice Error emitted when the DepositType is uninitialized
+    error UninitializedDepositType();
+
+    /// @notice Error emitted when the deposit amount is to precise to bridge based on the shared decimals of the OFT
+    error DepositAmountIsTooPrecise();
+
     /// @notice Error emitted when attempting to bridge more than the bridge limit
     error ExceededDepositorsPerBridgeLimit();
 
@@ -162,11 +172,13 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Initialize the contract state
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
-            address bridgeToken = _lzV2OFTs[i].token();
-            // Check that the token has a valid corresponding lzV2OFT
-            require(bridgeToken == address(_depositTokens[i]) || bridgeToken == address(0), InvalidLzV2OFTForToken());
+            // Get the underlying token for this OFT
+            address underlyingToken = _lzV2OFTs[i].token();
+            // Check that the underlying token is the specified token or the chain's native asset
+            require(underlyingToken == address(_depositTokens[i]) || underlyingToken == address(0), InvalidLzV2OFTForToken());
             tokenToLzV2OFT[_depositTokens[i]] = _lzV2OFTs[i];
         }
+
         RECIPE_MARKET_HUB = _recipeMarketHub;
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
         dstChainLzEid = _dstChainLzEid;
@@ -181,9 +193,21 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         address depositor = wallet.owner();
         uint256 amountDeposited = wallet.amount();
 
-        // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
+        // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
+
+        DepositType marketDepositType = marketHashToDepositType[targetMarketHash];
+        if (marketDepositType == DepositType.SINGLE_TOKEN) {
+            // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT
+            // This is to ensure precise amounts sent from source to destination
+            // Not necessary for DUAL_TOKEN deposits since those are checked in the dual token contract
+            bool depositAmountHasValidPrecision =
+                amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
+            require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
+        }
+        // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
+
         // Account for deposit
         marketHashToDepositorToAmountDeposited[targetMarketHash][depositor] += amountDeposited;
         marketHashToDepositorToWeirollWallets[targetMarketHash][depositor].push(msg.sender);
@@ -409,8 +433,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @param _token Token to set the LayerZero Omnichain App for.
     /// @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
     function setLzV2OFTForToken(ERC20 _token, IOFT _lzV2OFT) external onlyOwner {
-        address bridgeToken = _lzV2OFT.token();
-        require(bridgeToken == address(_token) || bridgeToken == address(0), InvalidLzV2OFTForToken());
+        // Get the underlying token for this OFT
+        address underlyingToken = _lzV2OFT.token();
+        // Check that the underlying token is the specified token or the chain's native asset
+        require(underlyingToken == address(_token) || underlyingToken == address(0), InvalidLzV2OFTForToken());
         tokenToLzV2OFT[_token] = _lzV2OFT;
     }
 
@@ -433,6 +459,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     function setGreenLight(bytes32 _marketHash, bool _greenLightStatus) external onlyMultisig(_marketHash) {
         marketHashToGreenLight[_marketHash] = _greenLightStatus;
     }
+
+    /// @notice Sets the DepositType for a market.
+    /// @param _marketHash The market hash to set the DepositType for.
+    /// @param _depositType DepositType of the market's input token.
+    function setDepositType(bytes32 _marketHash, DepositType _depositType) external onlyMultisig(_marketHash) {
+        marketHashToDepositType[_marketHash] = _depositType;
+    }
+
+    /// @notice Let the DepositLocker receive native assets directly
+    /// @dev Primarily used for receiving native assets after unwrapping the native asset token
+    receive() external payable { }
 
     /*//////////////////////////////////////////////////////////////
                           Internal Functions
@@ -536,7 +573,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Ensure that all deposits were bridged
-        require(amountToBridge == bridgeReceipt.amountReceivedLD, FailedToBridgeAllDeposits());
+        require(bridgeReceipt.amountReceivedLD == amountToBridge, FailedToBridgeAllDeposits());
     }
 
     /// @notice Deletes all Weiroll Wallet state and deposit amounts associated with this depositor for the specified market
