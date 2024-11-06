@@ -184,9 +184,6 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         depositLocker.setGreenLight(marketHash, true);
         vm.stopPrank();
 
-        // vm.expectEmit(true, true, false, false, WETH_MAINNET_ADDRESS);
-        // emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(WETH_MAINNET_ADDRESS))), offerAmount);
-
         vm.expectEmit(true, false, false, false, address(depositLocker));
         emit DepositLocker.SingleTokenBridgeToDestinationChain(marketHash, bytes32(0), 0, filledSoFar);
 
@@ -278,7 +275,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
     }
 
     function test_Bridge_DualToken_USDC_USDT_Deposits(uint256 offerAmount, uint256 numDepositors) external {
-        offerAmount = bound(offerAmount, 1e6, 1e8);
+        offerAmount = bound(offerAmount, 1e6, 1e9);
 
         vm.selectFork(mainnetFork);
         assertEq(vm.activeFork(), mainnetFork);
@@ -362,6 +359,107 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit ERC20.Transfer(
             address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDT_MAINNET_ADDRESS))), offerAmount * (dualToken.amountOfTokenAPerDT())
         );
+
+        vm.expectEmit(true, true, false, false, USDC_MAINNET_ADDRESS);
+        emit ERC20.Transfer(
+            address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDC_MAINNET_ADDRESS))), offerAmount * (dualToken.amountOfTokenBPerDT())
+        );
+
+        uint256 nonce = depositLocker.nonce();
+
+        vm.expectEmit(true, true, false, false, address(depositLocker));
+        emit DepositLocker.DualTokenBridgeToDestinationChain(marketHash, nonce, bytes32(0), 0, 0, bytes32(0), 0, 0);
+
+        vm.startPrank(IP_ADDRESS);
+        depositLocker.bridgeDualToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        vm.stopPrank();
+
+        // Ensure that the nonce was incremented
+        assertEq(depositLocker.nonce(), ++nonce);
+    }
+
+    function test_Bridge_DualToken_USDC_WETH_Deposits(uint256 offerAmount, uint256 numDepositors) external {
+        offerAmount = bound(offerAmount, 1e6, 1e9);
+
+        vm.selectFork(mainnetFork);
+        assertEq(vm.activeFork(), mainnetFork);
+
+        uint256 protocolFee = 0.01e18; // 1% protocol fee
+        uint256 minimumFrontendFee = 0.001e18; // 0.1% minimum frontend fee
+        setUpRecipeMarketHubTests(protocolFee, minimumFrontendFee);
+
+        IP_ADDRESS = ALICE_ADDRESS;
+        FRONTEND_FEE_RECIPIENT = CHARLIE_ADDRESS;
+
+        WeirollWalletHelper walletHelper = new WeirollWalletHelper();
+
+        ERC20[] memory depositTokens = new ERC20[](2);
+        IOFT[] memory lzV2OFTs = new IOFT[](2);
+
+        depositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
+        lzV2OFTs[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
+        depositTokens[1] = ERC20(WETH_MAINNET_ADDRESS); // WETH on ETH Mainnet
+        lzV2OFTs[1] = IOFT(STARGATE_POOL_NATIVE_MAINNET_ADDRESS); // Stargate Native Pool on ETH Mainnet
+
+        // Locker for bridging to IOTA (hydra on IOTA so its feeless)
+        DepositLocker depositLocker =
+            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
+
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+
+        // New DualToken
+        // 1 DT = .000001 WETH and 0.0027 USDC
+        DualToken dualToken =
+            depositLocker.DUAL_TOKEN_FACTORY().createDualToken("WETH/USDC", "DT-0", ERC20(WETH_MAINNET_ADDRESS), ERC20(USDC_MAINNET_ADDRESS), 1e12, 0.27e2);
+
+        RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
+            _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), address(dualToken), address(depositLocker));
+        RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(DepositLocker.withdraw.selector, address(depositLocker));
+
+        uint256 frontendFee = recipeMarketHub.minimumFrontendFee();
+        bytes32 marketHash = recipeMarketHub.createMarket(address(dualToken), 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
+
+        vm.startPrank(OWNER_ADDRESS);
+        depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
+        vm.stopPrank();
+
+        // Create a fillable IP offer for points
+        (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
+
+        address[] memory depositorWallets = new address[](numDepositors);
+        for (uint256 i = 0; i < numDepositors; i++) {
+            (address ap,) = makeAddrAndKey(string(abi.encode(i)));
+            depositorWallets[i] = ap;
+
+            // Fund the AP
+            deal(WETH_MAINNET_ADDRESS, ap, offerAmount * (dualToken.amountOfTokenAPerDT()));
+            deal(USDC_MAINNET_ADDRESS, ap, offerAmount * (dualToken.amountOfTokenBPerDT()));
+
+            vm.startPrank(ap);
+
+            ERC20(WETH_MAINNET_ADDRESS).approve(address(dualToken), offerAmount * (dualToken.amountOfTokenAPerDT()));
+            ERC20(USDC_MAINNET_ADDRESS).approve(address(dualToken), offerAmount * (dualToken.amountOfTokenBPerDT()));
+
+            dualToken.mint(offerAmount);
+
+            dualToken.approve(address(recipeMarketHub), offerAmount);
+
+            uint256 fillAmount = offerAmount / numDepositors;
+            if (i == (numDepositors - 1)) {
+                fillAmount = type(uint256).max;
+            }
+
+            // AP Fills the offer (no funding vault)
+            recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
+            vm.stopPrank();
+        }
+
+        vm.startPrank(MULTISIG_ADDRESS);
+        depositLocker.setGreenLight(marketHash, true);
+        vm.stopPrank();
+
+        // Make sure that the DepositLocker unwraps the correct amount of WETH
+        vm.expectCall(address(depositLocker), offerAmount * (dualToken.amountOfTokenAPerDT()), "");
 
         vm.expectEmit(true, true, false, false, USDC_MAINNET_ADDRESS);
         emit ERC20.Transfer(

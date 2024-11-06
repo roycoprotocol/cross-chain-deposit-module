@@ -198,7 +198,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
         if (!DUAL_TOKEN_FACTORY.isDualToken(address(marketInputToken))) {
-            // Not necessary for DUAL_TOKEN deposits since those are checked in the factory constructor
+            // Check is not necessary for DUAL_TOKEN deposits since those are checked in the factory
             // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT
             // This is to ensure precise amounts sent from source to destination
             bool depositAmountHasValidPrecision =
