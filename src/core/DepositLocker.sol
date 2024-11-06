@@ -49,9 +49,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice This address will receive all bridged tokens and be responsible for executing all lzCompose logic on the destination chain.
     address public depositExecutor;
 
-    /// @notice Mapping from Royco Market Hash to the its input token's DepositType: SINGLE_TOKEN or DUAL_TOKEN.
-    mapping(bytes32 => DepositType) public marketHashToDepositType;
-
     /// @notice Mapping from Royco Market Hash to the multisig address between the market's IP and the destination chain.
     mapping(bytes32 => address) public marketHashToMultisig;
 
@@ -196,15 +193,18 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
-        DepositType marketDepositType = marketHashToDepositType[targetMarketHash];
-        if (marketDepositType == DepositType.SINGLE_TOKEN) {
+        // Check if the market is a dual token market
+        (bool isDualToken,) = address(marketInputToken).call(abi.encodeWithSignature("tokenB()"));
+
+        if (!isDualToken) {
+            // Not necessary for DUAL_TOKEN deposits since those are checked in the factory constructor
             // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT
             // This is to ensure precise amounts sent from source to destination
-            // Not necessary for DUAL_TOKEN deposits since those are checked in the dual token contract
             bool depositAmountHasValidPrecision =
                 amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
             require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
         }
+        
         // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
 
@@ -458,13 +458,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @param _greenLightStatus Boolean indicating if funds are ready to bridge.
     function setGreenLight(bytes32 _marketHash, bool _greenLightStatus) external onlyMultisig(_marketHash) {
         marketHashToGreenLight[_marketHash] = _greenLightStatus;
-    }
-
-    /// @notice Sets the DepositType for a market.
-    /// @param _marketHash The market hash to set the DepositType for.
-    /// @param _depositType DepositType of the market's input token.
-    function setDepositType(bytes32 _marketHash, DepositType _depositType) external onlyMultisig(_marketHash) {
-        marketHashToDepositType[_marketHash] = _depositType;
     }
 
     /// @notice Let the DepositLocker receive native assets directly

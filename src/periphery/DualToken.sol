@@ -29,26 +29,11 @@ contract DualToken is ERC20, ReentrancyGuardTransient {
     /// @notice The amount of tokenB backing 1 DualToken
     uint256 public immutable amountOfTokenBPerDT;
 
-    /// @notice Emitted when trying to set a token that does not exist
-    error TokenDoesNotExist();
-
-    /// @notice Error emitted when the amount of token A per DT is to precise to bridge based on the shared decimals of the OFT
-    error TokenA_AmountTooPrecise();
-
-    /// @notice Error emitted when the amount of token B per DT is to precise to bridge based on the shared decimals of the OFT
-    error TokenB_AmountTooPrecise();
-
-    /// @notice Emitted when trying to set a ratio to 0
-    error ConstituentAmountsMustBeNonZero();
-
     /// @notice Emitted when trying to mint 0 tokens
     error MintAmountMustBeNonZero();
 
     /// @notice Emitted when trying to burn 0 tokens
     error BurnAmountMustBeNonZero();
-
-    /// @notice Emitted when safeTransferFrom doesn't transfer the correct amount of tokens
-    error SafeTransferFromFailed();
 
     /**
      * @notice Constructor to initialize the DualToken contract
@@ -62,7 +47,6 @@ contract DualToken is ERC20, ReentrancyGuardTransient {
     constructor(
         string memory _name,
         string memory _symbol,
-        DepositLocker _depositLocker,
         ERC20 _tokenA,
         ERC20 _tokenB,
         uint256 _amountOfTokenAPerDT,
@@ -70,20 +54,6 @@ contract DualToken is ERC20, ReentrancyGuardTransient {
     )
         ERC20(_name, _symbol, DUAL_TOKEN_DECIMALS)
     {
-        // Basic sanity checks
-        require(address(_tokenA).code.length > 0 && address(_tokenB).code.length > 0, TokenDoesNotExist());
-        require(_amountOfTokenAPerDT > 0 && _amountOfTokenBPerDT > 0, ConstituentAmountsMustBeNonZero());
-
-        // Check that the deposit amount for each constituent is less or equally as precise as specified by the shared decimals of the corresponding OFT
-        // This is to ensure precise amounts sent from source to destination on a DualToken bridge
-        bool tokenA_depositAmountHasValidPrecision =
-            _amountOfTokenAPerDT % (10 ** (_tokenA.decimals() - _depositLocker.tokenToLzV2OFT(_tokenA).sharedDecimals())) == 0;
-        require(tokenA_depositAmountHasValidPrecision, TokenA_AmountTooPrecise());
-
-        bool tokenB_depositAmountHasValidPrecision =
-            _amountOfTokenBPerDT % (10 ** (_tokenB.decimals() - _depositLocker.tokenToLzV2OFT(_tokenB).sharedDecimals())) == 0;
-        require(tokenB_depositAmountHasValidPrecision, TokenB_AmountTooPrecise());
-
         tokenA = _tokenA;
         tokenB = _tokenB;
         amountOfTokenAPerDT = _amountOfTokenAPerDT;
