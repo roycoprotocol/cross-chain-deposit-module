@@ -9,6 +9,7 @@ import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src
 import { IWETH } from "src/interfaces/IWETH.sol";
 import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
 import { DualToken } from "src/periphery/DualToken.sol";
+import { DualTokenFactory } from "src/periphery/DualTokenFactory.sol";
 import { DepositType, DepositPayloadLib } from "src/libraries/DepositPayloadLib.sol";
 
 /// @title DepositLocker
@@ -30,6 +31,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice The RecipeMarketHub keeping track of all Royco markets and offers.
     RecipeMarketHubBase public immutable RECIPE_MARKET_HUB;
+
+    DualTokenFactory public immutable DUAL_TOKEN_FACTORY;
 
     /// @notice The wrapped native asset token on the source chain
     IWETH public immutable WRAPPED_NATIVE_ASSET_TOKEN;
@@ -177,6 +180,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         RECIPE_MARKET_HUB = _recipeMarketHub;
+        DUAL_TOKEN_FACTORY = new DualTokenFactory(this);
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
         dstChainLzEid = _dstChainLzEid;
         depositExecutor = _depositExecutor;
@@ -193,10 +197,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
-        // Check if the market is a dual token market
-        (bool isDualToken,) = address(marketInputToken).call(abi.encodeWithSignature("tokenB()"));
-
-        if (!isDualToken) {
+        if (!DUAL_TOKEN_FACTORY.isDualToken(address(marketInputToken))) {
             // Not necessary for DUAL_TOKEN deposits since those are checked in the factory constructor
             // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT
             // This is to ensure precise amounts sent from source to destination
@@ -204,7 +205,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
                 amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
             require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
         }
-        
+
         // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
 

@@ -308,7 +308,8 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // New DualToken
         // 1 DT = 1 USDT and 0.99 USDC
-        DualToken dualToken = new DualToken("USDT/USDC", "DT-0", ERC20(USDT_MAINNET_ADDRESS), ERC20(USDC_MAINNET_ADDRESS), 1e6, 0.9e6);
+        DualToken dualToken =
+            depositLocker.DUAL_TOKEN_FACTORY().createDualToken("USDT/USDC", "DT-0", ERC20(USDT_MAINNET_ADDRESS), ERC20(USDC_MAINNET_ADDRESS), 1e6, 0.9e6);
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), address(dualToken), address(depositLocker));
@@ -320,7 +321,6 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         vm.startPrank(OWNER_ADDRESS);
         depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
         vm.stopPrank();
-
 
         // Create a fillable IP offer for points
         (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
