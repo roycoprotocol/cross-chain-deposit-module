@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import { Ownable2Step, Ownable } from "@openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import { RecipeMarketHubBase, ERC20, SafeTransferLib, FixedPointMathLib } from "@royco/src/RecipeMarketHub.sol";
+import { RecipeMarketHubBase, ERC20, SafeTransferLib } from "@royco/src/RecipeMarketHub.sol";
 import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
 import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src/interfaces/IOFT.sol";
 import { IWETH } from "src/interfaces/IWETH.sol";
@@ -20,7 +20,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     using SafeTransferLib for ERC20;
     using OptionsBuilder for bytes;
     using DepositPayloadLib for bytes;
-    using FixedPointMathLib for uint256;
 
     /*//////////////////////////////////////////////////////////////
                                Constants
@@ -520,8 +519,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 dt_DepositAmount = marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
 
         // Calculate amount of each constituent to bridge
-        uint256 tokenA_DepositAmount = dt_DepositAmount.mulWadDown(_amountOfTokenAPerDT);
-        uint256 tokenB_DepositAmount = dt_DepositAmount.mulWadDown(_amountOfTokenBPerDT);
+        uint256 tokenA_DepositAmount = dt_DepositAmount * _amountOfTokenAPerDT;
+        uint256 tokenB_DepositAmount = dt_DepositAmount * _amountOfTokenBPerDT;
 
         if (tokenA_DepositAmount > type(uint96).max || tokenB_DepositAmount > type(uint96).max) {
             return (0, 0, 0, _tokenA_ComposeMsg, _tokenB_ComposeMsg); // Skip if deposit amount exceeds limit

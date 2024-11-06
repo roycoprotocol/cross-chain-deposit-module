@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 // Import statements
-import { ERC20, SafeTransferLib, FixedPointMathLib } from "@royco/src/RecipeMarketHub.sol";
+import { ERC20, SafeTransferLib } from "@royco/src/RecipeMarketHub.sol";
 import { DepositLocker } from "src/core/DepositLocker.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
@@ -12,10 +12,9 @@ import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/Reentran
 /// @notice DualTokens are burned (redeemed) for their constituents by the DepositLocker and each token is bridged individually
 contract DualToken is ERC20, ReentrancyGuardTransient {
     using SafeTransferLib for ERC20;
-    using FixedPointMathLib for uint256;
 
-    /// @notice Decimals for the DualToken (set to 18)
-    uint8 public constant DUAL_TOKEN_DECIMALS = 18;
+    /// @notice DualTokens can only be represented as whole numbers
+    uint8 public constant DUAL_TOKEN_DECIMALS = 0;
 
     /// @notice The first underlying ERC20 token
     ERC20 public immutable tokenA;
@@ -68,8 +67,8 @@ contract DualToken is ERC20, ReentrancyGuardTransient {
         require(amount > 0, MintAmountMustBeNonZero());
 
         // Calculate the amounts of tokenA and tokenB to transfer from the user
-        uint256 tokenAAmount = amount.mulWadUp(amountOfTokenAPerDT);
-        uint256 tokenBAmount = amount.mulWadUp(amountOfTokenBPerDT);
+        uint256 tokenAAmount = amount * amountOfTokenAPerDT;
+        uint256 tokenBAmount = amount * amountOfTokenBPerDT;
 
         // Transfer amounts of tokenA and tokenB from the user to this contract
         tokenA.safeTransferFrom(msg.sender, address(this), tokenAAmount);
@@ -87,8 +86,8 @@ contract DualToken is ERC20, ReentrancyGuardTransient {
         require(amount > 0, BurnAmountMustBeNonZero());
 
         // Calculate the amounts of tokenA and tokenB to return to the user
-        uint256 tokenAAmount = amount.mulWadDown(amountOfTokenAPerDT);
-        uint256 tokenBAmount = amount.mulWadDown(amountOfTokenBPerDT);
+        uint256 tokenAAmount = amount * amountOfTokenAPerDT;
+        uint256 tokenBAmount = amount * amountOfTokenBPerDT;
 
         // Burn the DualTokens from the user
         _burn(msg.sender, amount);

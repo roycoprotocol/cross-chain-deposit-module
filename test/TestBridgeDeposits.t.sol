@@ -277,8 +277,8 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         vm.stopPrank();
     }
 
-    function test_Bridge_DualToken_Deposits(uint256 offerAmount, uint256 numDepositors) external {
-        offerAmount = bound(offerAmount, 1e18, 10_000_000e18);
+    function test_Bridge_DualToken_USDC_USDT_Deposits(uint256 offerAmount, uint256 numDepositors) external {
+        offerAmount = bound(offerAmount, 1e6, 1e8);
 
         vm.selectFork(mainnetFork);
         assertEq(vm.activeFork(), mainnetFork);
@@ -307,9 +307,9 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
         // New DualToken
-        // 1 DT = 1 USDT and 0.99 USDC
+        // 1 DT = .0001 USDT and 0.00009 USDC
         DualToken dualToken =
-            depositLocker.DUAL_TOKEN_FACTORY().createDualToken("USDT/USDC", "DT-0", ERC20(USDT_MAINNET_ADDRESS), ERC20(USDC_MAINNET_ADDRESS), 1e6, 0.9e6);
+            depositLocker.DUAL_TOKEN_FACTORY().createDualToken("USDT/USDC", "DT-0", ERC20(USDT_MAINNET_ADDRESS), ERC20(USDC_MAINNET_ADDRESS), 1e2, 0.9e1);
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), address(dualToken), address(depositLocker));
@@ -331,14 +331,14 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             depositorWallets[i] = ap;
 
             // Fund the AP
-            deal(USDT_MAINNET_ADDRESS, ap, offerAmount.mulWadUp(dualToken.amountOfTokenAPerDT()));
-            deal(USDC_MAINNET_ADDRESS, ap, offerAmount.mulWadUp(dualToken.amountOfTokenBPerDT()));
+            deal(USDT_MAINNET_ADDRESS, ap, offerAmount * (dualToken.amountOfTokenAPerDT()));
+            deal(USDC_MAINNET_ADDRESS, ap, offerAmount * (dualToken.amountOfTokenBPerDT()));
 
             vm.startPrank(ap);
 
             SafeERC20.forceApprove(IERC20(USDT_MAINNET_ADDRESS), address(dualToken), 0);
-            SafeERC20.forceApprove(IERC20(USDT_MAINNET_ADDRESS), address(dualToken), offerAmount.mulWadUp(dualToken.amountOfTokenAPerDT()));
-            ERC20(USDC_MAINNET_ADDRESS).approve(address(dualToken), offerAmount.mulWadUp(dualToken.amountOfTokenBPerDT()));
+            SafeERC20.forceApprove(IERC20(USDT_MAINNET_ADDRESS), address(dualToken), offerAmount * (dualToken.amountOfTokenAPerDT()));
+            ERC20(USDC_MAINNET_ADDRESS).approve(address(dualToken), offerAmount * (dualToken.amountOfTokenBPerDT()));
 
             dualToken.mint(offerAmount);
 
@@ -360,12 +360,12 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         vm.expectEmit(true, true, false, false, USDT_MAINNET_ADDRESS);
         emit ERC20.Transfer(
-            address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDT_MAINNET_ADDRESS))), offerAmount.mulWadDown(dualToken.amountOfTokenAPerDT())
+            address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDT_MAINNET_ADDRESS))), offerAmount * (dualToken.amountOfTokenAPerDT())
         );
 
         vm.expectEmit(true, true, false, false, USDC_MAINNET_ADDRESS);
         emit ERC20.Transfer(
-            address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDC_MAINNET_ADDRESS))), offerAmount.mulWadDown(dualToken.amountOfTokenBPerDT())
+            address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDC_MAINNET_ADDRESS))), offerAmount * (dualToken.amountOfTokenBPerDT())
         );
 
         uint256 nonce = depositLocker.nonce();
