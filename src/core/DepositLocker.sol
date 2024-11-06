@@ -32,6 +32,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The RecipeMarketHub keeping track of all Royco markets and offers.
     RecipeMarketHubBase public immutable RECIPE_MARKET_HUB;
 
+    /// @notice The DualToken Factory used to create new DualTokens
     DualTokenFactory public immutable DUAL_TOKEN_FACTORY;
 
     /// @notice The wrapped native asset token on the source chain
@@ -180,7 +181,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         RECIPE_MARKET_HUB = _recipeMarketHub;
-        DUAL_TOKEN_FACTORY = new DualTokenFactory(this);
+        DUAL_TOKEN_FACTORY = new DualTokenFactory(); // Create the DualToken factory
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
         dstChainLzEid = _dstChainLzEid;
         depositExecutor = _depositExecutor;

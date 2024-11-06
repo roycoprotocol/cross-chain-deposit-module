@@ -30,9 +30,9 @@ contract DualTokenFactory {
     /// @notice Error emitted when the amount of token B per DT is too precise to bridge based on the shared decimals of the OFT
     error TokenB_AmountTooPrecise();
 
-    /// @param _depositLocker The DepositLocker on the source chain
-    constructor(DepositLocker _depositLocker) {
-        DEPOSIT_LOCKER = _depositLocker;
+    constructor() {
+        // The DualTokenFactory will be deployed by the DepositLocker on the source chain
+        DEPOSIT_LOCKER = DepositLocker(payable(msg.sender)); 
     }
 
     /// @notice Creates a new DualToken contract
