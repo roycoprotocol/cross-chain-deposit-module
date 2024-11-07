@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "@royco/test/mocks/MockRecipeMarketHub.sol";
 
 import { MockERC20 } from "@royco/test/mocks/MockERC20.sol";
+import { IUniswapV2Router01 } from "@uniswap-v2/periphery/contracts/interfaces/IUniswapV2Router01.sol";
 
 import "lib/forge-std/src/Test.sol";
 import "lib/forge-std/src/Vm.sol";
@@ -31,6 +32,8 @@ contract RoycoTestBase is Test {
     address USDT_POLYGON_ADDRESS = 0xc2132D05D31c914a87C6611C10748AEb04B58e8F;
 
     address STARGATE_USDC_POOL_POLYGON_ADDRESS = 0x9Aa02D4Fae7F58b8E8f34c66E756cC734DAc7fe4;
+
+    IUniswapV2Router01 UNISWAP_V2_MAINNET_ROUTER_ADDRESS = IUniswapV2Router01(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
 
     // -----------------------------------------
     // Test Wallets

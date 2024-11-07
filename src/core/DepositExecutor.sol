@@ -523,8 +523,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             require(amountDeposited <= _tokenAmountBridged, CantDepositMoreThanAmountBridged());
             offset += 12;
 
-            // Deploy the Weiroll wallet for the depositor
-            address weirollWallet = _createWeirollWallet(_sourceMarketHash, depositorAddress, depositAmount, _campaignUnlockTimestamp);
+            // Deploy the Weiroll wallet for the depositor (set amount to 0 to mark this as a dual token deposit)
+            address weirollWallet = _createWeirollWallet(_sourceMarketHash, depositorAddress, 0, _campaignUnlockTimestamp);
 
             // Transfer the deposited tokens to the Weiroll wallet
             _depositToken.safeTransfer(weirollWallet, depositAmount);
@@ -580,8 +580,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             // Transfer the deposited tokens to the Weiroll wallet
             _depositToken.safeTransfer(cachedWeriollWallet, depositAmount);
 
-            // Delete cached Weiroll Wallet after the second constituent has been transferred to the wallet
-            delete nonceToDepositorToWeirollWallet[_nonce][depositorAddress];
+            // // Delete cached Weiroll Wallet after the second constituent has been transferred to the wallet
+            // delete nonceToDepositorToWeirollWallet[_nonce][depositorAddress];
         }
     }
 

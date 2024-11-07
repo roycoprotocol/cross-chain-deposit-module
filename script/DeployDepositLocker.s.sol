@@ -6,6 +6,7 @@ import "forge-std/Script.sol";
 // Import the DepositLocker contract and its dependencies
 import "src/core/DepositLocker.sol";
 
+
 contract DepositLockerDeployScript is Script {
     // State variables for external contract addresses and arrays
     address public owner;
@@ -55,7 +56,7 @@ contract DepositLockerDeployScript is Script {
         require(depositTokens.length == lzV2OFTs.length, "Array lengths of deposit tokens and lzV2OFTs must match");
 
         // Deploy the DepositLocker contract
-        DepositLocker locker = new DepositLocker(owner, chainDstEid, depositExecutor, recipeMarketHub, IWETH(address(0)), depositTokens, lzV2OFTs);
+        DepositLocker locker = new DepositLocker(owner, chainDstEid, depositExecutor, recipeMarketHub, IWETH(address(0)), IUniswapV2Router01(address(0)),  depositTokens, lzV2OFTs);
 
         // Output the address of the deployed DepositLocker contract
         console.log("DepositLocker deployed at:", address(locker));

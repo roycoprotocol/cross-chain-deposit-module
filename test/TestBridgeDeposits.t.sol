@@ -49,7 +49,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
         DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
+            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -131,7 +131,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to SEI (Stargate Hydra on destination chain)
         DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_280, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
+            new DepositLocker(OWNER_ADDRESS, 30_280, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -217,7 +217,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to Avax
         DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
+            new DepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -299,7 +299,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to IOTA (hydra on IOTA so its feeless)
         DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
+            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -403,7 +403,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to IOTA (hydra on IOTA so its feeless)
         DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
+            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 

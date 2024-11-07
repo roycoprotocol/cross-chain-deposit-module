@@ -188,7 +188,7 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
         DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
+            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
         result.actualNumberOfDepositors = numDepositors;
