@@ -126,9 +126,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 indexed dt_bridge_nonce,
         bytes32 lz_tokenA_guid,
         uint64 lz_tokenA_nonce,
+        ERC20 tokenA,
         uint256 lz_tokenA_AmountBridged,
         bytes32 lz_tokenB_guid,
         uint64 lz_tokenB_nonce,
+                ERC20 tokenB,
         uint256 lz_tokenB_AmountBridged
     );
 
@@ -153,9 +155,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when attempting to bridge more depositors than the bridge limit
     error DepositorsPerBridgeLimitExceeded();
 
-    /// @notice Error emitted when attempting to bridge an amount greater than the bridge limit
-    error BridgeAmountLimitExceeded();
-
     /// @notice Error emitted when attempting to bridge 0 depositors.
     error MustBridgeAtLeastOneDepositor();
 
@@ -164,9 +163,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Error emitted when bridging all the specified deposits fails.
     error FailedToBridgeAllDeposits();
-
-    /// @notice Error emitted when receiving native assets via fallback from anyone but WRAPPED_NATIVE_ASSET_TOKEN.
-    error FallbackRestrictedToNativeAssetToken();
 
     /*//////////////////////////////////////////////////////////////
                                        Modifiers
@@ -657,8 +653,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Adjust depositor amounts to acceptable precision and refund dust
-        tokenA_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _tokenA, tokenA_DepositAmount, params.tokenA_DecimalConversionRate);
-        tokenB_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _tokenB, tokenB_DepositAmount, params.tokenB_DecimalConversionRate);
+        if (params.tokenA_DecimalConversionRate != 1) {
+            tokenA_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _tokenA, tokenA_DepositAmount, params.tokenA_DecimalConversionRate);
+        }
+        if (params.tokenB_DecimalConversionRate != 1) { 
+            tokenB_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _tokenB, tokenB_DepositAmount, params.tokenB_DecimalConversionRate);
+        }
 
         // Update compose messages with acceptable amounts
         _tokenA_ComposeMsg = _tokenA_ComposeMsg.writeDepositor(params.depositor, uint96(tokenA_DepositAmount));
@@ -689,15 +689,16 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         internal
         returns (uint256 acceptableAmountLD)
     {
-        acceptableAmountLD = (_amountLD / _decimalConversionRate) * _decimalConversionRate;
-        uint256 dustAmount = _amountLD - acceptableAmountLD;
+        // Get the dust amount based on conversion rate
+        uint256 dustAmount = _amountLD % _decimalConversionRate;
 
         // Refund any dust to the depositor
         if (dustAmount > 0) {
             _token.safeTransfer(_depositor, dustAmount);
         }
 
-        return acceptableAmountLD;
+        // Subtract dust from deposit amount to get the acceptable amount to bridge for this depositor
+        acceptableAmountLD = _amountLD - dustAmount;
     }
 
     /**
@@ -729,9 +730,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             nonce++,
             tokenA_MessageReceipt.guid,
             tokenA_MessageReceipt.nonce,
+            params.tokenA,
             params.totals.tokenA_TotalAmountToBridge,
             tokenB_MessageReceipt.guid,
             tokenB_MessageReceipt.nonce,
+            params.tokenB,
             params.totals.tokenB_TotalAmountToBridge
         );
     }
@@ -877,6 +880,5 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @dev Primarily used for receiving native assets after unwrapping the native asset token.
      */
     receive() external payable {
-        require(msg.sender == address(WRAPPED_NATIVE_ASSET_TOKEN), FallbackRestrictedToNativeAssetToken());
     }
 }

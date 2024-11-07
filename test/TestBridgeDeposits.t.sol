@@ -372,7 +372,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         uint256 nonce = depositLocker.nonce();
 
         vm.expectEmit(true, true, false, false, address(depositLocker));
-        emit DepositLocker.DualTokenBridgeToDestinationChain(marketHash, nonce, bytes32(0), 0, 0, bytes32(0), 0, 0);
+        emit DepositLocker.DualTokenBridgeToDestinationChain(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeDualToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -474,7 +474,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         uint256 nonce = depositLocker.nonce();
 
         vm.expectEmit(true, true, false, false, address(depositLocker));
-        emit DepositLocker.DualTokenBridgeToDestinationChain(marketHash, nonce, bytes32(0), 0, 0, bytes32(0), 0, 0);
+        emit DepositLocker.DualTokenBridgeToDestinationChain(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeDualToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -484,9 +484,11 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         assertEq(depositLocker.nonce(), ++nonce);
     }
 
-    function test_Bridge_LpToken_wETH_USDC_Deposits(uint256 offerAmount, uint256 numDepositors) external {
+    function test_Bridge_LpToken_wETH_USDC_Deposits(uint256 offerAmount, uint256 numDepositors, uint256 randomSeed) external {
         vm.selectFork(mainnetFork);
         assertEq(vm.activeFork(), mainnetFork);
+
+        randomSeed = bound(randomSeed, 1, 1000);
 
         uint256 protocolFee = 0.01e18; // 1% protocol fee
         uint256 minimumFrontendFee = 0.001e18; // 0.1% minimum frontend fee
@@ -531,18 +533,19 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             depositorWallets[i] = ap;
 
             // Fund the AP
-            deal(ap, 10_000_000 ether);
-            deal(USDC_MAINNET_ADDRESS, ap, 1_000_000_000_000_000);
+            deal(ap, 1e18 * randomSeed);
+            deal(USDC_MAINNET_ADDRESS, ap, 3000e6 * randomSeed);
 
             vm.startPrank(ap);
 
-            IWETH(WETH_MAINNET_ADDRESS).deposit{ value: 10_000_000 ether }();
+            IWETH(WETH_MAINNET_ADDRESS).deposit{ value: 1e18 * randomSeed }();
 
             ERC20(WETH_MAINNET_ADDRESS).approve(address(UNISWAP_V2_MAINNET_ROUTER_ADDRESS), type(uint256).max);
             ERC20(USDC_MAINNET_ADDRESS).approve(address(UNISWAP_V2_MAINNET_ROUTER_ADDRESS), type(uint256).max);
 
-            (,, uint256 liquidity) =
-                UNISWAP_V2_MAINNET_ROUTER_ADDRESS.addLiquidity(WETH_MAINNET_ADDRESS, USDC_MAINNET_ADDRESS, 1e18, 3000e6, 0, 0, ap, block.timestamp);
+            (,, uint256 liquidity) = UNISWAP_V2_MAINNET_ROUTER_ADDRESS.addLiquidity(
+                WETH_MAINNET_ADDRESS, USDC_MAINNET_ADDRESS, 1e18 * randomSeed, 3000e6 * randomSeed, 0, 0, ap, block.timestamp
+            );
 
             ERC20(UNI_V2_wETH_USDC_PAIR).approve(address(recipeMarketHub), liquidity);
 
@@ -578,7 +581,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         uint256 nonce = depositLocker.nonce();
 
         vm.expectEmit(true, true, false, false, address(depositLocker));
-        emit DepositLocker.DualTokenBridgeToDestinationChain(marketHash, nonce, bytes32(0), 0, 0, bytes32(0), 0, 0);
+        emit DepositLocker.DualTokenBridgeToDestinationChain(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeLpToken{ value: 5 ether }(marketHash, 1_000_000, 0, 0, depositorWallets);
