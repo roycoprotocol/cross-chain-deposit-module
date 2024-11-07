@@ -48,8 +48,9 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
-        DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
+        DepositLocker depositLocker = new DepositLocker(
+            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+        );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -130,8 +131,9 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(STARGATE_POOL_NATIVE_MAINNET_ADDRESS); // Stargate native pool on ETH Mainnet
 
         // Locker for bridging to SEI (Stargate Hydra on destination chain)
-        DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_280, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
+        DepositLocker depositLocker = new DepositLocker(
+            OWNER_ADDRESS, 30_280, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+        );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -216,8 +218,9 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to Avax
-        DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
+        DepositLocker depositLocker = new DepositLocker(
+            OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+        );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -298,8 +301,9 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(STARGATE_USDT_POOL_MAINNET_ADDRESS); // Stargate USDT Pool on ETH Mainnet
 
         // Locker for bridging to IOTA (hydra on IOTA so its feeless)
-        DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
+        DepositLocker depositLocker = new DepositLocker(
+            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+        );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -402,8 +406,9 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(STARGATE_POOL_NATIVE_MAINNET_ADDRESS); // Stargate Native Pool on ETH Mainnet
 
         // Locker for bridging to IOTA (hydra on IOTA so its feeless)
-        DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
+        DepositLocker depositLocker = new DepositLocker(
+            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+        );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -473,6 +478,110 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeDualToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        vm.stopPrank();
+
+        // Ensure that the nonce was incremented
+        assertEq(depositLocker.nonce(), ++nonce);
+    }
+
+    function test_Bridge_LpToken_wETH_USDC_Deposits(uint256 offerAmount, uint256 numDepositors) external {
+        vm.selectFork(mainnetFork);
+        assertEq(vm.activeFork(), mainnetFork);
+
+        uint256 protocolFee = 0.01e18; // 1% protocol fee
+        uint256 minimumFrontendFee = 0.001e18; // 0.1% minimum frontend fee
+        setUpRecipeMarketHubTests(protocolFee, minimumFrontendFee);
+
+        IP_ADDRESS = ALICE_ADDRESS;
+        FRONTEND_FEE_RECIPIENT = CHARLIE_ADDRESS;
+
+        WeirollWalletHelper walletHelper = new WeirollWalletHelper();
+
+        ERC20[] memory depositTokens = new ERC20[](2);
+        IOFT[] memory lzV2OFTs = new IOFT[](2);
+
+        depositTokens[0] = ERC20(USDC_MAINNET_ADDRESS); // USDC on ETH Mainnet
+        lzV2OFTs[0] = IOFT(STARGATE_USDC_POOL_MAINNET_ADDRESS); // Stargate USDC Pool on ETH Mainnet
+        depositTokens[1] = ERC20(WETH_MAINNET_ADDRESS); // wETH on ETH Mainnet
+        lzV2OFTs[1] = IOFT(STARGATE_POOL_NATIVE_MAINNET_ADDRESS); // Stargate native pool on ETH Mainnet
+
+        // Locker for bridging to IOTA (hydra on IOTA so its feeless)
+        DepositLocker depositLocker = new DepositLocker(
+            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+        );
+
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+
+        RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
+            _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), UNI_V2_wETH_USDC_PAIR, address(depositLocker));
+        RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(DepositLocker.withdraw.selector, address(depositLocker));
+
+        uint256 frontendFee = recipeMarketHub.minimumFrontendFee();
+        bytes32 marketHash =
+            recipeMarketHub.createMarket(UNI_V2_wETH_USDC_PAIR, 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
+
+        vm.startPrank(OWNER_ADDRESS);
+        depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
+        vm.stopPrank();
+
+        address[] memory depositorWallets = new address[](numDepositors);
+        uint256 totalLiquidity = 0;
+        for (uint256 i = 0; i < numDepositors; i++) {
+            (address ap,) = makeAddrAndKey(string(abi.encode(i)));
+            depositorWallets[i] = ap;
+
+            // Fund the AP
+            deal(ap, 10_000_000 ether);
+            deal(USDC_MAINNET_ADDRESS, ap, 1_000_000_000_000_000);
+
+            vm.startPrank(ap);
+
+            IWETH(WETH_MAINNET_ADDRESS).deposit{ value: 10_000_000 ether }();
+
+            ERC20(WETH_MAINNET_ADDRESS).approve(address(UNISWAP_V2_MAINNET_ROUTER_ADDRESS), type(uint256).max);
+            ERC20(USDC_MAINNET_ADDRESS).approve(address(UNISWAP_V2_MAINNET_ROUTER_ADDRESS), type(uint256).max);
+
+            (,, uint256 liquidity) =
+                UNISWAP_V2_MAINNET_ROUTER_ADDRESS.addLiquidity(WETH_MAINNET_ADDRESS, USDC_MAINNET_ADDRESS, 1e18, 3000e6, 0, 0, ap, block.timestamp);
+
+            ERC20(UNI_V2_wETH_USDC_PAIR).approve(address(recipeMarketHub), liquidity);
+
+            totalLiquidity += liquidity;
+            vm.stopPrank();
+        }
+
+        offerAmount = bound(offerAmount, totalLiquidity, totalLiquidity * 10);
+
+        // Create a fillable IP offer for points
+        (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
+
+        for (uint256 i = 0; i < numDepositors; i++) {
+            vm.startPrank(depositorWallets[i]);
+
+            // AP Fills the offer (no funding vault)
+            recipeMarketHub.fillIPOffers(offerHash, totalLiquidity / numDepositors, address(0), FRONTEND_FEE_RECIPIENT);
+            vm.stopPrank();
+        }
+
+        vm.stopPrank();
+
+        vm.startPrank(MULTISIG_ADDRESS);
+        depositLocker.setGreenLight(marketHash, true);
+        vm.stopPrank();
+
+        // vm.expectEmit(true, true, false, false, WBTC_MAINNET_ADDRESS);
+        // emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(WETH_MAINNET_ADDRESS))), 0);
+
+        vm.expectEmit(true, true, false, false, USDC_MAINNET_ADDRESS);
+        emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDC_MAINNET_ADDRESS))), 0);
+
+        uint256 nonce = depositLocker.nonce();
+
+        vm.expectEmit(true, true, false, false, address(depositLocker));
+        emit DepositLocker.DualTokenBridgeToDestinationChain(marketHash, nonce, bytes32(0), 0, 0, bytes32(0), 0, 0);
+
+        vm.startPrank(IP_ADDRESS);
+        depositLocker.bridgeLpToken{ value: 5 ether }(marketHash, 1_000_000, 0, 0, depositorWallets);
         vm.stopPrank();
 
         // Ensure that the nonce was incremented

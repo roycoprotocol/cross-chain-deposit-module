@@ -79,14 +79,19 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
                             Structures
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Struct to hold total amounts for Token A and Token B.
+    struct TotalAmountsToBridge {
+        uint256 tokenA_TotalAmountToBridge;
+        uint256 tokenB_TotalAmountToBridge;
+    }
+
     /// @notice Struct to hold parameters for bridging dual tokens.
     struct DualTokenBridgeParams {
         bytes32 marketHash;
         uint128 executorGasLimit;
         ERC20 tokenA;
         ERC20 tokenB;
-        uint256 tokenA_TotalAmountToBridge;
-        uint256 tokenB_TotalAmountToBridge;
+        TotalAmountsToBridge totals;
         bytes tokenA_ComposeMsg;
         bytes tokenB_ComposeMsg;
     }
@@ -100,12 +105,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 tokenB_TotalAmountReceivedOnBurn;
         uint256 tokenA_DecimalConversionRate;
         uint256 tokenB_DecimalConversionRate;
-    }
-
-    /// @notice Struct to hold total amounts for Token A and Token B.
-    struct Totals {
-        uint256 tokenA;
-        uint256 tokenB;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -165,6 +164,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Error emitted when bridging all the specified deposits fails.
     error FailedToBridgeAllDeposits();
+
+    /// @notice Error emitted when receiving native assets via fallback from anyone but WRAPPED_NATIVE_ASSET_TOKEN.
+    error FallbackRestrictedToNativeAssetToken();
 
     /*//////////////////////////////////////////////////////////////
                                        Modifiers
@@ -246,7 +248,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
-        if (!DUAL_TOKEN_FACTORY.isDualToken(address(marketInputToken))) {
+        if (
+            !DUAL_TOKEN_FACTORY.isDualToken(address(marketInputToken))
+                && (keccak256(abi.encode(marketInputToken.name())) != keccak256(abi.encode("Uniswap V2")))
+        ) {
             // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT
             bool depositAmountHasValidPrecision =
                 amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
@@ -335,25 +340,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Ensure that at least one depositor was included in the bridge payload
         require(totalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
-        // Prepare SendParam for bridging
-        SendParam memory sendParam = SendParam({
-            dstEid: dstChainLzEid,
-            to: _addressToBytes32(depositExecutor),
-            amountLD: totalAmountToBridge,
-            minAmountLD: totalAmountToBridge,
-            extraOptions: OptionsBuilder.newOptions().addExecutorLzComposeOption(0, _executorGasLimit, 0),
-            composeMsg: composeMsg,
-            oftCmd: ""
-        });
-
         // Get the market's input token
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
 
-        // Bridge the tokens with the marshaled parameters
-        MessagingReceipt memory messageReceipt = _bridgeTokens(marketInputToken, 0, sendParam);
+        // Execute the bridge
+        MessagingReceipt memory messageReceipt = _executeBridge(marketInputToken, totalAmountToBridge, composeMsg, 0, _executorGasLimit);
         uint256 bridgingFee = messageReceipt.fee.nativeFee;
 
-        // Refund excess value sent with the transaction
+        // Refund any excess value sent with the transaction
         if (msg.value > bridgingFee) {
             payable(msg.sender).transfer(msg.value - bridgingFee);
         }
@@ -409,26 +403,21 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Keep track of total amount of deposits to bridge
         uint256 dt_TotalDepositsInBatch = 0;
-        uint256 tokenA_TotalAmountToBridge = 0;
-        uint256 tokenB_TotalAmountToBridge = 0;
+        TotalAmountsToBridge memory totals;
 
         for (uint256 i = 0; i < _depositors.length; ++i) {
             uint256 dt_depositAmount;
-            uint256 tokenA_DepositAmount;
-            uint256 tokenB_DepositAmount;
 
             // Process the depositor and update the compose messages
-            (dt_depositAmount, tokenA_DepositAmount, tokenB_DepositAmount, tokenA_ComposeMsg, tokenB_ComposeMsg) =
-                _processDualTokenDepositor(_marketHash, _depositors[i], amountOfTokenAPerDT, amountOfTokenBPerDT, tokenA_ComposeMsg, tokenB_ComposeMsg);
+            (dt_depositAmount, tokenA_ComposeMsg, tokenB_ComposeMsg) =
+                _processDualTokenDepositor(_marketHash, _depositors[i], amountOfTokenAPerDT, amountOfTokenBPerDT, tokenA_ComposeMsg, tokenB_ComposeMsg, totals);
 
-            // Update total amounts
+            // Update total amount of DT to burn
             dt_TotalDepositsInBatch += dt_depositAmount;
-            tokenA_TotalAmountToBridge += tokenA_DepositAmount;
-            tokenB_TotalAmountToBridge += tokenB_DepositAmount;
         }
 
         // Ensure that at least one depositor was included in the bridge payload
-        require(tokenA_TotalAmountToBridge > 0 && tokenB_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+        require(totals.tokenA_TotalAmountToBridge > 0 && totals.tokenB_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
         // Burn the dual tokens to receive the constituents in the DepositLocker
         dualToken.burn(dt_TotalDepositsInBatch);
@@ -439,14 +428,13 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             executorGasLimit: _executorGasLimit,
             tokenA: tokenA,
             tokenB: tokenB,
-            tokenA_TotalAmountToBridge: tokenA_TotalAmountToBridge,
-            tokenB_TotalAmountToBridge: tokenB_TotalAmountToBridge,
+            totals: totals,
             tokenA_ComposeMsg: tokenA_ComposeMsg,
             tokenB_ComposeMsg: tokenB_ComposeMsg
         });
 
         // Execute 2 consecutive bridges for each constituent token
-        _bridgeDualTokens(bridgeParams);
+        _executeConsecutiveBridges(bridgeParams);
     }
 
     /**
@@ -507,8 +495,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             address(tokenA), address(tokenB), lp_TotalDepositsInBatch, _minAmountOfTokenAToBridge, _minAmountOfTokenBToBridge, address(this), block.timestamp
         );
 
-        require(tokenA_AmountReceivedOnBurn <= type(uint96).max && tokenB_AmountReceivedOnBurn <= type(uint96).max, BridgeAmountLimitExceeded());
-
         uint256 tokenA_DecimalConversionRate = 10 ** (tokenA.decimals() - tokenToLzV2OFT[tokenA].sharedDecimals());
         uint256 tokenB_DecimalConversionRate = 10 ** (tokenB.decimals() - tokenToLzV2OFT[tokenB].sharedDecimals());
 
@@ -517,7 +503,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualTokenComposeMsg(_marketHash, nonce);
 
         // Initialize totals
-        Totals memory totals;
+        TotalAmountsToBridge memory totals;
 
         // Marshal the bridge payload for each token's bridge
         for (uint256 i = 0; i < _depositors.length; ++i) {
@@ -536,81 +522,27 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             (tokenA_ComposeMsg, tokenB_ComposeMsg) = _processLpTokenDepositor(params, tokenA, tokenB, tokenA_ComposeMsg, tokenB_ComposeMsg, totals);
         }
 
+        // Ensure that at least one depositor was included in the bridge payload
+        require(totals.tokenA_TotalAmountToBridge > 0 && totals.tokenB_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+
         // Create bridge parameters
         DualTokenBridgeParams memory bridgeParams = DualTokenBridgeParams({
             marketHash: _marketHash,
             executorGasLimit: _executorGasLimit,
             tokenA: tokenA,
             tokenB: tokenB,
-            tokenA_TotalAmountToBridge: totals.tokenA,
-            tokenB_TotalAmountToBridge: totals.tokenB,
+            totals: totals,
             tokenA_ComposeMsg: tokenA_ComposeMsg,
             tokenB_ComposeMsg: tokenB_ComposeMsg
         });
 
         // Execute 2 consecutive bridges for each constituent token
-        _bridgeDualTokens(bridgeParams);
+        _executeConsecutiveBridges(bridgeParams);
     }
 
     /*//////////////////////////////////////////////////////////////
                           Internal Functions
     //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Bridges two tokens to the destination chain using LayerZero's OFT.
-     * @dev Handles the bridging of Token A and Token B, fee management, and event emission.
-     * @param params The parameters required for bridging dual tokens.
-     */
-    function _bridgeDualTokens(DualTokenBridgeParams memory params) internal {
-        uint256 totalBridgingFee = 0;
-
-        // Prepare SendParam for bridging Token A
-        SendParam memory sendParamA = SendParam({
-            dstEid: dstChainLzEid,
-            to: _addressToBytes32(depositExecutor),
-            amountLD: params.tokenA_TotalAmountToBridge,
-            minAmountLD: params.tokenA_TotalAmountToBridge,
-            extraOptions: OptionsBuilder.newOptions().addExecutorLzComposeOption(0, params.executorGasLimit, 0),
-            composeMsg: params.tokenA_ComposeMsg,
-            oftCmd: ""
-        });
-
-        // Bridge Token A
-        MessagingReceipt memory tokenA_MessageReceipt = _bridgeTokens(params.tokenA, 0, sendParamA);
-        totalBridgingFee += tokenA_MessageReceipt.fee.nativeFee;
-
-        // Prepare SendParam for bridging Token B
-        SendParam memory sendParamB = SendParam({
-            dstEid: dstChainLzEid,
-            to: _addressToBytes32(depositExecutor),
-            amountLD: params.tokenB_TotalAmountToBridge,
-            minAmountLD: params.tokenB_TotalAmountToBridge,
-            extraOptions: OptionsBuilder.newOptions().addExecutorLzComposeOption(0, params.executorGasLimit, 0),
-            composeMsg: params.tokenB_ComposeMsg,
-            oftCmd: ""
-        });
-
-        // Bridge Token B
-        MessagingReceipt memory tokenB_MessageReceipt = _bridgeTokens(params.tokenB, totalBridgingFee, sendParamB);
-        totalBridgingFee += tokenB_MessageReceipt.fee.nativeFee;
-
-        // Refund excess value sent with the transaction
-        if (msg.value > totalBridgingFee) {
-            payable(msg.sender).transfer(msg.value - totalBridgingFee);
-        }
-
-        // Emit event to keep track of bridged deposits
-        emit DualTokenBridgeToDestinationChain(
-            params.marketHash,
-            nonce++,
-            tokenA_MessageReceipt.guid,
-            tokenA_MessageReceipt.nonce,
-            params.tokenA_TotalAmountToBridge,
-            tokenB_MessageReceipt.guid,
-            tokenB_MessageReceipt.nonce,
-            params.tokenB_TotalAmountToBridge
-        );
-    }
 
     /**
      * @notice Processes a single token depositor by updating the compose message and clearing depositor data.
@@ -644,6 +576,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _amountOfTokenBPerDT The amount of Token B per dual token.
      * @param _tokenA_ComposeMsg The current compose message for Token A to be updated.
      * @param _tokenB_ComposeMsg The current compose message for Token B to be updated.
+     * @param _totals The total amounts for each constituent to bridge
      */
     function _processDualTokenDepositor(
         bytes32 _marketHash,
@@ -651,20 +584,21 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 _amountOfTokenAPerDT,
         uint256 _amountOfTokenBPerDT,
         bytes memory _tokenA_ComposeMsg,
-        bytes memory _tokenB_ComposeMsg
+        bytes memory _tokenB_ComposeMsg,
+        TotalAmountsToBridge memory _totals
     )
         internal
-        returns (uint256 dt_DepositAmount, uint256 tokenA_DepositAmount, uint256 tokenB_DepositAmount, bytes memory, bytes memory)
+        returns (uint256 dt_DepositAmount, bytes memory, bytes memory)
     {
         // Get amount deposited by the depositor (AP)
         dt_DepositAmount = marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
 
         // Calculate amount of each constituent to bridge
-        tokenA_DepositAmount = dt_DepositAmount * _amountOfTokenAPerDT;
-        tokenB_DepositAmount = dt_DepositAmount * _amountOfTokenBPerDT;
+        uint256 tokenA_DepositAmount = dt_DepositAmount * _amountOfTokenAPerDT;
+        uint256 tokenB_DepositAmount = dt_DepositAmount * _amountOfTokenBPerDT;
 
         if (tokenA_DepositAmount > type(uint96).max || tokenB_DepositAmount > type(uint96).max) {
-            return (0, 0, 0, _tokenA_ComposeMsg, _tokenB_ComposeMsg); // Skip if deposit amount exceeds limit
+            return (0, _tokenA_ComposeMsg, _tokenB_ComposeMsg); // Skip if deposit amount exceeds limit
         }
 
         // Delete all Weiroll Wallet state and deposit amounts associated with this depositor
@@ -674,7 +608,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         _tokenA_ComposeMsg = _tokenA_ComposeMsg.writeDepositor(_depositor, uint96(tokenA_DepositAmount));
         _tokenB_ComposeMsg = _tokenB_ComposeMsg.writeDepositor(_depositor, uint96(tokenB_DepositAmount));
 
-        return (dt_DepositAmount, tokenA_DepositAmount, tokenB_DepositAmount, _tokenA_ComposeMsg, _tokenB_ComposeMsg);
+        // Update totals
+        _totals.tokenA_TotalAmountToBridge += tokenA_DepositAmount;
+        _totals.tokenB_TotalAmountToBridge += tokenB_DepositAmount;
+
+        return (dt_DepositAmount, _tokenA_ComposeMsg, _tokenB_ComposeMsg);
     }
 
     /**
@@ -687,7 +625,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _tokenB The ERC20 instance of Token B.
      * @param _tokenA_ComposeMsg The compose message for Token A to be updated.
      * @param _tokenB_ComposeMsg The compose message for Token B to be updated.
-     * @param totals The totals for Token A and Token B to be updated.
+     * @param _totals The totals for Token A and Token B to be updated.
      */
     function _processLpTokenDepositor(
         LpTokenDepositorParams memory params,
@@ -695,7 +633,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         ERC20 _tokenB,
         bytes memory _tokenA_ComposeMsg,
         bytes memory _tokenB_ComposeMsg,
-        Totals memory totals
+        TotalAmountsToBridge memory _totals
     )
         internal
         returns (bytes memory, bytes memory)
@@ -707,22 +645,28 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 tokenA_DepositAmount = (params.tokenA_TotalAmountReceivedOnBurn * lp_DepositAmount) / params.lp_TotalAmountToBridge;
         uint256 tokenB_DepositAmount = (params.tokenB_TotalAmountReceivedOnBurn * lp_DepositAmount) / params.lp_TotalAmountToBridge;
 
-        // Adjust depositor amounts to acceptable precision and refund dust
-        uint256 acceptableTokenA_DepositAmount =
-            _adjustForPrecisionAndRefundDust(params.depositor, _tokenA, tokenA_DepositAmount, params.tokenA_DecimalConversionRate);
-        uint256 acceptableTokenB_DepositAmount =
-            _adjustForPrecisionAndRefundDust(params.depositor, _tokenB, tokenB_DepositAmount, params.tokenB_DecimalConversionRate);
-
         // Delete all Weiroll Wallet state and deposit amounts associated with this depositor
         _clearDepositorData(params.marketHash, params.depositor);
 
+        if (tokenA_DepositAmount > type(uint96).max || tokenB_DepositAmount > type(uint96).max) {
+            // If can't bridge this depositor, refund their redeemed tokens + fees accrued from LPing
+            _tokenA.safeTransfer(params.depositor, tokenA_DepositAmount);
+            _tokenB.safeTransfer(params.depositor, tokenB_DepositAmount);
+
+            return (_tokenA_ComposeMsg, _tokenB_ComposeMsg);
+        }
+
+        // Adjust depositor amounts to acceptable precision and refund dust
+        tokenA_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _tokenA, tokenA_DepositAmount, params.tokenA_DecimalConversionRate);
+        tokenB_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _tokenB, tokenB_DepositAmount, params.tokenB_DecimalConversionRate);
+
         // Update compose messages with acceptable amounts
-        _tokenA_ComposeMsg = _tokenA_ComposeMsg.writeDepositor(params.depositor, uint96(acceptableTokenA_DepositAmount));
-        _tokenB_ComposeMsg = _tokenB_ComposeMsg.writeDepositor(params.depositor, uint96(acceptableTokenB_DepositAmount));
+        _tokenA_ComposeMsg = _tokenA_ComposeMsg.writeDepositor(params.depositor, uint96(tokenA_DepositAmount));
+        _tokenB_ComposeMsg = _tokenB_ComposeMsg.writeDepositor(params.depositor, uint96(tokenB_DepositAmount));
 
         // Update totals
-        totals.tokenA += acceptableTokenA_DepositAmount;
-        totals.tokenB += acceptableTokenB_DepositAmount;
+        _totals.tokenA_TotalAmountToBridge += tokenA_DepositAmount;
+        _totals.tokenB_TotalAmountToBridge += tokenB_DepositAmount;
 
         return (_tokenA_ComposeMsg, _tokenB_ComposeMsg);
     }
@@ -757,40 +701,97 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
+     * @notice Bridges two tokens consecutively to the destination chain using LayerZero's OFT.
+     * @dev Handles the bridging of Token A and Token B, fee management, and event emission.
+     * @param params The parameters required for bridging dual tokens.
+     */
+    function _executeConsecutiveBridges(DualTokenBridgeParams memory params) internal {
+        uint256 totalBridgingFee = 0;
+
+        // Bridge Token A
+        MessagingReceipt memory tokenA_MessageReceipt =
+            _executeBridge(params.tokenA, params.totals.tokenA_TotalAmountToBridge, params.tokenA_ComposeMsg, totalBridgingFee, params.executorGasLimit);
+        totalBridgingFee += tokenA_MessageReceipt.fee.nativeFee;
+
+        // Bridge Token B
+        MessagingReceipt memory tokenB_MessageReceipt =
+            _executeBridge(params.tokenB, params.totals.tokenB_TotalAmountToBridge, params.tokenB_ComposeMsg, totalBridgingFee, params.executorGasLimit);
+        totalBridgingFee += tokenB_MessageReceipt.fee.nativeFee;
+
+        // Refund excess value sent with the transaction
+        if (msg.value > totalBridgingFee) {
+            payable(msg.sender).transfer(msg.value - totalBridgingFee);
+        }
+
+        // Emit event to keep track of bridged deposits
+        emit DualTokenBridgeToDestinationChain(
+            params.marketHash,
+            nonce++,
+            tokenA_MessageReceipt.guid,
+            tokenA_MessageReceipt.nonce,
+            params.totals.tokenA_TotalAmountToBridge,
+            tokenB_MessageReceipt.guid,
+            tokenB_MessageReceipt.nonce,
+            params.totals.tokenB_TotalAmountToBridge
+        );
+    }
+
+    /**
      * @notice Bridges LayerZero V2 OFT tokens.
+     * @dev Prepares the SendParam internally to optimize for gas and readability.
      * @param _token The token to bridge.
+     * @param _amountToBridge The amount of the token to bridge.
+     * @param _composeMsg The compose message for the bridge.
      * @param _feesAlreadyPaid The amount of fees already paid in this transaction prior to this bridge.
-     * @param _sendParam The send parameter passed to the quoteSend and send OFT functions.
+     * @param _executorGasLimit The gas limit for the executor.
      * @return messageReceipt The messaging receipt from the bridge operation.
      */
-    function _bridgeTokens(ERC20 _token, uint256 _feesAlreadyPaid, SendParam memory _sendParam) internal returns (MessagingReceipt memory messageReceipt) {
-        // The amount of the token to bridge in local decimals
-        uint256 amountToBridge = _sendParam.amountLD;
+    function _executeBridge(
+        ERC20 _token,
+        uint256 _amountToBridge,
+        bytes memory _composeMsg,
+        uint256 _feesAlreadyPaid,
+        uint128 _executorGasLimit
+    )
+        internal
+        returns (MessagingReceipt memory messageReceipt)
+    {
+        // Prepare SendParam for bridging
+        SendParam memory sendParam = SendParam({
+            dstEid: dstChainLzEid,
+            to: _addressToBytes32(depositExecutor),
+            amountLD: _amountToBridge,
+            minAmountLD: _amountToBridge,
+            extraOptions: OptionsBuilder.newOptions().addExecutorLzComposeOption(0, _executorGasLimit, 0),
+            composeMsg: _composeMsg,
+            oftCmd: ""
+        });
 
-        // Get the lzV2OFT for the market's input token
+        // Get the LayerZero V2 OFT for the token
         IOFT lzV2OFT = tokenToLzV2OFT[_token];
 
         // Get fee quote for bridging
-        MessagingFee memory messagingFee = lzV2OFT.quoteSend(_sendParam, false);
+        MessagingFee memory messagingFee = lzV2OFT.quoteSend(sendParam, false);
         require(msg.value - _feesAlreadyPaid >= messagingFee.nativeFee, InsufficientValueForBridgeFee());
 
         OFTReceipt memory bridgeReceipt;
-        if (lzV2OFT.token() == address(0)) {
-            // If OFT expects native token, unwrap the native asset tokens to bridge
-            WRAPPED_NATIVE_ASSET_TOKEN.withdraw(amountToBridge);
 
-            // Execute the bridge transaction by sending native assets to bridge + bridging fee
-            (messageReceipt, bridgeReceipt) = lzV2OFT.send{ value: messagingFee.nativeFee + amountToBridge }(_sendParam, messagingFee, address(this));
+        if (lzV2OFT.token() == address(0)) {
+            // If OFT expects native token, unwrap the wrapped native asset tokens
+            WRAPPED_NATIVE_ASSET_TOKEN.withdraw(_amountToBridge);
+
+            // Execute the bridge transaction by sending native assets + bridging fee
+            (messageReceipt, bridgeReceipt) = lzV2OFT.send{ value: messagingFee.nativeFee + _amountToBridge }(sendParam, messagingFee, address(this));
         } else {
             // Approve the lzV2OFT to bridge tokens
-            _token.safeApprove(address(lzV2OFT), amountToBridge);
+            _token.safeApprove(address(lzV2OFT), _amountToBridge);
 
             // Execute the bridge transaction
-            (messageReceipt, bridgeReceipt) = lzV2OFT.send{ value: messagingFee.nativeFee }(_sendParam, messagingFee, address(this));
+            (messageReceipt, bridgeReceipt) = lzV2OFT.send{ value: messagingFee.nativeFee }(sendParam, messagingFee, address(this));
         }
 
         // Ensure that all deposits were bridged
-        require(bridgeReceipt.amountReceivedLD == amountToBridge, FailedToBridgeAllDeposits());
+        require(bridgeReceipt.amountReceivedLD == _amountToBridge, FailedToBridgeAllDeposits());
     }
 
     /**
@@ -875,5 +876,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @notice Let the DepositLocker receive native assets directly.
      * @dev Primarily used for receiving native assets after unwrapping the native asset token.
      */
-    receive() external payable { }
+    receive() external payable {
+        require(msg.sender == address(WRAPPED_NATIVE_ASSET_TOKEN), FallbackRestrictedToNativeAssetToken());
+    }
 }
