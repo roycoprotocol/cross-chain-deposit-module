@@ -862,7 +862,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     function _isUniV2Pair(address _token) public view returns (bool) {
         bytes32 codeHash;
-        assembly {
+        assembly ("memory-safe") {
             codeHash := extcodehash(_token)
         }
         return (codeHash == UNISWAP_V2_PAIR_CODE_HASH);
