@@ -413,7 +413,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         // Resize weirollWalletsCreated array if necessary
         if (currIndex < weirollWalletsCreated.length) {
-            assembly {
+            assembly ("memory-safe") {
                 mstore(weirollWalletsCreated, currIndex)
             }
         }
