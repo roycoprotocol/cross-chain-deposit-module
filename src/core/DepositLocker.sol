@@ -91,8 +91,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 tokenB_TotalAmountToBridge;
     }
 
-    /// @notice Struct to hold parameters for bridging dual tokens.
-    struct DualTokenBridgeParams {
+    /// @notice Struct to hold parameters for bridging dual and lp tokens.
+    struct DualOrLpTokensBridgeParams {
         bytes32 marketHash;
         uint128 executorGasLimit;
         ERC20 tokenA;
@@ -452,7 +452,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         dualToken.burn(dt_TotalDepositsInBatch);
 
         // Create bridge parameters
-        DualTokenBridgeParams memory bridgeParams = DualTokenBridgeParams({
+        DualOrLpTokensBridgeParams memory bridgeParams = DualOrLpTokensBridgeParams({
             marketHash: _marketHash,
             executorGasLimit: _executorGasLimit,
             tokenA: tokenA,
@@ -556,7 +556,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         require(totals.tokenA_TotalAmountToBridge > 0 && totals.tokenB_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
         // Create bridge parameters
-        DualTokenBridgeParams memory bridgeParams = DualTokenBridgeParams({
+        DualOrLpTokensBridgeParams memory bridgeParams = DualOrLpTokensBridgeParams({
             marketHash: _marketHash,
             executorGasLimit: _executorGasLimit,
             tokenA: tokenA,
@@ -746,7 +746,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @dev Handles the bridging of Token A and Token B, fee management, and event emission.
      * @param params The parameters required for bridging dual tokens.
      */
-    function _executeConsecutiveBridges(DualTokenBridgeParams memory params) internal {
+    function _executeConsecutiveBridges(DualOrLpTokensBridgeParams memory params) internal {
         uint256 totalBridgingFee = 0;
 
         // Bridge Token A
