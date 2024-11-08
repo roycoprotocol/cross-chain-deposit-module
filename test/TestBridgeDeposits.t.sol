@@ -49,7 +49,15 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
         DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+            OWNER_ADDRESS,
+            30_284,
+            address(0xbeef),
+            GREEN_LIGHTER_ADDRESS,
+            recipeMarketHub,
+            IWETH(WETH_MAINNET_ADDRESS),
+            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
+            depositTokens,
+            lzV2OFTs
         );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
@@ -88,11 +96,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             vm.stopPrank();
         }
 
-        vm.startPrank(OWNER_ADDRESS);
-        depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
-        vm.stopPrank();
-
-        vm.startPrank(MULTISIG_ADDRESS);
+        vm.startPrank(GREEN_LIGHTER_ADDRESS);
         depositLocker.setGreenLight(marketHash, true);
         vm.stopPrank();
 
@@ -100,7 +104,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
 
         vm.expectEmit(false, false, true, false, address(depositLocker));
-        emit DepositLocker.SingleTokenBridgeToDestinationChain(marketHash, bytes32(0), 0, offerAmount);
+        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, offerAmount);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -132,7 +136,15 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to SEI (Stargate Hydra on destination chain)
         DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS, 30_280, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+            OWNER_ADDRESS,
+            30_280,
+            address(0xbeef),
+            GREEN_LIGHTER_ADDRESS,
+            recipeMarketHub,
+            IWETH(WETH_MAINNET_ADDRESS),
+            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
+            depositTokens,
+            lzV2OFTs
         );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
@@ -178,16 +190,12 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             vm.stopPrank();
         }
 
-        vm.startPrank(OWNER_ADDRESS);
-        depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
-        vm.stopPrank();
-
-        vm.startPrank(MULTISIG_ADDRESS);
+        vm.startPrank(GREEN_LIGHTER_ADDRESS);
         depositLocker.setGreenLight(marketHash, true);
         vm.stopPrank();
 
         vm.expectEmit(true, false, false, false, address(depositLocker));
-        emit DepositLocker.SingleTokenBridgeToDestinationChain(marketHash, bytes32(0), 0, filledSoFar);
+        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, filledSoFar);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -219,7 +227,15 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to Avax
         DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS, 30_106, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+            OWNER_ADDRESS,
+            30_106,
+            address(0xbeef),
+            GREEN_LIGHTER_ADDRESS,
+            recipeMarketHub,
+            IWETH(WETH_MAINNET_ADDRESS),
+            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
+            depositTokens,
+            lzV2OFTs
         );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
@@ -258,11 +274,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             vm.stopPrank();
         }
 
-        vm.startPrank(OWNER_ADDRESS);
-        depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
-        vm.stopPrank();
-
-        vm.startPrank(MULTISIG_ADDRESS);
+        vm.startPrank(GREEN_LIGHTER_ADDRESS);
         depositLocker.setGreenLight(marketHash, true);
         vm.stopPrank();
 
@@ -270,7 +282,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit ERC20.Transfer(address(depositLocker), WBTC_OFT_ADAPTER_MAINNET_ADDRESS, offerAmount);
 
         vm.expectEmit(false, false, true, false, address(depositLocker));
-        emit DepositLocker.SingleTokenBridgeToDestinationChain(marketHash, bytes32(0), 0, offerAmount);
+        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, offerAmount);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -302,7 +314,15 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to IOTA (hydra on IOTA so its feeless)
         DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+            OWNER_ADDRESS,
+            30_284,
+            address(0xbeef),
+            GREEN_LIGHTER_ADDRESS,
+            recipeMarketHub,
+            IWETH(WETH_MAINNET_ADDRESS),
+            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
+            depositTokens,
+            lzV2OFTs
         );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
@@ -310,7 +330,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         // New DualToken
         // 1 DT = .0001 USDT and 0.00009 USDC
         DualToken dualToken =
-            depositLocker.DUAL_TOKEN_FACTORY().createDualToken("USDT/USDC", "DT-0", ERC20(USDT_MAINNET_ADDRESS), ERC20(USDC_MAINNET_ADDRESS), 1e2, 0.9e1);
+            depositLocker.DUAL_OR_LP_TOKEN_FACTORY().createDualToken("USDT/USDC", "DT-0", ERC20(USDT_MAINNET_ADDRESS), ERC20(USDC_MAINNET_ADDRESS), 1e2, 0.9e1);
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), address(dualToken), address(depositLocker));
@@ -318,10 +338,6 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         uint256 frontendFee = recipeMarketHub.minimumFrontendFee();
         bytes32 marketHash = recipeMarketHub.createMarket(address(dualToken), 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
-
-        vm.startPrank(OWNER_ADDRESS);
-        depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
-        vm.stopPrank();
 
         // Create a fillable IP offer for points
         (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
@@ -355,7 +371,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             vm.stopPrank();
         }
 
-        vm.startPrank(MULTISIG_ADDRESS);
+        vm.startPrank(GREEN_LIGHTER_ADDRESS);
         depositLocker.setGreenLight(marketHash, true);
         vm.stopPrank();
 
@@ -372,7 +388,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         uint256 nonce = depositLocker.nonce();
 
         vm.expectEmit(true, true, false, false, address(depositLocker));
-        emit DepositLocker.DualTokenBridgeToDestinationChain(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
+        emit DepositLocker.DualTokensBridgedToDestination(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeDualToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -407,15 +423,24 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to IOTA (hydra on IOTA so its feeless)
         DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+            OWNER_ADDRESS,
+            30_284,
+            address(0xbeef),
+            GREEN_LIGHTER_ADDRESS,
+            recipeMarketHub,
+            IWETH(WETH_MAINNET_ADDRESS),
+            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
+            depositTokens,
+            lzV2OFTs
         );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
         // New DualToken
         // 1 DT = .000001 WETH and 0.0027 USDC
-        DualToken dualToken =
-            depositLocker.DUAL_TOKEN_FACTORY().createDualToken("WETH/USDC", "DT-0", ERC20(WETH_MAINNET_ADDRESS), ERC20(USDC_MAINNET_ADDRESS), 1e12, 0.27e2);
+        DualToken dualToken = depositLocker.DUAL_OR_LP_TOKEN_FACTORY().createDualToken(
+            "WETH/USDC", "DT-0", ERC20(WETH_MAINNET_ADDRESS), ERC20(USDC_MAINNET_ADDRESS), 1e12, 0.27e2
+        );
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), address(dualToken), address(depositLocker));
@@ -423,10 +448,6 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         uint256 frontendFee = recipeMarketHub.minimumFrontendFee();
         bytes32 marketHash = recipeMarketHub.createMarket(address(dualToken), 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
-
-        vm.startPrank(OWNER_ADDRESS);
-        depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
-        vm.stopPrank();
 
         // Create a fillable IP offer for points
         (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
@@ -459,7 +480,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             vm.stopPrank();
         }
 
-        vm.startPrank(MULTISIG_ADDRESS);
+        vm.startPrank(GREEN_LIGHTER_ADDRESS);
         depositLocker.setGreenLight(marketHash, true);
         vm.stopPrank();
 
@@ -474,7 +495,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         uint256 nonce = depositLocker.nonce();
 
         vm.expectEmit(true, true, false, false, address(depositLocker));
-        emit DepositLocker.DualTokenBridgeToDestinationChain(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
+        emit DepositLocker.DualTokensBridgedToDestination(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeDualToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -509,7 +530,15 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         // Locker for bridging to IOTA (hydra on IOTA so its feeless)
         DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs
+            OWNER_ADDRESS,
+            30_284,
+            address(0xbeef),
+            GREEN_LIGHTER_ADDRESS,
+            recipeMarketHub,
+            IWETH(WETH_MAINNET_ADDRESS),
+            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
+            depositTokens,
+            lzV2OFTs
         );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
@@ -521,10 +550,6 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         uint256 frontendFee = recipeMarketHub.minimumFrontendFee();
         bytes32 marketHash =
             recipeMarketHub.createMarket(UNI_V2_wETH_USDC_PAIR, 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
-
-        vm.startPrank(OWNER_ADDRESS);
-        depositLocker.setMulitsig(marketHash, MULTISIG_ADDRESS);
-        vm.stopPrank();
 
         address[] memory depositorWallets = new address[](numDepositors);
         uint256 totalLiquidity = 0;
@@ -568,12 +593,13 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         vm.stopPrank();
 
-        vm.startPrank(MULTISIG_ADDRESS);
-        depositLocker.setGreenLight(marketHash, true);
+        vm.startPrank(OWNER_ADDRESS);
+        depositLocker.setLpMarketOwner(marketHash, IP_ADDRESS);
         vm.stopPrank();
 
-        // vm.expectEmit(true, true, false, false, WBTC_MAINNET_ADDRESS);
-        // emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(WETH_MAINNET_ADDRESS))), 0);
+        vm.startPrank(GREEN_LIGHTER_ADDRESS);
+        depositLocker.setGreenLight(marketHash, true);
+        vm.stopPrank();
 
         vm.expectEmit(true, true, false, false, USDC_MAINNET_ADDRESS);
         emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDC_MAINNET_ADDRESS))), 0);
@@ -581,7 +607,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         uint256 nonce = depositLocker.nonce();
 
         vm.expectEmit(true, true, false, false, address(depositLocker));
-        emit DepositLocker.DualTokenBridgeToDestinationChain(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
+        emit DepositLocker.DualTokensBridgedToDestination(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeLpToken{ value: 5 ether }(marketHash, 1_000_000, 0, 0, depositorWallets);

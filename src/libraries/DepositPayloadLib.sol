@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 // An enumeration of deposit types supported by CCDM
 enum DepositType {
     SINGLE_TOKEN, // Depositing a single OFT token on destination
-    DUAL_TOKEN // Depositing 2 OFT tokens at a predefined ratio on destination
+    DUAL_OR_LP_TOKEN // Depositing 2 OFT tokens at a predefined ratio on destination
 
 }
 
@@ -24,13 +24,13 @@ library DepositPayloadLib {
     // (1 byte for DepositType + 32 bytes for sourceMarketHash) = 33 bytes
     uint256 internal constant SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET = 33;
 
-    /// @notice Minimum size of a DUAL_TOKEN Bridge Payload
+    /// @notice Minimum size of a DUAL_OR_LP_TOKEN Bridge Payload
     // (1 byte for DepositType + 32 bytes for sourceMarketHash + 32 bytes for nonce + 32 bytes for single depositor payload) = 97 bytes
-    uint256 internal constant MIN_DUAL_TOKEN_PAYLOAD_SIZE = 97;
+    uint256 internal constant MIN_DUAL_OR_LP_TOKEN_PAYLOAD_SIZE = 97;
 
-    /// @notice Offset to first depositor in a DUAL_TOKEN payload
+    /// @notice Offset to first depositor in a DUAL_OR_LP_TOKEN payload
     // (1 byte for DepositType + 32 bytes for sourceMarketHash + 32 bytes for nonce) = 65 bytes
-    uint256 internal constant DUAL_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET = 65;
+    uint256 internal constant DUAL_OR_LP_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET = 65;
 
     /// @notice Bytes used per depositor position in the payload
     // (20 bytes for depositor address + 12 bytes for the corresponding deposit amount) = 32 bytes
@@ -46,11 +46,11 @@ library DepositPayloadLib {
         composeMsg = abi.encodePacked(DepositType.SINGLE_TOKEN, _marketHash);
     }
 
-    /// @dev Initializes a compose message for DUAL_TOKEN cross-chain deposits
+    /// @dev Initializes a compose message for DUAL_OR_LP_TOKEN cross-chain deposits
     /// @param _marketHash The Royco market hash associated with the deposits
-    /// @param _nonce The nonce associated with the DUAL_TOKEN deposits
+    /// @param _nonce The nonce associated with the DUAL_OR_LP_TOKEN deposits
     function initDualTokenComposeMsg(bytes32 _marketHash, uint256 _nonce) internal pure returns (bytes memory composeMsg) {
-        composeMsg = abi.encodePacked(DepositType.DUAL_TOKEN, _marketHash, _nonce);
+        composeMsg = abi.encodePacked(DepositType.DUAL_OR_LP_TOKEN, _marketHash, _nonce);
     }
 
     /// @dev Reads the DepositType (first byte) and source market hash (following 32 bytes) from the _composeMsg
@@ -78,7 +78,7 @@ library DepositPayloadLib {
 
     /// @dev Reads the nonce from the _composeMsg
     /// @param _composeMsg The compose message received in lzCompose
-    /// @return nonce The nonce associated with the DUAL_TOKEN deposits
+    /// @return nonce The nonce associated with the DUAL_OR_LP_TOKEN deposits
     function readNonce(bytes memory _composeMsg) internal pure returns (uint256 nonce) {
         assembly ("memory-safe") {
             // Read the 32 bytes following the metadata as nonce

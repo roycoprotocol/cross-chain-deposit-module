@@ -14,7 +14,7 @@ contract DualToken is ERC20, ReentrancyGuardTransient {
     using SafeTransferLib for ERC20;
 
     /// @notice DualTokens can only be represented as whole numbers
-    uint8 public constant DUAL_TOKEN_DECIMALS = 0;
+    uint8 public constant DUAL_OR_LP_TOKEN_DECIMALS = 0;
 
     /// @notice The first underlying ERC20 token
     ERC20 public immutable tokenA;
@@ -51,7 +51,7 @@ contract DualToken is ERC20, ReentrancyGuardTransient {
         uint256 _amountOfTokenAPerDT,
         uint256 _amountOfTokenBPerDT
     )
-        ERC20(_name, _symbol, DUAL_TOKEN_DECIMALS)
+        ERC20(_name, _symbol, DUAL_OR_LP_TOKEN_DECIMALS)
     {
         tokenA = _tokenA;
         tokenB = _tokenB;

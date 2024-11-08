@@ -61,7 +61,7 @@ contract SourceBridgeScript is Script {
 
         DepositLocker depositLocker = DepositLocker(depositLockerAddress);
 
-        depositLocker.setMulitsig(marketHash, deployer);
+        depositLocker.setGreenLighter(deployer);
 
         depositLocker.setGreenLight(marketHash, true);
 

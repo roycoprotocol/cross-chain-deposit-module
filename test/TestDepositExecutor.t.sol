@@ -76,20 +76,24 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         depositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
         lzV2OFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS; // Stargate USDC Pool on Polygon Mainnet
 
-        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, address(weirollImplementation), POLYGON_LZ_ENDPOINT, depositTokens, lzV2OFTs);
+        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, SCRIPT_VERIFIER_ADDRESS);
 
         vm.startPrank(OWNER_ADDRESS);
-        depositExecutor.createSingleTokenDepositCampaign(bridgeResult.marketHash, IP_ADDRESS, ERC20(USDC_POLYGON_ADDRESS));
+        depositExecutor.setSourceMarketOwner(bridgeResult.marketHash, IP_ADDRESS);
         vm.stopPrank();
 
         vm.startPrank(IP_ADDRESS);
-        depositExecutor.setSingleTokenDepositCampaignUnlockTimestamp(bridgeResult.marketHash, unlockTimestamp);
+        depositExecutor.setCampaignUnlockTimestamp(bridgeResult.marketHash, unlockTimestamp);
         vm.stopPrank();
 
         DepositExecutor.Recipe memory DEPOSIT_RECIPE = _buildBurnDepositRecipe(address(walletHelper), USDC_POLYGON_ADDRESS);
 
         vm.startPrank(IP_ADDRESS);
-        depositExecutor.setSingleTokenDepositRecipe(bridgeResult.marketHash, DEPOSIT_RECIPE);
+        depositExecutor.setCampaignDepositRecipe(bridgeResult.marketHash, DEPOSIT_RECIPE);
+        vm.stopPrank();
+
+        vm.startPrank(SCRIPT_VERIFIER_ADDRESS);
+        depositExecutor.setScriptVerificationStatus(bridgeResult.marketHash, true);
         vm.stopPrank();
 
         // Fund the Executor (bridge simulation)
@@ -187,8 +191,17 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
-        DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, depositTokens, lzV2OFTs);
+        DepositLocker depositLocker = new DepositLocker(
+            OWNER_ADDRESS,
+            30_284,
+            address(0xbeef),
+            GREEN_LIGHTER_ADDRESS,
+            recipeMarketHub,
+            IWETH(WETH_MAINNET_ADDRESS),
+            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
+            depositTokens,
+            lzV2OFTs
+        );
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
         result.actualNumberOfDepositors = numDepositors;
@@ -229,11 +242,7 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
             result.depositAmounts[i] = depositLocker.marketHashToDepositorToAmountDeposited(result.marketHash, ap);
         }
 
-        vm.startPrank(OWNER_ADDRESS);
-        depositLocker.setMulitsig(result.marketHash, MULTISIG_ADDRESS);
-        vm.stopPrank();
-
-        vm.startPrank(MULTISIG_ADDRESS);
+        vm.startPrank(GREEN_LIGHTER_ADDRESS);
         depositLocker.setGreenLight(result.marketHash, true);
         vm.stopPrank();
 
@@ -247,44 +256,6 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         (result.encodedPayload,,) = abi.decode(logs[logs.length - 3].data, (bytes, bytes, address));
         result.guid = logs[logs.length - 1].topics[1];
-    }
-
-    /**
-     * @notice Verifies the state of Weiroll wallets after bridging.
-     * @param logs The recorded logs from the bridge operation.
-     * @param numDepositors The number of depositors.
-     * @param depositors The array of depositor addresses.
-     * @param depositAmounts The array of deposit amounts for each depositor.
-     * @param unlockTimestamp The timestamp when deposits can be unlocked.
-     * @param marketHash The market hash identifying the deposit campaign.
-     * @param depositExecutor The DepositExecutor instance used for wallet creation.
-     */
-    function _verifyWeirollWallets(
-        Vm.Log[] memory logs,
-        uint256 numDepositors,
-        address[] memory depositors,
-        uint256[] memory depositAmounts,
-        uint256 unlockTimestamp,
-        bytes32 marketHash,
-        DepositExecutor depositExecutor
-    )
-        internal
-    {
-        for (uint256 i = 0; i < numDepositors; i++) {
-            WeirollWallet weirollWalletForDepositor = WeirollWallet(payable(address(uint160(uint256(logs[i].topics[2])))));
-
-            // Check wallet state is correct
-            assertEq(weirollWalletForDepositor.owner(), depositors[i]);
-            assertEq(weirollWalletForDepositor.recipeMarketHub(), address(depositExecutor));
-            assertEq(weirollWalletForDepositor.amount(), depositAmounts[i]);
-            assertEq(weirollWalletForDepositor.lockedUntil(), unlockTimestamp);
-            assertEq(weirollWalletForDepositor.isForfeitable(), false);
-            assertEq(weirollWalletForDepositor.marketHash(), marketHash);
-            assertEq(weirollWalletForDepositor.executed(), false);
-            assertEq(weirollWalletForDepositor.forfeited(), false);
-            // Check that deposit amount was sent to the wallet
-            assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(weirollWalletForDepositor)), depositAmounts[i]);
-        }
     }
 
     /**

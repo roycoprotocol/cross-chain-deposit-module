@@ -38,7 +38,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     RecipeMarketHubBase public immutable RECIPE_MARKET_HUB;
 
     /// @notice The DualToken Factory used to create new DualTokens.
-    DualTokenFactory public immutable DUAL_TOKEN_FACTORY;
+    DualTokenFactory public immutable DUAL_OR_LP_TOKEN_FACTORY;
 
     /// @notice The wrapped native asset token on the source chain.
     IWETH public immutable WRAPPED_NATIVE_ASSET_TOKEN;
@@ -46,18 +46,27 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The Uniswap V2 router on the source chain.
     IUniswapV2Router01 public immutable UNISWAP_V2_ROUTER;
 
+    // Code hash of the Uniswap V2 Pair contract
+    bytes32 public constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;
+
+    /// @notice The party that green lights bridging
+    address public GREEN_LIGHTER;
+
     /// @notice The LayerZero endpoint ID for the destination chain.
     uint32 public dstChainLzEid;
 
     /// @notice Mapping of an ERC20 token to its corresponding LayerZero OFT.
-    /// @dev Must implement the IOFT interface.
+    /// @dev NOTE: Must implement the IOFT interface.
     mapping(ERC20 => IOFT) public tokenToLzV2OFT;
 
     /// @notice Address of the DepositExecutor on the destination chain.
     address public depositExecutor;
 
-    /// @notice Mapping from market hash to the multisig address between the market's IP and the destination chain.
-    mapping(bytes32 => address) public marketHashToMultisig;
+    /// @notice Mapping from market hash to if green light is given to bridge deposits to destination chain.
+    mapping(bytes32 => bool) public marketHashToGreenLight;
+
+    /// @notice Mapping from market hash to the owner of the LP market.
+    mapping(bytes32 => address) public marketHashToLpMarketOwner;
 
     /// @notice Mapping from market hash to depositor's address to the total amount they deposited.
     mapping(bytes32 => mapping(address => uint256)) public marketHashToDepositorToAmountDeposited;
@@ -68,11 +77,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Mapping from depositor's address to Weiroll Wallet to amount deposited by that Weiroll Wallet.
     mapping(address => mapping(address => uint256)) public depositorToWeirollWalletToAmount;
 
-    /// @notice Mapping from market hash to green light status for bridging funds.
-    mapping(bytes32 => bool) public marketHashToGreenLight;
-
-    /// @notice Used to keep track of DUAL_TOKEN bridges.
-    /// @notice A DUAL_TOKEN bridge will result in 2 OFT bridges (each with the same nonce).
+    /// @notice Used to keep track of DUAL_OR_LP_TOKEN bridges.
+    /// @notice A DUAL_OR_LP_TOKEN bridge will result in 2 OFT bridges (each with the same nonce).
     uint256 public nonce;
 
     /*//////////////////////////////////////////////////////////////
@@ -118,10 +124,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     event UserWithdrawn(bytes32 indexed marketHash, address indexed depositor, uint256 amountWithdrawn);
 
     /// @notice Emitted when single tokens are bridged to the destination chain.
-    event SingleTokenBridgeToDestinationChain(bytes32 indexed marketHash, bytes32 lz_guid, uint64 lz_nonce, uint256 amountBridged);
+    event SingleTokensBridgedToDestination(bytes32 indexed marketHash, bytes32 lz_guid, uint64 lz_nonce, uint256 amountBridged);
 
     /// @notice Emitted when dual tokens are bridged to the destination chain.
-    event DualTokenBridgeToDestinationChain(
+    event DualTokensBridgedToDestination(
         bytes32 indexed marketHash,
         uint256 indexed dt_bridge_nonce,
         bytes32 lz_tokenA_guid,
@@ -130,7 +136,21 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 lz_tokenA_AmountBridged,
         bytes32 lz_tokenB_guid,
         uint64 lz_tokenB_nonce,
-                ERC20 tokenB,
+        ERC20 tokenB,
+        uint256 lz_tokenB_AmountBridged
+    );
+
+    /// @notice Emitted when dual tokens are bridged to the destination chain.
+    event LpTokensBridgeToDestinationChain(
+        bytes32 indexed marketHash,
+        uint256 indexed dt_bridge_nonce,
+        bytes32 lz_tokenA_guid,
+        uint64 lz_tokenA_nonce,
+        ERC20 tokenA,
+        uint256 lz_tokenA_AmountBridged,
+        bytes32 lz_tokenB_guid,
+        uint64 lz_tokenB_nonce,
+        ERC20 tokenB,
         uint256 lz_tokenB_AmountBridged
     );
 
@@ -146,8 +166,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when green light is not given for bridging.
     error GreenLightNotGiven();
 
-    /// @notice Error emitted when the caller is not the authorized multisig for the market.
-    error UnauthorizedMultisigForThisMarket();
+    /// @notice Error emitted when trying to bridge funds to an invaild deposit executor.
+    error DepositExecutorNotSet();
+
+    /// @notice Error emitted when the caller is not the global GREEN_LIGHTER.
+    error OnlyGreenLighter();
+
+    /// @notice Error emitted when the caller is not the LP token market's owner.
+    error OnlyLpMarketOwner();
 
     /// @notice Error emitted when the deposit amount is too precise to bridge based on the shared decimals of the OFT
     error DepositAmountIsTooPrecise();
@@ -165,18 +191,25 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     error FailedToBridgeAllDeposits();
 
     /*//////////////////////////////////////////////////////////////
-                                       Modifiers
+                                Modifiers
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Modifier to ensure the caller is the authorized multisig for the market.
-    modifier onlyMultisig(bytes32 _marketHash) {
-        require(marketHashToMultisig[_marketHash] == msg.sender, UnauthorizedMultisigForThisMarket());
+    modifier onlyGreenLighter() {
+        require(msg.sender == GREEN_LIGHTER, OnlyGreenLighter());
         _;
     }
 
-    /// @dev Modifier to check if green light is given for bridging.
-    modifier greenLightGiven(bytes32 _marketHash) {
+    /// @dev Modifier to check if green light is given for bridging and depositExecutor has been set.
+    modifier readyToBridge(bytes32 _marketHash) {
         require(marketHashToGreenLight[_marketHash], GreenLightNotGiven());
+        require(depositExecutor != address(0), DepositExecutorNotSet());
+        _;
+    }
+
+    /// @dev Modifier to ensure the caller is the owner of an LP market.
+    modifier onlyLpMarketOwner(bytes32 _marketHash) {
+        require(msg.sender == marketHashToLpMarketOwner[_marketHash], OnlyLpMarketOwner());
         _;
     }
 
@@ -189,6 +222,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _owner The address of the owner of the contract.
      * @param _dstChainLzEid The destination LayerZero endpoint ID for the destination chain.
      * @param _depositExecutor The address of the DepositExecutor on the destination chain.
+     * @param _greenLighter The address of the global green lighter responsible for marking deposits as bridgable.
      * @param _recipeMarketHub The address of the recipe market hub used to create markets on the source chain.
      * @param _wrapped_native_asset_token The address of the wrapped native asset token on the source chain.
      * @param _uniswap_v2_router The address of the Uniswap V2 router on the source chain.
@@ -199,6 +233,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         address _owner,
         uint32 _dstChainLzEid,
         address _depositExecutor,
+        address _greenLighter,
         RecipeMarketHubBase _recipeMarketHub,
         IWETH _wrapped_native_asset_token,
         IUniswapV2Router01 _uniswap_v2_router,
@@ -220,15 +255,16 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         RECIPE_MARKET_HUB = _recipeMarketHub;
-        DUAL_TOKEN_FACTORY = new DualTokenFactory(); // Create the DualToken factory
+        DUAL_OR_LP_TOKEN_FACTORY = new DualTokenFactory(); // Create the DualToken factory
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
         UNISWAP_V2_ROUTER = _uniswap_v2_router;
+        GREEN_LIGHTER = _greenLighter;
         dstChainLzEid = _dstChainLzEid;
         depositExecutor = _depositExecutor;
     }
 
     /*//////////////////////////////////////////////////////////////
-                                External Functions
+                            External Functions
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -244,11 +280,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
-        if (
-            !DUAL_TOKEN_FACTORY.isDualToken(address(marketInputToken))
-                && (keccak256(abi.encode(marketInputToken.name())) != keccak256(abi.encode("Uniswap V2")))
-        ) {
-            // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT
+        if (!DUAL_OR_LP_TOKEN_FACTORY.isDualToken(address(marketInputToken)) && !_isUniV2Pair(address(marketInputToken))) {
+            // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for SINGLE_TOKEN markets
             bool depositAmountHasValidPrecision =
                 amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
             require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
@@ -305,7 +338,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     )
         external
         payable
-        greenLightGiven(_marketHash)
+        readyToBridge(_marketHash)
         nonReentrant
     {
         require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
@@ -349,7 +382,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Emit event to keep track of bridged deposits
-        emit SingleTokenBridgeToDestinationChain(_marketHash, messageReceipt.guid, messageReceipt.nonce, totalAmountToBridge);
+        emit SingleTokensBridgedToDestination(_marketHash, messageReceipt.guid, messageReceipt.nonce, totalAmountToBridge);
     }
 
     /**
@@ -367,7 +400,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     )
         external
         payable
-        greenLightGiven(_marketHash)
+        readyToBridge(_marketHash)
         nonReentrant
     {
         require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
@@ -375,7 +408,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         /*
         Bridge Payload Structure:
             Per Payload (65 bytes):
-                - DepositType: uint8 (1 byte) - DUAL_TOKEN
+                - DepositType: uint8 (1 byte) - DUAL_OR_LP_TOKEN
                 - marketHash: bytes32 (32 bytes)
                 - nonce: uint256 (32 bytes)
             Per Depositor (32 bytes):
@@ -452,7 +485,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     )
         external
         payable
-        greenLightGiven(_marketHash)
+        onlyLpMarketOwner(_marketHash)
+        readyToBridge(_marketHash)
         nonReentrant
     {
         require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
@@ -460,7 +494,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         /*
         Bridge Payload Structure:
             Per Payload (65 bytes):
-                - DepositType: uint8 (1 byte) - DUAL_TOKEN
+                - DepositType: uint8 (1 byte) - DUAL_OR_LP_TOKEN
                 - marketHash: bytes32 (32 bytes)
                 - nonce: uint256 (32 bytes)
             Per Depositor (32 bytes):
@@ -536,8 +570,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         _executeConsecutiveBridges(bridgeParams);
     }
 
+    /**
+     * @notice Let the DepositLocker receive native assets directly.
+     * @dev Primarily used for receiving native assets after unwrapping the native asset token.
+     */
+    receive() external payable { }
+
     /*//////////////////////////////////////////////////////////////
-                          Internal Functions
+                            Internal Functions
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -652,11 +692,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             return (_tokenA_ComposeMsg, _tokenB_ComposeMsg);
         }
 
-        // Adjust depositor amounts to acceptable precision and refund dust
+        // Adjust depositor amounts to acceptable precision and refund dust if conversion from LD to SD is needed
         if (params.tokenA_DecimalConversionRate != 1) {
             tokenA_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _tokenA, tokenA_DepositAmount, params.tokenA_DecimalConversionRate);
         }
-        if (params.tokenB_DecimalConversionRate != 1) { 
+        if (params.tokenB_DecimalConversionRate != 1) {
             tokenB_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _tokenB, tokenB_DepositAmount, params.tokenB_DecimalConversionRate);
         }
 
@@ -725,7 +765,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Emit event to keep track of bridged deposits
-        emit DualTokenBridgeToDestinationChain(
+        emit DualTokensBridgedToDestination(
             params.marketHash,
             nonce++,
             tokenA_MessageReceipt.guid,
@@ -816,6 +856,19 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
+     * @notice Checks if a given token address is a Uniswap V2 LP token.
+     * @param _token The address of the token to check.
+     * @return True if the token is a Uniswap V2 LP token, false otherwise.
+     */
+    function _isUniV2Pair(address _token) public view returns (bool) {
+        bytes32 codeHash;
+        assembly {
+            codeHash := extcodehash(_token)
+        }
+        return (codeHash == UNISWAP_V2_PAIR_CODE_HASH);
+    }
+
+    /**
      * @dev Converts an address to bytes32.
      * @param _addr The address to convert.
      * @return The converted bytes32 value.
@@ -825,7 +878,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /*//////////////////////////////////////////////////////////////
-                            Administrative Functions
+                        Administrative Functions
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -837,7 +890,25 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Sets the LayerZero Omnichain App instance for a given token.
+     * @notice Sets the DepositExecutor address.
+     * @param _depositExecutor Address of the new DepositExecutor on the destination chain.
+     */
+    function setDepositExecutor(address _depositExecutor) external onlyOwner {
+        depositExecutor = _depositExecutor;
+    }
+
+    /**
+     * @notice Set the owner of an LP token market.
+     * @param _marketHash The market hash to set the LP token owner for.
+     * @param _lpMarketOwner Address of the LP token market owner.
+     */
+    function setLpMarketOwner(bytes32 _marketHash, address _lpMarketOwner) external onlyOwner {
+        marketHashToLpMarketOwner[_marketHash] = _lpMarketOwner;
+    }
+
+    /**
+     * @notice Sets the LayerZero V2 OFT for a given token.
+     * @dev NOTE: _lzV2OFT must implement IOFT.
      * @param _token Token to set the LayerZero Omnichain App for.
      * @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
      */
@@ -850,35 +921,19 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Sets the DepositExecutor address.
-     * @param _depositExecutor Address of the new DepositExecutor on the destination chain.
+     * @notice Sets the global GREEN_LIGHTER.
+     * @param _greenLighter The address of the GREEN_LIGHTER responsible for marking deposits as bridgable.
      */
-    function setDepositExecutor(address _depositExecutor) external onlyOwner {
-        depositExecutor = _depositExecutor;
+    function setGreenLighter(address _greenLighter) external onlyOwner {
+        GREEN_LIGHTER = _greenLighter;
     }
 
     /**
-     * @notice Sets the multisig address for a market.
-     * @param _marketHash The market hash to set the multisig for.
-     * @param _multisig The address of the multisig contract between the market's IP and the destination chain.
-     */
-    function setMulitsig(bytes32 _marketHash, address _multisig) external onlyOwner {
-        marketHashToMultisig[_marketHash] = _multisig;
-    }
-
-    /**
-     * @notice Sets the green light status for a market.
+     * @notice Turns the green light on or off for a market.
      * @param _marketHash The market hash to set the green light for.
-     * @param _greenLightStatus Boolean indicating if funds are ready to bridge.
+     * @param _greenLightStatus Boolean indicating if deposits can be bridged. True = On. False = Off.
      */
-    function setGreenLight(bytes32 _marketHash, bool _greenLightStatus) external onlyMultisig(_marketHash) {
+    function setGreenLight(bytes32 _marketHash, bool _greenLightStatus) external onlyGreenLighter {
         marketHashToGreenLight[_marketHash] = _greenLightStatus;
-    }
-
-    /**
-     * @notice Let the DepositLocker receive native assets directly.
-     * @dev Primarily used for receiving native assets after unwrapping the native asset token.
-     */
-    receive() external payable {
     }
 }
