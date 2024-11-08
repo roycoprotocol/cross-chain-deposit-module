@@ -49,7 +49,7 @@ library DepositPayloadLib {
     /// @dev Initializes a compose message for DUAL_OR_LP_TOKEN cross-chain deposits
     /// @param _marketHash The Royco market hash associated with the deposits
     /// @param _nonce The nonce associated with the DUAL_OR_LP_TOKEN deposits
-    function initDualTokenComposeMsg(bytes32 _marketHash, uint256 _nonce) internal pure returns (bytes memory composeMsg) {
+    function initDualOrLpTokenComposeMsg(bytes32 _marketHash, uint256 _nonce) internal pure returns (bytes memory composeMsg) {
         composeMsg = abi.encodePacked(DepositType.DUAL_OR_LP_TOKEN, _marketHash, _nonce);
     }
 

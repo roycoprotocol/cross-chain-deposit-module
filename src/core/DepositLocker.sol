@@ -331,7 +331,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _executorGasLimit The gas limit of the executor on the destination chain.
      * @param _depositors The addresses of the depositors (APs) to bridge
      */
-    function bridgeSingleToken(
+    function bridgeSingleTokens(
         bytes32 _marketHash,
         uint128 _executorGasLimit,
         address[] calldata _depositors
@@ -393,7 +393,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _executorGasLimit The gas limit of the executor on the destination chain.
      * @param _depositors The addresses of the depositors (APs) to bridge
      */
-    function bridgeDualToken(
+    function bridgeDualTokens(
         bytes32 _marketHash,
         uint128 _executorGasLimit,
         address[] calldata _depositors
@@ -427,8 +427,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 amountOfTokenBPerDT = dualToken.amountOfTokenBPerDT();
 
         // Initialize compose messages for both tokens
-        bytes memory tokenA_ComposeMsg = DepositPayloadLib.initDualTokenComposeMsg(_marketHash, nonce);
-        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualTokenComposeMsg(_marketHash, nonce);
+        bytes memory tokenA_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_marketHash, nonce);
+        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_marketHash, nonce);
 
         // Keep track of total amount of deposits to bridge
         uint256 dt_TotalDepositsInBatch = 0;
@@ -476,7 +476,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _minAmountOfTokenBToBridge The minimum amount of Token B to receive from removing liquidity.
      * @param _depositors The addresses of the depositors (APs) to bridge.
      */
-    function bridgeLpToken(
+    function bridgeLpTokens(
         bytes32 _marketHash,
         uint128 _executorGasLimit,
         uint96 _minAmountOfTokenAToBridge,
@@ -529,8 +529,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 tokenB_DecimalConversionRate = 10 ** (tokenB.decimals() - tokenToLzV2OFT[tokenB].sharedDecimals());
 
         // Initialize compose messages for both tokens
-        bytes memory tokenA_ComposeMsg = DepositPayloadLib.initDualTokenComposeMsg(_marketHash, nonce);
-        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualTokenComposeMsg(_marketHash, nonce);
+        bytes memory tokenA_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_marketHash, nonce);
+        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_marketHash, nonce);
 
         // Initialize totals
         TotalAmountsToBridge memory totals;

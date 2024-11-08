@@ -107,7 +107,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, offerAmount);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
         vm.stopPrank();
     }
 
@@ -198,7 +198,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, filledSoFar);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
         vm.stopPrank();
     }
 
@@ -285,7 +285,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, offerAmount);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeSingleToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
         vm.stopPrank();
     }
 
@@ -391,7 +391,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit DepositLocker.DualTokensBridgedToDestination(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeDualToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeDualTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
         vm.stopPrank();
 
         // Ensure that the nonce was incremented
@@ -498,7 +498,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit DepositLocker.DualTokensBridgedToDestination(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeDualToken{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeDualTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
         vm.stopPrank();
 
         // Ensure that the nonce was incremented
@@ -610,7 +610,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit DepositLocker.DualTokensBridgedToDestination(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeLpToken{ value: 5 ether }(marketHash, 1_000_000, 0, 0, depositorWallets);
+        depositLocker.bridgeLpTokens{ value: 5 ether }(marketHash, 1_000_000, 0, 0, depositorWallets);
         vm.stopPrank();
 
         // Ensure that the nonce was incremented
