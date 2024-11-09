@@ -106,6 +106,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     struct LpTokenDepositorParams {
         bytes32 marketHash;
         address depositor;
+        uint256 lpToken_DepositAmount;
         uint256 lp_TotalAmountToBridge;
         uint256 tokenA_TotalAmountReceivedOnBurn;
         uint256 tokenB_TotalAmountReceivedOnBurn;
@@ -502,10 +503,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
                 - Amount Deposited: uint96 (12 bytes)
         */
 
-        // Sum up total LP token deposits for this batch
+        // Get deposit amount for each depositor and total deposit amount for this batch
         uint256 lp_TotalDepositsInBatch = 0;
+        uint256[] memory lp_DepositAmounts = new uint256[](_depositors.length);
         for (uint256 i = 0; i < _depositors.length; ++i) {
-            lp_TotalDepositsInBatch += marketHashToDepositorToAmountDeposited[_marketHash][_depositors[i]];
+            lp_DepositAmounts[i] = marketHashToDepositorToAmountDeposited[_marketHash][_depositors[i]];
+            lp_TotalDepositsInBatch += lp_DepositAmounts[i];
         }
 
         // Get the market's input token
@@ -541,6 +544,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             LpTokenDepositorParams memory params = LpTokenDepositorParams({
                 marketHash: _marketHash,
                 depositor: _depositors[i],
+                lpToken_DepositAmount: lp_DepositAmounts[i],
                 lp_TotalAmountToBridge: lp_TotalDepositsInBatch,
                 tokenA_TotalAmountReceivedOnBurn: tokenA_AmountReceivedOnBurn,
                 tokenB_TotalAmountReceivedOnBurn: tokenB_AmountReceivedOnBurn,
@@ -674,12 +678,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         internal
         returns (bytes memory, bytes memory)
     {
-        // Get amount deposited by the depositor (AP)
-        uint256 lp_DepositAmount = marketHashToDepositorToAmountDeposited[params.marketHash][params.depositor];
-
         // Calculate the depositor's share of each underlying token
-        uint256 tokenA_DepositAmount = (params.tokenA_TotalAmountReceivedOnBurn * lp_DepositAmount) / params.lp_TotalAmountToBridge;
-        uint256 tokenB_DepositAmount = (params.tokenB_TotalAmountReceivedOnBurn * lp_DepositAmount) / params.lp_TotalAmountToBridge;
+        uint256 tokenA_DepositAmount = (params.tokenA_TotalAmountReceivedOnBurn * params.lpToken_DepositAmount) / params.lp_TotalAmountToBridge;
+        uint256 tokenB_DepositAmount = (params.tokenB_TotalAmountReceivedOnBurn * params.lpToken_DepositAmount) / params.lp_TotalAmountToBridge;
 
         // Delete all Weiroll Wallet state and deposit amounts associated with this depositor
         _clearDepositorData(params.marketHash, params.depositor);
@@ -847,7 +848,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         address[] storage depositorWeirollWallets = marketHashToDepositorToWeirollWallets[_marketHash][_depositor];
         for (uint256 i = 0; i < depositorWeirollWallets.length; ++i) {
             // Set the amount deposited by the Weiroll Wallet to zero
-            delete depositorToWeirollWalletToAmount[_depositor][depositorWeirollWallets[i]];
+            delete depositorToWeirollWalletToAmount[_depositor][
+                depositorWeirollWallets[i]
+            ];
         }
         // Set length of currently deposited wallets list to zero
         delete marketHashToDepositorToWeirollWallets[_marketHash][_depositor];
