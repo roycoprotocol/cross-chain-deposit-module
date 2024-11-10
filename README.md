@@ -48,7 +48,7 @@ CCDM allows users to deposit funds on one chain (source) and have those funds br
 7. Users can withdraw funds through the ```DepositExecutor``` after the campaign's locktime has elapsed.
 
 ## CCDM Token Support
-As of today, CCDM supports 3 types of input tokens for Royco Markets: Single, Dual, and LP (only UNIV2 for now). The first type will result in a single LZ bridging transaction invoked by the ```DepositLocker```, resulting in the ```DepositExecutor``` creating Weiroll Wallets for all bridged depositors, containing their respective deposit amounts. The second and third types of tokens will result in two consecutive LZ bridging transactions invoked by the ```DepositLocker```. Each bridge transaction will contain the same CCDM nonce, notifying the ```DepositExecutor``` to create Weiroll Wallets and fund them with the received constiutuent upon receving the first bridge, and simply transfer the second constituent to the previously created Weiroll Wallets upon receiving the second bridge.
+As of today, CCDM supports 3 types of input tokens for Royco Markets: Single, Dual, and LP (only UNIV2 for now). As the name suggests, single tokens will result in a single LZ bridging transaction invoked by the ```DepositLocker```, resulting in the ```DepositExecutor``` creating Weiroll Wallets for all bridged depositors with their respective deposit amounts. Dual and LP tokens will result in two consecutive LZ bridging transactions, one for each constituent/pool token, invoked by the ```DepositLocker```. Each bridge transaction will contain the same CCDM nonce, notifying the ```DepositExecutor``` to create Weiroll Wallets and fund them with the received constiutuent upon receving the first bridge, and simply transfer the second constituents to the previously created Weiroll Wallets upon receiving the second bridge.
 
 1. **Single Tokens**: Any ERC20 token which represents a single asset (wETH, wBTC, LINK, etc.).
    - Bridging Function: ```bridgeSingleTokens()```
@@ -58,7 +58,7 @@ As of today, CCDM supports 3 types of input tokens for Royco Markets: Single, Du
    - DualTokens should be created through the ```DualTokenFactory``` contract which is deployed in the constructor of the ```DepositLocker```.
    - Bridging Function: ```bridgeDualTokens()```
 3. **[Uniswap V2 LP Tokens](https://docs.uniswap.org/contracts/v2/reference/smart-contracts/pair)**
-   - LP tokens are self-rebalancing, maintaining the correct ratio of each asset based on their market prices. They are meant to be used when bridging unstable pairs of tokens.
+   - They are meant to be used when bridging unstable token pairs. Since they are self-rebalancing, they maintain the correct ratio of each asset based on their market prices. 
    - When the incentivized action on the destination chain is LPing into an unstable pool, LP tokens will reflect accurate ratios for the target pool up until the bridge.
    - Since bridging LP tokens requires redeeming them for their underlying pool tokens, impermanent loss becomes permanent. Due to this condition, only the owner of an LP market can bridge LP tokens in addition to specifying the minimum amounts of each pool token received on redeem.
    - Bridging Function: ```bridgeLpTokens()```
