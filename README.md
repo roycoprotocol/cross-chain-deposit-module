@@ -1,6 +1,6 @@
 # Cross-Chain Deposit Module (CCDM) [![Tests](https://github.com/roycoprotocol/cross-chain-deposit-module/actions/workflows/test.yml/badge.svg)](https://github.com/roycoprotocol/cross-chain-deposit-module/actions/workflows/test.yml)
 
-The Cross-Chain Deposit Module (CCDM) is a sophisticated system designed to facilitate cross-chain deposit campaigns. Protocols can incentivize users to commit liquidity on any chain into agreed upon actions (supplying, LPing, swapping, etc.) on a destination chain. CCDM consists of two main components: the **Deposit Locker** on the source chain and the **Deposit Executor** on the destination chain.
+The Cross-Chain Deposit Module (CCDM) is a sophisticated system designed to facilitate cross-chain deposit campaigns. Protocols can incentivize users to commit liquidity on any source chain towards agreed upon actions (supplying, LPing, swapping, etc.) on a destination chain. CCDM consists of two main components: the **Deposit Locker** on the source chain and the **Deposit Executor** on the destination chain.
 
 ## CCDM Technical Overview
 
@@ -42,7 +42,23 @@ CCDM allows users to deposit funds on one chain (source) and have those funds br
    - The Recipe Market Hub creates a fresh Weiroll Wallet owned by the AP.
    - The Recipe Market Hub automatically executes the market's deposit recipe through the wallet, depositing the liqudiity into the ```DepositLocker```.
    - The deposit is withdrawable by the AP any time prior to their funds being bridged.
-5. Once green light is given for a market, its funds can be bridged to the destination chain from the ```DepositLocker```.
-6. The ```DepositExecutor``` receives bridged funds belonging to a source market and creates Weiroll Wallets for each depositor as specified by the bridged execution parameters and the destination campaign's parameters.
-7. The destination deposit recipe is executed (if verified) by the campaign's owner for the Weiroll Wallets associated with their campaign on the destination chain.
-8. Users can withdraw funds through the ```DepositExecutor``` after the campaign's locktime has elapsed.
+4. Once green light is given for a market, its funds can be bridged to the destination chain from the ```DepositLocker```.
+5. The ```DepositExecutor``` receives bridged funds belonging to a source market and creates Weiroll Wallets for each depositor as specified by the bridged execution parameters and the destination campaign's parameters.
+6. The destination deposit recipe is executed (if verified) by the campaign's owner for the Weiroll Wallets associated with their campaign on the destination chain.
+7. Users can withdraw funds through the ```DepositExecutor``` after the campaign's locktime has elapsed.
+
+## CCDM Token Support
+As of today, CCDM supports 3 types of input tokens for Royco Markets: Single, Dual, and LP (only UNIV2 for now). The first type will result in a single LZ bridging transaction invoked by the ```DepositLocker```, resulting in the ```DepositExecutor``` creating Weiroll Wallets for all bridged depositors, containing their respective deposit amounts. The second and third types of tokens will result in two consecutive LZ bridging transactions invoked by the ```DepositLocker```. Each bridge transaction will contain the same CCDM nonce, notifying the ```DepositExecutor``` to create Weiroll Wallets and fund them with the received constiutuent upon receving the first bridge, and simply transfer the second constituent to the previously created Weiroll Wallets upon receiving the second bridge.
+
+1. **Single Tokens**: Any ERC20 token which represents a single asset (wETH, wBTC, LINK, etc.).
+   - Bridging Function: ```bridgeSingleTokens()```
+3. **Dual Tokens**: An ERC20 token which is backed by a static ratio of 2 constiuent ERC20 tokens.
+   - DualTokens are a CCDM specific standard and are meant to be used for bridging relatively stable pairs of tokens.
+   - DualTokens have 0 decimals, meaning they can only be expressed as whole units.
+   - DualTokens should be created through the ```DualTokenFactory``` contract which is deployed in the constructor of the ```DepositLocker```.
+   - Bridging Function: ```bridgeDualTokens()```
+3. **[Uniswap V2 LP Tokens](https://docs.uniswap.org/contracts/v2/reference/smart-contracts/pair)**
+   - LP tokens are self-rebalancing, maintaining the correct ratio of each asset based on their market prices. They are meant to be used when bridging unstable pairs of tokens.
+   - When the incentivized action on the destination chain is LPing into an unstable pool, LP tokens will reflect accurate ratios for the target pool up until the bridge.
+   - Since bridging LP tokens requires redeeming them for their underlying pool tokens, impermanent loss becomes permanent. Due to this condition, only the owner of an LP market can bridge LP tokens in addition to specifying the minimum amounts of each pool token received on redeem.
+   - Bridging Function: ```bridgeLpTokens()```
