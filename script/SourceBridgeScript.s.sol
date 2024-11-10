@@ -53,21 +53,19 @@ contract SourceBridgeScript is Script {
         uint256[] memory fillAmounts = new uint256[](1);
         fillAmounts[0] = offerSize / numDepositors;
 
-        address payable[] memory depositorWallets = new address payable[](numDepositors);
+        address[] memory depositorWallets = new address[](1);
+        depositorWallets[0] = deployer;
         for (uint256 i; i < numDepositors; ++i) {
-            vm.recordLogs();
             recipeMarketHub.fillIPOffers(ipOfferHashes, fillAmounts, address(0), deployer);
-            address payable weirollWallet = payable(address(uint160(uint256(vm.getRecordedLogs()[0].topics[2]))));
-            depositorWallets[i] = weirollWallet;
         }
 
         DepositLocker depositLocker = DepositLocker(depositLockerAddress);
 
-        depositLocker.setMulitsig(marketHash, deployer);
+        depositLocker.setGreenLighter(deployer);
 
         depositLocker.setGreenLight(marketHash, true);
 
-        depositLocker.bridgeSingleToken{ value: 1 ether }(marketHash, 25_000_000, depositorWallets);
+        depositLocker.bridgeSingleTokens{ value: 1 ether }(marketHash, 25_000_000, depositorWallets);
 
         // Stop broadcasting transactions
         vm.stopBroadcast();

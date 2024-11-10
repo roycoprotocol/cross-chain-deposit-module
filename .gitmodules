@@ -4,3 +4,9 @@
 [submodule "lib/royco"]
 	path = lib/royco
 	url = https://github.com/roycoprotocol/royco
+[submodule "lib/v2-core"]
+	path = lib/v2-core
+	url = https://github.com/Uniswap/v2-core
+[submodule "lib/v2-periphery"]
+	path = lib/v2-periphery
+	url = https://github.com/Uniswap/v2-periphery

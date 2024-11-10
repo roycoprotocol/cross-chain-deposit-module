@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import { WeirollWallet } from "lib/royco/src/WeirollWallet.sol";
+import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
 
 /// @title WeirollWalletHelper
 /// @notice A helper contract to enable calling view functions of WeirollWallet via STATICCALL.

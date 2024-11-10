@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.0;
 
-import { MessagingReceipt, MessagingFee } from "./ILayerZeroEndpointV2.sol";
+struct MessagingReceipt {
+    bytes32 guid;
+    uint64 nonce;
+    MessagingFee fee;
+}
 
+struct MessagingFee {
+    uint256 nativeFee;
+    uint256 lzTokenFee;
+}
 /**
  * @dev Struct representing token parameters for the OFT send() operation.
  */

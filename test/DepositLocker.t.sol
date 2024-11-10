@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 // Import the DepositLocker contract and its dependencies
-import { DepositLocker, RecipeMarketHubBase, ERC20 } from "src/core/DepositLocker.sol";
+import { DepositLocker, RecipeMarketHubBase, ERC20, IWETH } from "src/core/DepositLocker.sol";
 import { RecipeMarketHubTestBase, RecipeMarketHubBase, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
 import { IOFT } from "src/interfaces/IOFT.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
@@ -16,16 +16,21 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
     address IP_ADDRESS;
     address FRONTEND_FEE_RECIPIENT;
 
-    ERC20[] public depositTokens;
-    IOFT[] public lzOApps;
-
     DepositLocker depositLocker;
     WeirollWalletHelper walletHelper;
 
     uint256 frontendFee;
     bytes32 marketHash;
 
+    string MAINNET_RPC_URL = vm.envString("MAINNET_RPC_URL");
+
+    uint256 mainnetFork;
+
     function setUp() external {
+        mainnetFork = vm.createFork(MAINNET_RPC_URL);
+        vm.selectFork(mainnetFork);
+        assertEq(vm.activeFork(), mainnetFork);
+
         walletHelper = new WeirollWalletHelper();
 
         uint256 protocolFee = 0.01e18; // 1% protocol fee
@@ -35,75 +40,68 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         IP_ADDRESS = ALICE_ADDRESS;
         FRONTEND_FEE_RECIPIENT = CHARLIE_ADDRESS;
 
-        depositLocker = new DepositLocker(OWNER_ADDRESS, 0, address(0), recipeMarketHub, depositTokens, lzOApps);
+        ERC20[] memory depositTokens = new ERC20[](1);
+        IOFT[] memory lzV2OFTs = new IOFT[](1);
+
+        depositTokens[0] = ERC20(WETH_MAINNET_ADDRESS); // WETH on ETH Mainnet
+        lzV2OFTs[0] = IOFT(STARGATE_POOL_NATIVE_MAINNET_ADDRESS); // Stargate native pool on ETH Mainnet
+
+        depositLocker = new DepositLocker(
+            OWNER_ADDRESS,
+            0,
+            address(0xbeef),
+            GREEN_LIGHTER_ADDRESS,
+            recipeMarketHub,
+            IWETH(WETH_MAINNET_ADDRESS),
+            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
+            depositTokens,
+            lzV2OFTs
+        );
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
-            _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), address(mockLiquidityToken), address(depositLocker));
+            _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), WETH_MAINNET_ADDRESS, address(depositLocker));
         RecipeMarketHubBase.Recipe memory WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(DepositLocker.withdraw.selector, address(depositLocker));
 
         frontendFee = recipeMarketHub.minimumFrontendFee();
-        marketHash = recipeMarketHub.createMarket(address(mockLiquidityToken), 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
+        marketHash = recipeMarketHub.createMarket(WETH_MAINNET_ADDRESS, 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
     }
 
     function test_Deposits(uint256 offerAmount, uint256 numDepositors) external {
-        numDepositors = bound(numDepositors, 1, 309);
-        offerAmount = bound(offerAmount, 1e18, type(uint96).max);
+        // Bound the number of depositors and offer amount to prevent overflows and underflows
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        offerAmount = bound(offerAmount, 1e6, ERC20(WETH_MAINNET_ADDRESS).totalSupply());
 
-        assertEq(mockLiquidityToken.balanceOf(address(depositLocker)), 0);
+        // Check for dust removal
+        vm.assume(_removeDust(offerAmount / numDepositors, 18, 6) > 0);
+
+        // Initial balance check
+        assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), 0);
 
         // Create a fillable IP offer for points
         (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
 
-        uint256 filledSoFar;
+        uint256 filledSoFar = 0; // Use fewer local variables
 
+        // Loop through depositors
         for (uint256 i = 0; i < numDepositors; i++) {
-            (address ap,) = makeAddrAndKey(string(abi.encode(i)));
-
-            uint256 fillAmount = offerAmount / numDepositors;
-            if (i == (numDepositors - 1)) {
-                fillAmount = type(uint256).max;
-            }
-            // Mint liquidity tokens to the AP to fill the offer
-            mockLiquidityToken.mint(ap, offerAmount);
-
-            vm.startPrank(ap);
-            mockLiquidityToken.approve(address(recipeMarketHub), offerAmount);
-
-            vm.expectEmit(false, true, false, false, address(mockLiquidityToken));
-            emit ERC20.Transfer(address(0), address(depositLocker), fillAmount);
-
-            vm.expectEmit(true, false, false, false, address(depositLocker));
-            emit DepositLocker.UserDeposited(marketHash, address(0), fillAmount);
-
-            // Record the logs to capture Transfer events to get Weiroll wallet address
-            vm.recordLogs();
-            // AP Fills the offer (no funding vault)
-            recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
-            vm.stopPrank();
-
-            // Extract the Weiroll wallet address (the 'to' address from the Transfer event - third event in logs)
-            address weirollWallet = address(uint160(uint256(vm.getRecordedLogs()[0].topics[2])));
-
-            if (i == (numDepositors - 1)) {
-                assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, weirollWallet), offerAmount - filledSoFar);
-            } else {
-                assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, weirollWallet), fillAmount);
-                filledSoFar += fillAmount;
-                assertEq(mockLiquidityToken.balanceOf(address(depositLocker)), filledSoFar);
-            }
-
-            assertEq(mockLiquidityToken.balanceOf(weirollWallet), 0);
+            (filledSoFar,,) = testDeposit(offerHash, offerAmount, numDepositors, i, filledSoFar);
         }
-
-        assertEq(mockLiquidityToken.balanceOf(address(depositLocker)), offerAmount);
     }
 
     function test_Withdrawals(uint256 offerAmount, uint256 numDepositors, uint256 numWithdrawals) external {
-        numDepositors = bound(numDepositors, 1, 309);
-        numWithdrawals = bound(numWithdrawals, 1, numDepositors);
-        offerAmount = bound(offerAmount, 1e18, type(uint96).max);
+        vm.selectFork(mainnetFork);
+        assertEq(vm.activeFork(), mainnetFork);
 
-        assertEq(mockLiquidityToken.balanceOf(address(depositLocker)), 0);
+        // Bound the number of depositors and offer amount to prevent overflows and underflows
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        offerAmount = bound(offerAmount, 1e6, ERC20(WETH_MAINNET_ADDRESS).totalSupply());
+        numWithdrawals = bound(numWithdrawals, 1, numDepositors);
+
+        // Check for dust removal
+        vm.assume(_removeDust(offerAmount / numDepositors, 18, 6) > 0);
+
+        // Initial balance check
+        assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), 0);
 
         // Create a fillable IP offer for points
         (bytes32 offerHash,) = createIPOffer_WithPoints(marketHash, offerAmount, IP_ADDRESS);
@@ -111,65 +109,107 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         address[] memory aps = new address[](numDepositors);
         address[] memory depositorWallets = new address[](numDepositors);
 
+        uint256 filledSoFar = 0; // Use fewer local variables
+
+        // Loop through depositors
         for (uint256 i = 0; i < numDepositors; i++) {
-            (address ap,) = makeAddrAndKey(string(abi.encode(i)));
+            (uint256 filled, address ap, address wallet) = testDeposit(offerHash, offerAmount, numDepositors, i, filledSoFar);
+            filledSoFar = filled;
             aps[i] = ap;
-
-            uint256 fillAmount = offerAmount / numDepositors;
-            if (i == (numDepositors - 1)) {
-                fillAmount = type(uint256).max;
-            }
-
-            // Mint liquidity tokens to the AP to fill the offer
-            mockLiquidityToken.mint(ap, offerAmount);
-            vm.startPrank(ap);
-            mockLiquidityToken.approve(address(recipeMarketHub), offerAmount);
-
-            vm.expectEmit(false, true, false, false, address(mockLiquidityToken));
-            emit ERC20.Transfer(address(0), address(depositLocker), fillAmount);
-
-            vm.expectEmit(true, false, false, false, address(depositLocker));
-            emit DepositLocker.UserDeposited(marketHash, address(0), fillAmount);
-
-            // Record the logs to capture Transfer events to get Weiroll wallet address
-            vm.recordLogs();
-            // AP Fills the offer (no funding vault)
-            recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
-            vm.stopPrank();
-
-            // Extract the Weiroll wallet address (the 'to' address from the Transfer event - third event in logs)
-            address weirollWallet = address(uint160(uint256(vm.getRecordedLogs()[0].topics[2])));
-
-            depositorWallets[i] = weirollWallet;
+            depositorWallets[i] = wallet;
         }
 
-        assertEq(mockLiquidityToken.balanceOf(address(depositLocker)), offerAmount);
+        assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), filledSoFar);
 
         uint256 withdrawnSoFar;
 
         for (uint256 i = 0; i < numWithdrawals; i++) {
+            // Calculate the fill amount
             uint256 fillAmount = offerAmount / numDepositors;
             if (i == (numDepositors - 1)) {
                 fillAmount = offerAmount - (fillAmount * (numDepositors - 1));
             }
+            fillAmount = _removeDust(fillAmount, 18, 6);
+
+            uint256 preWithdrawApTokenBalance = ERC20(WETH_MAINNET_ADDRESS).balanceOf(aps[i]);
 
             vm.startPrank(aps[i]);
 
-            vm.expectEmit(true, true, false, true, address(mockLiquidityToken));
-            emit ERC20.Transfer(address(depositLocker), depositorWallets[i], fillAmount);
+            vm.expectEmit(true, true, false, true, WETH_MAINNET_ADDRESS);
+            emit ERC20.Transfer(address(depositLocker), aps[i], fillAmount);
 
-            vm.expectEmit(true, false, false, true, address(depositLocker));
-            emit DepositLocker.UserWithdrawn(marketHash, depositorWallets[i], fillAmount);
+            vm.expectEmit(true, true, false, true, address(depositLocker));
+            emit DepositLocker.UserWithdrawn(marketHash, aps[i], fillAmount);
 
             recipeMarketHub.forfeit(depositorWallets[i], true);
             vm.stopPrank();
 
             withdrawnSoFar += fillAmount;
 
-            assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, depositorWallets[i]), 0);
+            assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, aps[i]), 0);
+            assertEq(depositLocker.depositorToWeirollWalletToAmount(aps[i], depositorWallets[i]), 0);
 
-            assertEq(mockLiquidityToken.balanceOf(depositorWallets[i]), fillAmount);
-            assertEq(mockLiquidityToken.balanceOf(address(depositLocker)), offerAmount - withdrawnSoFar);
+            assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(aps[i]), preWithdrawApTokenBalance + fillAmount);
+            assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), filledSoFar - withdrawnSoFar);
         }
+    }
+
+    function testDeposit(
+        bytes32 offerHash,
+        uint256 offerAmount,
+        uint256 numDepositors,
+        uint256 i,
+        uint256 filledSoFar
+    )
+        internal
+        returns (uint256, address ap, address weirollWallet)
+    {
+        // Generate address for AP
+        (ap,) = makeAddrAndKey(string(abi.encode(i)));
+
+        // Calculate the fill amount
+        uint256 fillAmount = offerAmount / numDepositors;
+        if (i == (numDepositors - 1)) {
+            fillAmount = offerAmount - (fillAmount * (numDepositors - 1));
+        }
+        fillAmount = _removeDust(fillAmount, 18, 6);
+
+        // Update the filled amount
+        filledSoFar += fillAmount;
+
+        // Fund the AP and handle approval
+        deal(WETH_MAINNET_ADDRESS, ap, fillAmount);
+        vm.startPrank(ap);
+        ERC20(WETH_MAINNET_ADDRESS).approve(address(recipeMarketHub), fillAmount);
+
+        // Expect events
+        vm.expectEmit(false, true, false, false, WETH_MAINNET_ADDRESS);
+        emit ERC20.Transfer(address(0), address(depositLocker), fillAmount);
+
+        vm.expectEmit(true, true, false, true, address(depositLocker));
+        emit DepositLocker.UserDeposited(marketHash, ap, fillAmount);
+
+        // Record the logs to capture Transfer events
+        vm.recordLogs();
+        recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
+        vm.stopPrank();
+
+        // Extract the Weiroll wallet address
+        weirollWallet = address(uint160(uint256(vm.getRecordedLogs()[0].topics[2])));
+
+        // Assertions
+        assertDepositorState(ap, weirollWallet, fillAmount, filledSoFar);
+
+        return (filledSoFar, ap, weirollWallet);
+    }
+
+    function assertDepositorState(address ap, address weirollWallet, uint256 fillAmount, uint256 filledSoFar) internal {
+        assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, ap), fillAmount);
+        assertEq(depositLocker.depositorToWeirollWalletToAmount(ap, weirollWallet), fillAmount);
+        assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), filledSoFar);
+
+        address depositorWeirollWallet = depositLocker.marketHashToDepositorToWeirollWallets(marketHash, ap, 0);
+        assertEq(depositorWeirollWallet, weirollWallet);
+        assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(weirollWallet), 0);
     }
 }
