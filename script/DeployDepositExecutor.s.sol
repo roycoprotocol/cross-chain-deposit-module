@@ -51,7 +51,7 @@ contract DepositExecutorDeployScript is Script {
         require(depositTokens.length == lzV2OFTs.length, "Array lengths of deposit tokens and lzV2OFTs must match");
 
         // Deploy the DepositExecutor contract
-        DepositExecutor executor = new DepositExecutor(owner, weirollWalletImplementation, lzEndpoint, depositTokens, lzV2OFTs);
+        DepositExecutor executor = new DepositExecutor(owner, lzEndpoint, owner);
 
         // Output the address of the deployed DepositExecutor contract
         console.log("DepositExecutor deployed at:", address(executor));

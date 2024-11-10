@@ -61,11 +61,11 @@ contract SourceBridgeScript is Script {
 
         DepositLocker depositLocker = DepositLocker(depositLockerAddress);
 
-        depositLocker.setMulitsig(marketHash, deployer);
+        depositLocker.setGreenLighter(deployer);
 
         depositLocker.setGreenLight(marketHash, true);
 
-        depositLocker.bridgeSingleToken{ value: 1 ether }(marketHash, 25_000_000, depositorWallets);
+        depositLocker.bridgeSingleTokens{ value: 1 ether }(marketHash, 25_000_000, depositorWallets);
 
         // Stop broadcasting transactions
         vm.stopBroadcast();

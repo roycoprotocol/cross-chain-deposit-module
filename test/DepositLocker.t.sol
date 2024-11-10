@@ -46,7 +46,17 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         depositTokens[0] = ERC20(WETH_MAINNET_ADDRESS); // WETH on ETH Mainnet
         lzV2OFTs[0] = IOFT(STARGATE_POOL_NATIVE_MAINNET_ADDRESS); // Stargate native pool on ETH Mainnet
 
-        depositLocker = new DepositLocker(OWNER_ADDRESS, 0, address(0), recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), depositTokens, lzV2OFTs);
+        depositLocker = new DepositLocker(
+            OWNER_ADDRESS,
+            0,
+            address(0xbeef),
+            GREEN_LIGHTER_ADDRESS,
+            recipeMarketHub,
+            IWETH(WETH_MAINNET_ADDRESS),
+            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
+            depositTokens,
+            lzV2OFTs
+        );
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), WETH_MAINNET_ADDRESS, address(depositLocker));
