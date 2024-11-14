@@ -40,23 +40,71 @@ library DepositPayloadLib {
                             Encoding Functions
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Initializes a compose message for SINGLE_TOKEN cross-chain deposits
-    /// @param _marketHash The Royco market hash associated with the deposits
-    function initSingleTokenComposeMsg(bytes32 _marketHash) internal pure returns (bytes memory composeMsg) {
-        composeMsg = abi.encodePacked(DepositType.SINGLE_TOKEN, _marketHash);
+    /// @dev Initializes a compose message for SINGLE_TOKEN cross-chain deposits in-place.
+    /// @param _numDepositors The number of depositors that will be bridged using this compose message.
+    /// @param _marketHash The Royco market hash associated with the deposits.
+    /// @return composeMsg The compose message initialized with the params.
+    function initSingleTokenComposeMsg(uint256 _numDepositors, bytes32 _marketHash) internal pure returns (bytes memory composeMsg) {
+        uint256 msgSizeInBytes = SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET + (_numDepositors * BYTES_PER_DEPOSITOR);
+        composeMsg = new bytes(msgSizeInBytes);
+        assembly ("memory-safe") {
+            let ptr := add(composeMsg, 32) // Pointer to the start of the data in _composeMsg
+            mstore8(ptr, 0) // Write DepositType (1 byte) - SINGLE_TOKEN
+            mstore(add(ptr, 1), _marketHash) // Write _marketHash (32 bytes)
+        }
     }
 
-    /// @dev Initializes a compose message for DUAL_OR_LP_TOKEN cross-chain deposits
-    /// @param _marketHash The Royco market hash associated with the deposits
-    /// @param _nonce The nonce associated with the DUAL_OR_LP_TOKEN deposits
-    function initDualOrLpTokenComposeMsg(bytes32 _marketHash, uint256 _nonce) internal pure returns (bytes memory composeMsg) {
-        composeMsg = abi.encodePacked(DepositType.DUAL_OR_LP_TOKEN, _marketHash, _nonce);
+    /// @dev Initializes a compose message for DUAL_OR_LP_TOKEN cross-chain deposits in-place.
+    /// @param _numDepositors The number of depositors that will be bridged using this compose message.
+    /// @param _marketHash The Royco market hash associated with the deposits.
+    /// @param _nonce The nonce associated with the DUAL_OR_LP_TOKEN deposits.
+    /// @return composeMsg The compose message initialized with the params.
+    function initDualOrLpTokenComposeMsg(uint256 _numDepositors, bytes32 _marketHash, uint256 _nonce) internal pure returns (bytes memory composeMsg) {
+        uint256 msgSizeInBytes = DUAL_OR_LP_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET + (_numDepositors * BYTES_PER_DEPOSITOR);
+        composeMsg = new bytes(msgSizeInBytes);
+        assembly ("memory-safe") {
+            let ptr := add(composeMsg, 32) // Pointer to the start of the data in _composeMsg
+            mstore8(ptr, 1) // Write DepositType (1 byte) - DUAL_OR_LP_TOKEN
+            mstore(add(ptr, 1), _marketHash) // Write _marketHash (32 bytes)
+            mstore(add(ptr, 33), _nonce) // Write _nonce (32 bytes)
+        }
     }
 
-    /// @dev Reads the DepositType (first byte) and source market hash (following 32 bytes) from the _composeMsg
-    /// @param _composeMsg The compose message to append a depositor to
-    function writeDepositor(bytes memory _composeMsg, address _depositor, uint96 _depositAmount) internal pure returns (bytes memory) {
-        return abi.encodePacked(_composeMsg, _depositor, _depositAmount);
+    /// @dev Writes a depositor and their amount directly into the _composeMsg at the end for SINGLE_TOKEN compose messages.
+    /// @param _composeMsg The bytes array where the depositor info will be appended.
+    /// @param _depositor The depositor's address.
+    /// @param _depositAmount The amount deposited by the depositor.
+    function writeDepositorToSingleTokenPayload(bytes memory _composeMsg, uint256 _depositorIndex, address _depositor, uint96 _depositAmount) internal pure {
+        assembly ("memory-safe") {
+            // The memory pointer for the depositor at this index
+            let ptr := add(_composeMsg, add(32, add(SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET, mul(_depositorIndex, BYTES_PER_DEPOSITOR))))
+            mstore(ptr, or(shl(96, _depositor), _depositAmount)) // Write _depositor and _depositAmount
+        }
+    }
+
+    /// @dev Writes a depositor and their amount directly into the _composeMsg at the end for DUAL_OR_LP_TOKEN compose messages.
+    /// @param _composeMsg The bytes array where the depositor info will be appended.
+    /// @param _depositor The depositor's address.
+    /// @param _depositAmount The amount deposited by the depositor.
+    function writeDepositorToDualOrLpTokenPayload(bytes memory _composeMsg, uint256 _depositorIndex, address _depositor, uint96 _depositAmount) internal pure {
+        assembly ("memory-safe") {
+            // The memory pointer for the depositor at this index
+            let ptr := add(_composeMsg, add(32, add(DUAL_OR_LP_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET, mul(_depositorIndex, BYTES_PER_DEPOSITOR))))
+            mstore(ptr, or(shl(96, _depositor), _depositAmount)) // Write _depositor and _depositAmount
+        }
+    }
+
+    /// @dev Resizes the compose message by changing its length.
+    /// @param _composeMsg The bytes array with the depositor info.
+    /// @param _type The type of the payload to resize.
+    /// @param _numDepositors The number of depositors to resize the compose message to accomodate.
+    function resizeComposeMsg(bytes memory _composeMsg, DepositType _type, uint256 _numDepositors) internal pure {
+        uint256 msgSizeInBytes = (
+            _type == DepositType.SINGLE_TOKEN ? SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET : DUAL_OR_LP_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET
+        ) + (_numDepositors * BYTES_PER_DEPOSITOR);
+        assembly ("memory-safe") {
+            mstore(_composeMsg, msgSizeInBytes)
+        }
     }
 
     /*//////////////////////////////////////////////////////////////

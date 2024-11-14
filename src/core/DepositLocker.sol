@@ -105,6 +105,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Struct to hold parameters for processing LP token depositors.
     struct LpTokenDepositorParams {
         bytes32 marketHash;
+        uint256 numDepositorsIncluded;
         address depositor;
         uint256 lpToken_DepositAmount;
         uint256 lp_TotalAmountToBridge;
@@ -355,20 +356,28 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         */
 
         // Initialize compose message - first 33 bytes are BRIDGE_TYPE and market hash
-        bytes memory composeMsg = DepositPayloadLib.initSingleTokenComposeMsg(_marketHash);
+        bytes memory composeMsg = DepositPayloadLib.initSingleTokenComposeMsg(_depositors.length, _marketHash);
 
-        // Keep track of total amount of deposits to bridge
+        // Keep track of total amount of deposits to bridge and depositors included in the bridge payload.
         uint256 totalAmountToBridge;
+        uint256 numDepositorsIncluded;
 
         for (uint256 i = 0; i < _depositors.length; ++i) {
-            uint256 depositAmount;
             // Process depositor and update the compose message
-            (depositAmount, composeMsg) = _processSingleTokenDepositor(_marketHash, _depositors[i], composeMsg);
+            uint256 depositAmount = _processSingleTokenDepositor(_marketHash, numDepositorsIncluded, _depositors[i], composeMsg);
+            if (depositAmount == 0) {
+                // If skipped this depositor, continue.
+                continue;
+            }
             totalAmountToBridge += depositAmount;
+            ++numDepositorsIncluded;
         }
 
         // Ensure that at least one depositor was included in the bridge payload
         require(totalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+
+        // Resize the compose message to reflect the actual number of depositors included in the payload
+        composeMsg.resizeComposeMsg(DepositType.SINGLE_TOKEN, numDepositorsIncluded);
 
         // Get the market's input token
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
@@ -428,22 +437,26 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 amountOfTokenBPerDT = dualToken.amountOfTokenBPerDT();
 
         // Initialize compose messages for both tokens
-        bytes memory tokenA_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_marketHash, nonce);
-        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_marketHash, nonce);
+        bytes memory tokenA_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_depositors.length, _marketHash, nonce);
+        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_depositors.length, _marketHash, nonce);
 
-        // Keep track of total amount of deposits to bridge
-        uint256 dt_TotalDepositsInBatch = 0;
+        // Keep track of total amount of deposits to bridge and depositors included in the bridge payload.
+        uint256 dt_TotalDepositsInBatch;
+        uint256 numDepositorsIncluded;
         TotalAmountsToBridge memory totals;
 
         for (uint256 i = 0; i < _depositors.length; ++i) {
-            uint256 dt_depositAmount;
-
             // Process the depositor and update the compose messages
-            (dt_depositAmount, tokenA_ComposeMsg, tokenB_ComposeMsg) =
-                _processDualTokenDepositor(_marketHash, _depositors[i], amountOfTokenAPerDT, amountOfTokenBPerDT, tokenA_ComposeMsg, tokenB_ComposeMsg, totals);
-
+            uint256 dt_depositAmount = _processDualTokenDepositor(
+                _marketHash, numDepositorsIncluded, _depositors[i], amountOfTokenAPerDT, amountOfTokenBPerDT, tokenA_ComposeMsg, tokenB_ComposeMsg, totals
+            );
+            if (dt_depositAmount == 0) {
+                // If skipped this depositor, continue.
+                continue;
+            }
             // Update total amount of DT to burn
             dt_TotalDepositsInBatch += dt_depositAmount;
+            ++numDepositorsIncluded;
         }
 
         // Ensure that at least one depositor was included in the bridge payload
@@ -451,6 +464,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Burn the dual tokens to receive the constituents in the DepositLocker
         dualToken.burn(dt_TotalDepositsInBatch);
+
+        // Resize the compose messages to reflect the actual number of depositors included in the payload
+        tokenA_ComposeMsg.resizeComposeMsg(DepositType.DUAL_OR_LP_TOKEN, numDepositorsIncluded);
+        tokenB_ComposeMsg.resizeComposeMsg(DepositType.DUAL_OR_LP_TOKEN, numDepositorsIncluded);
 
         // Create bridge parameters
         DualOrLpTokensBridgeParams memory bridgeParams = DualOrLpTokensBridgeParams({
@@ -532,32 +549,36 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 tokenB_DecimalConversionRate = 10 ** (tokenB.decimals() - tokenToLzV2OFT[tokenB].sharedDecimals());
 
         // Initialize compose messages for both tokens
-        bytes memory tokenA_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_marketHash, nonce);
-        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_marketHash, nonce);
+        bytes memory tokenA_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_depositors.length, _marketHash, nonce);
+        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_depositors.length, _marketHash, nonce);
 
         // Initialize totals
         TotalAmountsToBridge memory totals;
+        // Create params struct
+        LpTokenDepositorParams memory params;
+        params.marketHash = _marketHash;
+        params.lp_TotalAmountToBridge = lp_TotalDepositsInBatch;
+        params.tokenA_TotalAmountReceivedOnBurn = tokenA_AmountReceivedOnBurn;
+        params.tokenB_TotalAmountReceivedOnBurn = tokenB_AmountReceivedOnBurn;
+        params.tokenA_DecimalConversionRate = tokenA_DecimalConversionRate;
+        params.tokenB_DecimalConversionRate = tokenB_DecimalConversionRate;
 
         // Marshal the bridge payload for each token's bridge
         for (uint256 i = 0; i < _depositors.length; ++i) {
-            // Create params struct
-            LpTokenDepositorParams memory params = LpTokenDepositorParams({
-                marketHash: _marketHash,
-                depositor: _depositors[i],
-                lpToken_DepositAmount: lp_DepositAmounts[i],
-                lp_TotalAmountToBridge: lp_TotalDepositsInBatch,
-                tokenA_TotalAmountReceivedOnBurn: tokenA_AmountReceivedOnBurn,
-                tokenB_TotalAmountReceivedOnBurn: tokenB_AmountReceivedOnBurn,
-                tokenA_DecimalConversionRate: tokenA_DecimalConversionRate,
-                tokenB_DecimalConversionRate: tokenB_DecimalConversionRate
-            });
+            // Modify params struct for this depositor
+            params.depositor = _depositors[i];
+            params.lpToken_DepositAmount = lp_DepositAmounts[i];
 
             // Process the depositor and update the compose messages and totals
-            (tokenA_ComposeMsg, tokenB_ComposeMsg) = _processLpTokenDepositor(params, tokenA, tokenB, tokenA_ComposeMsg, tokenB_ComposeMsg, totals);
+            _processLpTokenDepositor(params, tokenA, tokenB, tokenA_ComposeMsg, tokenB_ComposeMsg, totals);
         }
 
         // Ensure that at least one depositor was included in the bridge payload
         require(totals.tokenA_TotalAmountToBridge > 0 && totals.tokenB_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+
+        // Resize the compose messages to reflect the actual number of depositors included in the payload
+        tokenA_ComposeMsg.resizeComposeMsg(DepositType.DUAL_OR_LP_TOKEN, params.numDepositorsIncluded);
+        tokenB_ComposeMsg.resizeComposeMsg(DepositType.DUAL_OR_LP_TOKEN, params.numDepositorsIncluded);
 
         // Create bridge parameters
         DualOrLpTokensBridgeParams memory bridgeParams = DualOrLpTokensBridgeParams({
@@ -588,29 +609,37 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @notice Processes a single token depositor by updating the compose message and clearing depositor data.
      * @dev Updates the compose message with the depositor's information if the deposit amount is valid.
      * @param _marketHash The hash of the market to process.
+     * @param _depositorIndex The index of the depositor in the batch of depositors.
      * @param _depositor The address of the depositor.
      * @param _composeMsg The current compose message to be updated.
      */
-    function _processSingleTokenDepositor(bytes32 _marketHash, address _depositor, bytes memory _composeMsg) internal returns (uint256, bytes memory) {
+    function _processSingleTokenDepositor(
+        bytes32 _marketHash,
+        uint256 _depositorIndex,
+        address _depositor,
+        bytes memory _composeMsg
+    )
+        internal
+        returns (uint256 depositAmount)
+    {
         // Get amount deposited by the depositor (AP)
-        uint256 depositAmount = marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
+        depositAmount = marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
         if (depositAmount == 0 || depositAmount > type(uint96).max) {
-            return (depositAmount, _composeMsg); // Skip if no deposit or deposit amount exceeds limit
+            return 0; // Skip if no deposit or deposit amount exceeds limit
         }
 
         // Delete all Weiroll Wallet state and deposit amounts associated with this depositor
         _clearDepositorData(_marketHash, _depositor);
 
         // Add depositor to the compose message
-        _composeMsg = _composeMsg.writeDepositor(_depositor, uint96(depositAmount));
-
-        return (depositAmount, _composeMsg);
+        _composeMsg.writeDepositorToSingleTokenPayload(_depositorIndex, _depositor, uint96(depositAmount));
     }
 
     /**
      * @notice Processes a dual token depositor by updating compose messages and clearing depositor data.
      * @dev Calculates the amount of each constituent token and updates the compose messages accordingly.
      * @param _marketHash The hash of the market to process.
+     * @param _depositorIndex The index of the depositor in the batch of depositors.
      * @param _depositor The address of the depositor.
      * @param _amountOfTokenAPerDT The amount of Token A per dual token.
      * @param _amountOfTokenBPerDT The amount of Token B per dual token.
@@ -620,6 +649,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     function _processDualTokenDepositor(
         bytes32 _marketHash,
+        uint256 _depositorIndex,
         address _depositor,
         uint256 _amountOfTokenAPerDT,
         uint256 _amountOfTokenBPerDT,
@@ -628,7 +658,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         TotalAmountsToBridge memory _totals
     )
         internal
-        returns (uint256 dt_DepositAmount, bytes memory, bytes memory)
+        returns (uint256 dt_DepositAmount)
     {
         // Get amount deposited by the depositor (AP)
         dt_DepositAmount = marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
@@ -638,21 +668,21 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 tokenB_DepositAmount = dt_DepositAmount * _amountOfTokenBPerDT;
 
         if (tokenA_DepositAmount > type(uint96).max || tokenB_DepositAmount > type(uint96).max) {
-            return (0, _tokenA_ComposeMsg, _tokenB_ComposeMsg); // Skip if deposit amount exceeds limit
+            return 0; // Skip if deposit amount exceeds limit
         }
 
         // Delete all Weiroll Wallet state and deposit amounts associated with this depositor
         _clearDepositorData(_marketHash, _depositor);
 
         // Update compose messages
-        _tokenA_ComposeMsg = _tokenA_ComposeMsg.writeDepositor(_depositor, uint96(tokenA_DepositAmount));
-        _tokenB_ComposeMsg = _tokenB_ComposeMsg.writeDepositor(_depositor, uint96(tokenB_DepositAmount));
+        _tokenA_ComposeMsg.writeDepositorToDualOrLpTokenPayload(_depositorIndex, _depositor, uint96(tokenA_DepositAmount));
+        _tokenB_ComposeMsg.writeDepositorToDualOrLpTokenPayload(_depositorIndex, _depositor, uint96(tokenB_DepositAmount));
 
         // Update totals
         _totals.tokenA_TotalAmountToBridge += tokenA_DepositAmount;
         _totals.tokenB_TotalAmountToBridge += tokenB_DepositAmount;
 
-        return (dt_DepositAmount, _tokenA_ComposeMsg, _tokenB_ComposeMsg);
+        return dt_DepositAmount;
     }
 
     /**
@@ -676,7 +706,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         TotalAmountsToBridge memory _totals
     )
         internal
-        returns (bytes memory, bytes memory)
     {
         // Calculate the depositor's share of each underlying token
         uint256 tokenA_DepositAmount = (params.tokenA_TotalAmountReceivedOnBurn * params.lpToken_DepositAmount) / params.lp_TotalAmountToBridge;
@@ -689,8 +718,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             // If can't bridge this depositor, refund their redeemed tokens + fees accrued from LPing
             _tokenA.safeTransfer(params.depositor, tokenA_DepositAmount);
             _tokenB.safeTransfer(params.depositor, tokenB_DepositAmount);
-
-            return (_tokenA_ComposeMsg, _tokenB_ComposeMsg);
+            return;
         }
 
         // Adjust depositor amounts to acceptable precision and refund dust if conversion from LD to SD is needed
@@ -702,14 +730,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Update compose messages with acceptable amounts
-        _tokenA_ComposeMsg = _tokenA_ComposeMsg.writeDepositor(params.depositor, uint96(tokenA_DepositAmount));
-        _tokenB_ComposeMsg = _tokenB_ComposeMsg.writeDepositor(params.depositor, uint96(tokenB_DepositAmount));
+        _tokenA_ComposeMsg.writeDepositorToDualOrLpTokenPayload(params.numDepositorsIncluded, params.depositor, uint96(tokenA_DepositAmount));
+        _tokenB_ComposeMsg.writeDepositorToDualOrLpTokenPayload(params.numDepositorsIncluded++, params.depositor, uint96(tokenB_DepositAmount));
 
         // Update totals
         _totals.tokenA_TotalAmountToBridge += tokenA_DepositAmount;
         _totals.tokenB_TotalAmountToBridge += tokenB_DepositAmount;
-
-        return (_tokenA_ComposeMsg, _tokenB_ComposeMsg);
     }
 
     /**
