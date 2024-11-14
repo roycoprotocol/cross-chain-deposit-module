@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import { Ownable2Step, Ownable } from "@openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { ILayerZeroComposer } from "src/interfaces/ILayerZeroComposer.sol";
+import { IWETH } from "src/interfaces/IWETH.sol";
 import { ERC20, SafeTransferLib } from "@royco/src/RecipeMarketHub.sol";
 import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
 import { ClonesWithImmutableArgs } from "@clones-with-immutable-args/ClonesWithImmutableArgs.sol";
@@ -59,6 +60,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /// @notice The address of the LayerZero V2 Endpoint contract on the destination chain.
     address public immutable LAYER_ZERO_V2_ENDPOINT;
+
+    /// @notice The wrapped native asset token on the destination chain.
+    address public immutable WRAPPED_NATIVE_ASSET_TOKEN;
 
     /// @notice The address of the script verifier responsible for verifying scripts before execution.
     address public SCRIPT_VERIFIER;
@@ -168,12 +172,14 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _owner The address of the owner of this contract.
      * @param _lzV2Endpoint The address of the LayerZero V2 Endpoint on the destination chain.
      * @param _scriptVerifier The address of the script verifier.
+     * @param _wrapped_native_asset_token The address of the wrapped native asset token on the destination chain.
      */
-    constructor(address _owner, address _lzV2Endpoint, address _scriptVerifier) Ownable(_owner) {
+    constructor(address _owner, address _lzV2Endpoint, address _scriptVerifier, address _wrapped_native_asset_token) Ownable(_owner) {
         // Deploy the Weiroll Wallet implementation on the destination chain to use for cloning with immutable args
         WEIROLL_WALLET_IMPLEMENTATION = address(new WeirollWallet());
         LAYER_ZERO_V2_ENDPOINT = _lzV2Endpoint;
         SCRIPT_VERIFIER = _scriptVerifier;
+        WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -201,6 +207,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         // Get the deposit token from the LZ V2 OApp that invoked the compose call
         ERC20 depositToken = ERC20(IOFT(_from).token());
+        if (address(depositToken) == address(0)) {
+            // If the deposit token is the native asset, wrap the native asset, and use the wrapped token as the deposit token
+            IWETH(WRAPPED_NATIVE_ASSET_TOKEN).deposit{ value: tokenAmountBridged }();
+            depositToken = ERC20(WRAPPED_NATIVE_ASSET_TOKEN);
+        }
 
         if (depositType == DepositType.SINGLE_TOKEN) {
             address[] memory weirollWalletsCreated = _processSingleTokenBridge(
