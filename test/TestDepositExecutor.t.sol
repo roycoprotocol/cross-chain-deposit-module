@@ -76,7 +76,7 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         depositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
         lzV2OFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS; // Stargate USDC Pool on Polygon Mainnet
 
-        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, SCRIPT_VERIFIER_ADDRESS);
+        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, SCRIPT_VERIFIER_ADDRESS, address(0));
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.setSourceMarketOwner(bridgeResult.marketHash, IP_ADDRESS);
