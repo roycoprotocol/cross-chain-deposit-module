@@ -30,6 +30,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The limit for how many depositors can be bridged in a single transaction
     uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 100;
 
+    /// @notice The duration of time that depositors have after the market's green light is given to rage quit.
+    uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
+
     /*//////////////////////////////////////////////////////////////
                                     State
     //////////////////////////////////////////////////////////////*/
@@ -62,8 +65,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Address of the DepositExecutor on the destination chain.
     address public depositExecutor;
 
-    /// @notice Mapping from market hash to if green light is given to bridge deposits to destination chain.
-    mapping(bytes32 => bool) public marketHashToGreenLight;
+    /// @notice Mapping from market hash to the time the green light was set.
+    mapping(bytes32 => uint256) public marketHashToGreenLightSetTimestamp;
 
     /// @notice Mapping from market hash to the owner of the LP market.
     mapping(bytes32 => address) public marketHashToLpMarketOwner;
@@ -168,6 +171,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when green light is not given for bridging.
     error GreenLightNotGiven();
 
+    /// @notice Error emitted when trying to bridge during the rage quit period.
+    error RageQuitPeriodInProgress();
+
     /// @notice Error emitted when trying to bridge funds to an invaild deposit executor.
     error DepositExecutorNotSet();
 
@@ -204,7 +210,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @dev Modifier to check if green light is given for bridging and depositExecutor has been set.
     modifier readyToBridge(bytes32 _marketHash) {
-        require(marketHashToGreenLight[_marketHash], GreenLightNotGiven());
+        uint256 greenLightSetTimestamp = marketHashToGreenLightSetTimestamp[_marketHash];
+        require(greenLightSetTimestamp != 0, GreenLightNotGiven());
+        require(block.timestamp > greenLightSetTimestamp + RAGE_QUIT_PERIOD_DURATION, RageQuitPeriodInProgress());
         require(depositExecutor != address(0), DepositExecutorNotSet());
         _;
     }
@@ -951,18 +959,18 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /**
      * @notice Sets the global GREEN_LIGHTER.
-     * @param _greenLighter The address of the GREEN_LIGHTER responsible for marking deposits as bridgable.
+     * @param _greenLighter The address of the green lighter responsible for marking deposits as bridgable.
      */
     function setGreenLighter(address _greenLighter) external onlyOwner {
         GREEN_LIGHTER = _greenLighter;
     }
 
     /**
-     * @notice Turns the green light on or off for a market.
+     * @notice Turns the green light on or off for a market. Turning it on will trigger the 48 hour rage quit duration.
      * @param _marketHash The market hash to set the green light for.
      * @param _greenLightStatus Boolean indicating if deposits can be bridged. True = On. False = Off.
      */
     function setGreenLight(bytes32 _marketHash, bool _greenLightStatus) external onlyGreenLighter {
-        marketHashToGreenLight[_marketHash] = _greenLightStatus;
+        marketHashToGreenLightSetTimestamp[_marketHash] = _greenLightStatus ? block.timestamp : 0;
     }
 }

@@ -245,6 +245,7 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         vm.startPrank(GREEN_LIGHTER_ADDRESS);
         depositLocker.setGreenLight(result.marketHash, true);
         vm.stopPrank();
+        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION());
 
         vm.recordLogs();
         // Record the logs to capture Transfer events to get Weiroll wallet address
