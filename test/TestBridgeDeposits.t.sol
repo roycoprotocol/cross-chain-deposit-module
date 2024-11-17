@@ -106,7 +106,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         vm.expectEmit(false, false, true, false, address(depositLocker));
         emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, offerAmount);
 
-        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION());
+        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -198,7 +198,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         vm.expectEmit(true, false, false, false, address(depositLocker));
         emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, filledSoFar);
-        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION());
+        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -286,7 +286,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         vm.expectEmit(false, false, true, false, address(depositLocker));
         emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, offerAmount);
-        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION());
+        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -393,7 +393,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         vm.expectEmit(true, true, false, false, address(depositLocker));
         emit DepositLocker.DualTokensBridgedToDestination(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
-        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION());
+        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeDualTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -501,7 +501,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         vm.expectEmit(true, true, false, false, address(depositLocker));
         emit DepositLocker.DualTokensBridgedToDestination(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
-        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION());
+        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeDualTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
@@ -614,7 +614,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         vm.expectEmit(true, true, false, false, address(depositLocker));
         emit DepositLocker.DualTokensBridgedToDestination(marketHash, nonce, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
-        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION());
+        vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
         depositLocker.bridgeLpTokens{ value: 5 ether }(marketHash, 1_000_000, 0, 0, depositorWallets);
