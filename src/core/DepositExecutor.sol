@@ -34,13 +34,15 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /// @dev Represents a Deposit Campaign on the destination chain.
+    /// @custom:field receiptToken The receipt token returned to the
     /// @custom:field unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign.
     /// @custom:field depositRecipe The Weiroll Recipe executed on deposit (specified by the owner of the campaign).
     /// @custom:field withdrawalRecipe The Weiroll Recipe executed on withdrawal (specified by the owner of the campaign).
     struct DepositCampaign {
+        ERC20 receiptToken;
         uint256 unlockTimestamp;
         Recipe depositRecipe;
-        Recipe withdrawalRecipe;
+        mapping(address => WeirollWalletState) weirollWalletToDepositState;
     }
 
     /// @dev Struct to group variables used in dual token bridge processing.
@@ -258,31 +260,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             }
         }
         emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
-    }
-
-    /**
-     * @notice Executes the withdrawal script in the Weiroll wallet.
-     * @param _weirollWallet The address of the Weiroll wallet.
-     */
-    function executeWithdrawalRecipe(address _weirollWallet)
-        external
-        isWeirollWalletOwner(_weirollWallet)
-        weirollWalletIsUnlocked(_weirollWallet)
-        nonReentrant
-    {
-        // Instantiate the WeirollWallet from the wallet address
-        WeirollWallet wallet = WeirollWallet(payable(_weirollWallet));
-
-        // Get the source market's hash associated with the Weiroll wallet
-        bytes32 sourceMarketHash = wallet.marketHash();
-
-        // Get the withdrawal recipe for the campaign
-        Recipe storage withdrawalRecipe = sourceMarketHashToDepositCampaign[sourceMarketHash].withdrawalRecipe;
-
-        // Execute the withdrawal recipe
-        wallet.executeWeiroll(withdrawalRecipe.weirollCommands, withdrawalRecipe.weirollState);
-
-        emit WeirollWalletExecutedWithdrawal(_weirollWallet);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -509,16 +486,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      */
     function setCampaignDepositRecipe(bytes32 _sourceMarketHash, Recipe calldata _depositRecipe) external onlyCampaignOwner(_sourceMarketHash) {
         sourceMarketHashToDepositCampaign[_sourceMarketHash].depositRecipe = _depositRecipe;
-        delete sourceMarketHashToScriptsVerifiedFlag[_sourceMarketHash];
-    }
-
-    /**
-     * @notice Sets the withdrawal recipe for a Deposit Campaign.
-     * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
-     * @param _withdrawalRecipe The withdrawal recipe for the campaign on the destination chain.
-     */
-    function setCampaignWithdrawalRecipe(bytes32 _sourceMarketHash, Recipe calldata _withdrawalRecipe) external onlyCampaignOwner(_sourceMarketHash) {
-        sourceMarketHashToDepositCampaign[_sourceMarketHash].withdrawalRecipe = _withdrawalRecipe;
         delete sourceMarketHashToScriptsVerifiedFlag[_sourceMarketHash];
     }
 }
