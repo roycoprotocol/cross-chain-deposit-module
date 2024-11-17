@@ -39,7 +39,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @custom:field receiptToken The receipt token returned to the Weiroll Wallet upon executing the deposit recipe.
     /// @custom:field unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign.
     /// @custom:field depositRecipe The Weiroll Recipe executed on deposit (specified by the owner of the campaign).
-    /// @custom:field withdrawalRecipe The Weiroll Recipe executed on withdrawal (specified by the owner of the campaign).
     struct DepositCampaign {
         address owner;
         ERC20[] inputTokens;
@@ -417,7 +416,27 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /**
+     * @notice Sets the input tokens for a Deposit Campaign.
+     * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
+     * @param _inputTokens The input tokens to set for this deposit campaign.
+     */
+    function setCampaignInputTokens(bytes32 _sourceMarketHash, ERC20[] calldata _inputTokens) external onlyCampaignOwner(_sourceMarketHash) {
+        sourceMarketHashToDepositCampaign[_sourceMarketHash].inputTokens = _inputTokens;
+    }
+
+    /**
+     * @notice Sets the receipt token for a Deposit Campaign.
+     * @dev The receipt token MUST be returned to the Weiroll Wallet upon executing the deposit recipe.
+     * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
+     * @param _receiptToken The receipt token to set for this deposit campaign.
+     */
+    function setCampaignReceiptToken(bytes32 _sourceMarketHash, ERC20 _receiptToken) external onlyCampaignOwner(_sourceMarketHash) {
+        sourceMarketHashToDepositCampaign[_sourceMarketHash].receiptToken = _receiptToken;
+    }
+
+    /**
      * @notice Sets the deposit recipe for a Deposit Campaign.
+     * @dev The deposit recipe MUST give the DepositExecutor max approval on the campaign's receipt token for the Weiroll Wallet.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _depositRecipe The deposit recipe for the campaign on the destination chain.
      */
