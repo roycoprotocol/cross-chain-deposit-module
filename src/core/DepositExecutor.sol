@@ -10,16 +10,16 @@ import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
 import { ClonesWithImmutableArgs } from "@clones-with-immutable-args/ClonesWithImmutableArgs.sol";
 import { IOFT } from "src/interfaces/IOFT.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
-import { DepositType, DepositPayloadLib } from "src/libraries/DepositPayloadLib.sol";
+import { CCDMPayloadLib } from "src/libraries/CCDMPayloadLib.sol";
 
 /// @title DepositExecutor
 /// @author Shivaansh Kapoor, Jack Corddry
 /// @notice A singleton contract for receiving and deploying bridged deposits on the destination chain for all deposit campaigns.
 /// @notice This contract implements ILayerZeroComposer to execute logic based on the compose messages sent from the source chain.
 contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTransient {
+    using CCDMPayloadLib for bytes;
     using ClonesWithImmutableArgs for address;
     using SafeTransferLib for ERC20;
-    using DepositPayloadLib for bytes;
 
     /*//////////////////////////////////////////////////////////////
                                    Structures
@@ -34,23 +34,28 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /// @dev Represents a Deposit Campaign on the destination chain.
-    /// @custom:field receiptToken The receipt token returned to the
+    /// @custom:field owner The address of the owner of this deposit campaign.
+    /// @custom:field inputTokens The input tokens that will be deposited by the campaign's deposit recipe.
+    /// @custom:field receiptToken The receipt token returned to the Weiroll Wallet upon executing the deposit recipe.
     /// @custom:field unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign.
     /// @custom:field depositRecipe The Weiroll Recipe executed on deposit (specified by the owner of the campaign).
     /// @custom:field withdrawalRecipe The Weiroll Recipe executed on withdrawal (specified by the owner of the campaign).
     struct DepositCampaign {
+        address owner;
+        ERC20[] inputTokens;
         ERC20 receiptToken;
         uint256 unlockTimestamp;
         Recipe depositRecipe;
-        mapping(address => WeirollWalletState) weirollWalletToDepositState;
     }
 
-    /// @dev Struct to group variables used in dual token bridge processing.
-    struct DepositorData {
-        address depositorAddress;
-        uint96 depositAmount;
-        address cachedWeirollWallet;
+    /// @dev Holds the address of and the granular depositor balances of a WeirollWallet.
+    /// @custom:field weirollWallet The address of the Weiroll Wallet that this accounting is for.
+    /// @custom:field tokenToTotalAmount Mapping to account for total amounts deposited for each token in this Weiroll Wallet.
+    /// @custom:field depositorToTokenToAmount Mapping to account for depositor's balance of each token in this Weiroll Wallet.
+    struct WeirollWalletInfo {
         address weirollWallet;
+        mapping(ERC20 => uint256) tokenToTotalAmountDeposited;
+        mapping(address => mapping(ERC20 => uint256)) depositorToTokenToAmountDeposited;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -69,43 +74,35 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice The address of the script verifier responsible for verifying scripts before execution.
     address public SCRIPT_VERIFIER;
 
-    /// @dev Mapping from a source market hash to its owner's address.
-    mapping(bytes32 => address) public sourceMarketHashToOwner;
-
     /// @dev Mapping from a source market hash to its DepositCampaign struct.
     mapping(bytes32 => DepositCampaign) public sourceMarketHashToDepositCampaign;
 
+    /// @notice Mapping from a CCDM ccdmBridgeNonce to its corresponding Weiroll Wallet.
+    mapping(uint256 => WeirollWalletInfo) ccdmNonceToWeirollWalletInfo;
+
     /// @dev Mapping from a source market hash to a boolean indicating if scripts have been verified.
     mapping(bytes32 => bool) public sourceMarketHashToScriptsVerifiedFlag;
-
-    /// @dev Mapping from a dual token bridge nonce to a mapping of depositor addresses to Weiroll wallet addresses.
-    mapping(uint256 => mapping(address => address)) public nonceToDepositorToWeirollWallet;
 
     /*//////////////////////////////////////////////////////////////
                                Events and Errors
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Emitted when bridged deposits are put in fresh Weiroll Wallets for SINGLE_TOKEN deposits.
-    /// @param guid The global unique identifier of the bridge transaction.
-    /// @param sourceMarketHash The source market hash of the deposits received.
-    /// @param weirollWalletsCreated The addresses of the fresh Weiroll Wallets that were created on destination.
-    event ReceivedSingleTokenBridge(bytes32 indexed guid, bytes32 indexed sourceMarketHash, address[] weirollWalletsCreated);
-
-    /// @notice Emitted when bridged deposits are put in fresh Weiroll Wallets for DUAL_OR_LP_TOKEN deposits.
-    /// @param guid The global unique identifier of the bridge transaction.
-    /// @param sourceMarketHash The source market hash of the deposits received.
-    /// @param nonce The nonce associated with this DUAL_OR_LP_TOKEN deposits bridge - not to be confused with the LZ bridge transaction nonce.
-    /// @param weirollWalletsCreated The addresses of the fresh Weiroll Wallets that were created on destination (if any)
-    event ReceivedDualTokenBridge(bytes32 indexed guid, bytes32 indexed sourceMarketHash, uint256 indexed nonce, address[] weirollWalletsCreated);
+    /// @notice Emitted when lzCompose is executed for a bridge transaction.
+    /// @param sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
+    /// @param guid The global unique identifier of the LayerZero V2 bridge transaction.
+    /// @param ccdmBridgeNonce The nonce for the CCDM bridge transaction.
+    /// @param weirollWallet The weiroll wallet for this CCDM bridge nonce.
+    event CCDMBridgeProcessed(bytes32 indexed sourceMarketHash, bytes32 indexed guid, uint256 indexed ccdmBridgeNonce, address weirollWallet);
 
     /// @notice Emitted on batch execute of Weiroll Wallet deposits.
-    /// @param sourceMarketHash The source market hash of the Weiroll wallets.
-    /// @param weirollWalletsExecuted The addresses of the weiroll wallets that executed the market's deposit recipe.
+    /// @param sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
+    /// @param weirollWalletsExecuted The addresses of the weiroll wallets that executed the campaign's deposit recipe.
     event WeirollWalletsExecutedDeposits(bytes32 indexed sourceMarketHash, address[] weirollWalletsExecuted);
 
-    /// @notice Emitted when a Weiroll wallet executes a withdrawal.
-    /// @param weirollWallet The address of the weiroll wallet that executed the withdrawal recipe.
-    event WeirollWalletExecutedWithdrawal(address indexed weirollWallet);
+    /// @param sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
+    /// @param ccdmBridgeNonce The nonce for the CCDM bridge transaction that created/interacted with this wallet.
+    /// @param weirollWallet The Weiroll Wallet that the depositor was withdrawn from.
+    event DepositorWithdrawn(bytes32 indexed sourceMarketHash, uint256 indexed ccdmBridgeNonce, address weirollWallet);
 
     /// @notice Error emitted when the caller is not the SCRIPT_VERIFIER.
     error OnlyScriptVerifier();
@@ -119,17 +116,23 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice Error emitted when the caller is not the owner of the Weiroll wallet.
     error NotOwner();
 
-    /// @notice Error emitted when trying to interact with a locked wallet.
-    error WalletLocked();
-
     /// @notice Error emitted when trying to set a campaign's unlock timestamp more than once.
     error CampaignUnlockTimestampCanOnlyBeSetOnce();
 
     /// @notice Error emitted when the caller of the lzCompose function isn't the LZ endpoint address for destination chain.
     error NotFromLzV2Endpoint();
 
+    /// @notice Error emitted when executing the deposit recipe doesn't render a max allowance for the DepositExecutor on the Weiroll Wallet.
+    error MustMaxAllowDepositExecutor();
+
+    /// @notice Error emitted when trying to withdraw from a Weiroll Wallet that doesn't belong to the specified campaign
+    error WalletIsNotFromThisCampaign();
+
+    /// @notice Error emitted when trying to interact with a locked wallet.
+    error WalletLocked();
+
     /// @notice Error emitted when the caller of the composeMsg instructs the executor to deploy more funds into Weiroll Wallets than were bridged.
-    error CannotDepositMoreThanAmountBridged();
+    error CantAccountForMoreDepositsThanBridged();
 
     /*//////////////////////////////////////////////////////////////
                                   Modifiers
@@ -143,25 +146,13 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /// @dev Modifier to ensure the caller is the owner of the campaign.
     modifier onlyCampaignOwner(bytes32 _sourceMarketHash) {
-        require(msg.sender == sourceMarketHashToOwner[_sourceMarketHash], OnlyCampaignOwner());
+        require(msg.sender == sourceMarketHashToDepositCampaign[_sourceMarketHash].owner, OnlyCampaignOwner());
         _;
     }
 
     /// @dev Modifier to ensure the campaign's scripts are verified.
     modifier scriptsAreVerified(bytes32 _sourceMarketHash) {
         require(sourceMarketHashToScriptsVerifiedFlag[_sourceMarketHash], ScriptsAreUnverified());
-        _;
-    }
-
-    /// @dev Modifier to check if the Weiroll wallet is unlocked.
-    modifier weirollWalletIsUnlocked(address _weirollWallet) {
-        require(WeirollWallet(payable(_weirollWallet)).lockedUntil() <= block.timestamp, WalletLocked());
-        _;
-    }
-
-    /// @dev Modifier to ensure the caller is the owner of the Weiroll wallet.
-    modifier isWeirollWalletOwner(address _weirollWallet) {
-        require(WeirollWallet(payable(_weirollWallet)).owner() == msg.sender, NotOwner());
         _;
     }
 
@@ -204,8 +195,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         bytes memory composeMsg = OFTComposeMsgCodec.composeMsg(_message);
         uint256 tokenAmountBridged = OFTComposeMsgCodec.amountLD(_message);
 
-        // Extract the DepositType (1 byte) and source market's hash (first 32 bytes)
-        (DepositType depositType, bytes32 sourceMarketHash) = composeMsg.readComposeMsgMetadata();
+        // Extract the source market's hash (first 32 bytes) and ccdmBridgeNonce (following 32 bytes).
+        (bytes32 sourceMarketHash, uint256 ccdmBridgeNonce) = composeMsg.readComposeMsgMetadata();
 
         // Get the deposit token from the LZ V2 OApp that invoked the compose call
         ERC20 depositToken = ERC20(IOFT(_from).token());
@@ -215,29 +206,25 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             depositToken = ERC20(WRAPPED_NATIVE_ASSET_TOKEN);
         }
 
-        if (depositType == DepositType.SINGLE_TOKEN) {
-            address[] memory weirollWalletsCreated = _processSingleTokenBridge(
-                sourceMarketHash, composeMsg, depositToken, tokenAmountBridged, sourceMarketHashToDepositCampaign[sourceMarketHash].unlockTimestamp
-            );
-
-            emit ReceivedSingleTokenBridge(_guid, sourceMarketHash, weirollWalletsCreated);
-        } else if (depositType == DepositType.DUAL_OR_LP_TOKEN) {
-            // Get the nonce for the DUAL_OR_LP_TOKEN deposits bridge
-            uint256 nonce = composeMsg.readNonce();
-
-            // Create and cache the weiroll wallets for subsequent constituent token bridge
-            address[] memory weirollWalletsCreated = _processDualTokenBridge(
-                sourceMarketHash, nonce, composeMsg, depositToken, tokenAmountBridged, sourceMarketHashToDepositCampaign[sourceMarketHash].unlockTimestamp
-            );
-
-            emit ReceivedDualTokenBridge(_guid, sourceMarketHash, nonce, weirollWalletsCreated);
+        // If there is no cached Weiroll Wallet for this CCDM ccdmBridgeNonce, create one
+        WeirollWalletInfo storage walletInfo = ccdmNonceToWeirollWalletInfo[ccdmBridgeNonce];
+        if (walletInfo.weirollWallet == address(0)) {
+            walletInfo.weirollWallet = _createWeirollWallet(sourceMarketHash);
         }
+
+        // Transfer amount bridged of the token into the Weiroll Wallets
+        depositToken.safeTransfer(walletInfo.weirollWallet, tokenAmountBridged);
+
+        // Execute accounting logic to keep track of each depositor's position in this wallet.
+        _accountForDeposits(walletInfo, composeMsg, depositToken, tokenAmountBridged);
+
+        emit CCDMBridgeProcessed(sourceMarketHash, _guid, ccdmBridgeNonce, walletInfo.weirollWallet);
     }
 
     /**
-     * @notice Executes the deposit scripts for the specified Weiroll wallets.
+     * @notice Executes the deposit scripts for the specified Weiroll Wallets.
      * @dev Can't execute unless scripts are verified.
-     * @param _sourceMarketHash The source market hash of the Weiroll wallets' market.
+     * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _weirollWallets The addresses of the Weiroll wallets.
      */
     function executeDepositRecipes(
@@ -249,17 +236,70 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         scriptsAreVerified(_sourceMarketHash)
         nonReentrant
     {
-        // Get the campaign's deposit recipe
-        Recipe storage depositRecipe = sourceMarketHashToDepositCampaign[_sourceMarketHash].depositRecipe;
+        // Get the campaign's receipt token and deposit recipe
+        DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
+        ERC20 receiptToken = campaign.receiptToken;
+        Recipe memory depositRecipe = campaign.depositRecipe;
         // Execute deposit recipes for specified wallets
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
+            WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallets[i]));
             // Only execute deposit if the wallet belongs to this market
-            if (WeirollWallet(payable(_weirollWallets[i])).marketHash() == _sourceMarketHash) {
+            if (weirollWallet.marketHash() == _sourceMarketHash) {
                 // Execute the deposit recipe on the Weiroll wallet
-                WeirollWallet(payable(_weirollWallets[i])).executeWeiroll(depositRecipe.weirollCommands, depositRecipe.weirollState);
+                weirollWallet.executeWeiroll(depositRecipe.weirollCommands, depositRecipe.weirollState);
+                // Check that the executor has the proper allowance for the Weiroll Wallet's receipt tokens
+                require(receiptToken.allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
             }
         }
         emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
+    }
+
+    function withdraw(bytes32 _sourceMarketHash, uint256 _ccdmBridgeNonce) external nonReentrant {
+        // Get the deposit info for this Weiroll Wallet
+        WeirollWalletInfo storage walletInfo = ccdmNonceToWeirollWalletInfo[_ccdmBridgeNonce];
+        // Instantiate Weiroll Wallet from the stored address
+        WeirollWallet weirollWallet = WeirollWallet(payable(walletInfo.weirollWallet));
+
+        // Do some checks to ensure that the withdrawal is valid
+        require(weirollWallet.marketHash() == _sourceMarketHash, WalletIsNotFromThisCampaign());
+        require(weirollWallet.lockedUntil() <= block.timestamp, WalletLocked());
+
+        // Get the campaign details for the source market
+        DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
+
+        if (weirollWallet.executed()) {
+            // If deposit recipe has been executed, return the depositor's share of the receipt tokens
+            ERC20 receiptToken = campaign.receiptToken;
+            uint256 totalReceiptTokensReceived = receiptToken.balanceOf(address(weirollWallet));
+
+            // Calculate receipt tokens owed to the depositor
+            ERC20 firstInputToken = campaign.inputTokens[0];
+            uint256 amountDepositedByDepositor = walletInfo.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
+            uint256 totalAmountDeposited = walletInfo.tokenToTotalAmountDeposited[firstInputToken];
+            uint256 receiptTokensOwed = (totalReceiptTokensReceived * amountDepositedByDepositor) / totalAmountDeposited;
+
+            // Update the accounting to reflect the withdrawal
+            delete walletInfo.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
+
+            // Remit the receipt tokens to the depositor
+            receiptToken.safeTransferFrom(address(weirollWallet), msg.sender, receiptTokensOwed);
+        } else {
+            // If deposit recipe hasn't been executed, return the depositor's share of the input tokens
+            for (uint256 i = 0; i < campaign.inputTokens.length; ++i) {
+                // Get the amount of this input token deposited by the depositor
+                ERC20 inputToken = campaign.inputTokens[i];
+                uint256 amountDeposited = walletInfo.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+
+                // Update the accounting to reflect the withdrawal
+                delete walletInfo.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+                walletInfo.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
+
+                // Transfer the amount deposited back to the depositor
+                inputToken.safeTransfer(msg.sender, amountDeposited);
+            }
+        }
+
+        emit DepositorWithdrawn(_sourceMarketHash, _ccdmBridgeNonce, address(weirollWallet));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -267,166 +307,63 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Creates Weiroll wallets for single token deposits and transfers the deposited tokens to them.
-     * @dev Processes the compose message to extract depositor addresses and deposit amounts, creates Weiroll wallets for each depositor, and transfers the
-     * corresponding deposit amounts to each wallet.
-     * @param _sourceMarketHash The market hash from the source chain identifying the deposit campaign.
-     * @param _composeMsg The compose message containing depositor information (addresses and deposit amounts).
-     * @param _depositToken The ERC20 token that was bridged and will be deposited into the Weiroll wallets.
-     * @param _tokenAmountBridged The total amount of tokens that were bridged and available for deposits.
-     * @param _campaignUnlockTimestamp The absolute timestamp when the Weiroll wallets can be unlocked.
-     * @return weirollWalletsCreated An array of addresses of the Weiroll wallets that were created for the depositors.
+     * @dev Deploys a Weiroll wallet with the specified parameters.
+     * @param _sourceMarketHash The source market's hash.
+     * @return weirollWallet The address of the Weiroll wallet.
      */
-    function _processSingleTokenBridge(
-        bytes32 _sourceMarketHash,
-        bytes memory _composeMsg,
-        ERC20 _depositToken,
-        uint256 _tokenAmountBridged,
-        uint256 _campaignUnlockTimestamp
-    )
-        internal
-        returns (address[] memory weirollWalletsCreated)
-    {
-        // Keep track of total deposits that the compose message tries to deploy into Weiroll Wallets
-        // Used to make sure tokens out <= tokens in
-        uint256 amountDeposited = 0;
+    function _createWeirollWallet(bytes32 _sourceMarketHash) internal returns (address payable weirollWallet) {
+        // Get the campaign details for the source market
+        DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
+        // Deploy a fresh, non-forfeitable Weiroll Wallet with immutable args.
+        weirollWallet = payable(
+            WEIROLL_WALLET_IMPLEMENTATION.clone(
+                abi.encodePacked(
+                    campaign.owner, // Wallet owner - will be campaign owner/
+                    address(this), // DepositExecutor will be the entrypoint for recipe execution (in addition to the owner after the unlock timestamp).
+                    uint256(0), // Amount will always be 0 since wallets could have multiple tokens.
+                    campaign.unlockTimestamp, // Lock time for this campaign.
+                    false, // Wallet is non-forfeitable since the deposits have reached the destination chain.
+                    _sourceMarketHash // The source market hash that this wallet belongs to
+                )
+            )
+        );
+    }
 
-        // Initialize first depositor offset for SINGLE_TOKEN payload
-        uint256 offset = DepositPayloadLib.SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET;
+    /**
+     * @notice Accounts for deposits by parsing the compose message and updating the Weiroll Wallet's accounting information.
+     * @dev Processes the compose message to extract depositor addresses and deposit amounts, ensuring that the total deposits accounted for do not exceed the
+     * amount bridged.
+     * @dev Updates the wallet info with each depositor's deposited amounts and the total deposited amounts for the token.
+     * @param _walletInfo The storage reference to the Weiroll wallet information to be updated.
+     * @param _composeMsg The compose message containing depositor addresses and deposit amounts.
+     * @param _depositToken The ERC20 token that was deposited.
+     * @param _tokenAmountBridged The total amount of tokens that were bridged and available for deposits.
+     * @custom:error CantAccountForMoreDepositsThanBridged Thrown if the total deposits accounted for exceed the amount bridged.
+     */
+    function _accountForDeposits(WeirollWalletInfo storage _walletInfo, bytes memory _composeMsg, ERC20 _depositToken, uint256 _tokenAmountBridged) internal {
+        // Amount of deposits accounted for so far
+        uint256 depositsAccountedFor = 0;
 
-        // Num depositors bridged = (bytes for the part of the composeMsg with depositor information / Bytes per depositor)
-        uint256 numDepositorsBridged =
-            (_composeMsg.length - DepositPayloadLib.SINGLE_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET) / DepositPayloadLib.BYTES_PER_DEPOSITOR;
+        // Initialize offset to start after the payload's metadata
+        uint256 offset = CCDMPayloadLib.METADATA_SIZE;
 
-        // Keep track of weiroll wallets created for event emission (to be used in deposit recipe execution phase)
-        weirollWalletsCreated = new address[](numDepositorsBridged);
-        uint256 currIndex = 0;
-
-        // Loop through the compose message and process each depositor
-        while (offset + DepositPayloadLib.BYTES_PER_DEPOSITOR <= _composeMsg.length) {
+        while (offset + CCDMPayloadLib.BYTES_PER_DEPOSITOR <= _composeMsg.length) {
             // Extract AP address (20 bytes)
-            address depositorAddress = _composeMsg.readAddress(offset);
+            address depositor = _composeMsg.readAddress(offset);
             offset += 20;
 
             // Extract deposit amount (12 bytes)
             uint96 depositAmount = _composeMsg.readUint96(offset);
-            // Check that the total amount deposited into Weiroll Wallets isn't more than the amount bridged
-            amountDeposited += depositAmount;
-            require(amountDeposited <= _tokenAmountBridged, CannotDepositMoreThanAmountBridged());
-            offset += 12;
-
-            // Deploy the Weiroll wallet for the depositor
-            address weirollWallet = _createWeirollWallet(_sourceMarketHash, depositorAddress, depositAmount, _campaignUnlockTimestamp);
-
-            // Transfer the deposited tokens to the Weiroll wallet
-            _depositToken.safeTransfer(weirollWallet, depositAmount);
-
-            // Push fresh weiroll wallet to wallets created array
-            weirollWalletsCreated[currIndex++] = weirollWallet;
-        }
-    }
-
-    /**
-     * @notice Processes dual token deposits by creating Weiroll wallets and transferring deposited tokens to them.
-     * @dev For each depositor in the compose message, this function either creates a new Weiroll wallet or uses an existing one (cached by nonce and depositor
-     * address) to transfer the deposited tokens.
-     * Ensures that the total amount deposited does not exceed the total amount bridged.
-     * @param _sourceMarketHash The market hash from the source chain identifying the deposit campaign.
-     * @param _nonce The nonce associated with the dual token bridge, used to cache Weiroll wallets between the two constituent token transfers.
-     * @param _composeMsg The compose message containing depositor information (addresses and deposit amounts).
-     * @param _depositToken The ERC20 token that was bridged and will be deposited into the Weiroll wallets.
-     * @param _tokenAmountBridged The total amount of tokens that were bridged and are available for deposits.
-     * @param _campaignUnlockTimestamp The timestamp when the Weiroll wallets can be unlocked.
-     * @return weirollWalletsCreated An array of addresses of the Weiroll wallets that were created for the depositors.
-     */
-    function _processDualTokenBridge(
-        bytes32 _sourceMarketHash,
-        uint256 _nonce,
-        bytes memory _composeMsg,
-        ERC20 _depositToken,
-        uint256 _tokenAmountBridged,
-        uint256 _campaignUnlockTimestamp
-    )
-        internal
-        returns (address[] memory weirollWalletsCreated)
-    {
-        uint256 amountDeposited = 0;
-
-        // Initialize first depositor offset for DUAL_OR_LP_TOKEN payload
-        uint256 offset = DepositPayloadLib.DUAL_OR_LP_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET;
-
-        // Number of depositors bridged
-        uint256 numDepositorsBridged =
-            (_composeMsg.length - DepositPayloadLib.DUAL_OR_LP_TOKEN_PAYLOAD_FIRST_DEPOSITOR_OFFSET) / DepositPayloadLib.BYTES_PER_DEPOSITOR;
-
-        weirollWalletsCreated = new address[](numDepositorsBridged);
-        uint256 currIndex = 0;
-
-        while (offset + DepositPayloadLib.BYTES_PER_DEPOSITOR <= _composeMsg.length) {
-            // Use struct to group variables
-            DepositorData memory depositorData;
-
-            // Extract AP address (20 bytes)
-            depositorData.depositorAddress = _composeMsg.readAddress(offset);
-            offset += 20;
-
-            // Extract deposit amount (12 bytes)
-            depositorData.depositAmount = _composeMsg.readUint96(offset);
             offset += 12;
 
             // Update total amount deposited
-            amountDeposited += depositorData.depositAmount;
-            require(amountDeposited <= _tokenAmountBridged, CannotDepositMoreThanAmountBridged());
+            depositsAccountedFor += depositAmount;
+            require(depositsAccountedFor <= _tokenAmountBridged, CantAccountForMoreDepositsThanBridged());
 
-            // Check if there is a cached wallet for this nonce
-            depositorData.cachedWeirollWallet = nonceToDepositorToWeirollWallet[_nonce][depositorData.depositorAddress];
-
-            if (depositorData.cachedWeirollWallet == address(0)) {
-                // Create new Weiroll wallet
-                depositorData.weirollWallet = _createWeirollWallet(_sourceMarketHash, depositorData.depositorAddress, 0, _campaignUnlockTimestamp);
-
-                // Transfer the deposited tokens to the Weiroll wallet
-                _depositToken.safeTransfer(depositorData.weirollWallet, depositorData.depositAmount);
-
-                // Cache the Weiroll wallet for this depositor and nonce
-                nonceToDepositorToWeirollWallet[_nonce][depositorData.depositorAddress] = depositorData.weirollWallet;
-
-                // Store the wallet address for event emission
-                weirollWalletsCreated[currIndex++] = depositorData.weirollWallet;
-            } else {
-                // Transfer the deposited tokens to the cached Weiroll Wallet
-                _depositToken.safeTransfer(depositorData.cachedWeirollWallet, depositorData.depositAmount);
-            }
+            // Update the accounting to reflect the deposit
+            _walletInfo.depositorToTokenToAmountDeposited[depositor][_depositToken] += depositAmount;
+            _walletInfo.tokenToTotalAmountDeposited[_depositToken] += depositAmount;
         }
-
-        // Resize weirollWalletsCreated array if necessary
-        if (currIndex < weirollWalletsCreated.length) {
-            assembly ("memory-safe") {
-                mstore(weirollWalletsCreated, currIndex)
-            }
-        }
-    }
-
-    /**
-     * @dev Deploys a Weiroll wallet for the depositor.
-     * @param _sourceMarketHash The source market's hash.
-     * @param _owner The owner of the Weiroll wallet (AP address).
-     * @param _amount The amount deposited.
-     * @param _lockedUntil The timestamp until which the wallet is locked.
-     * @return weirollWallet The address of the Weiroll wallet.
-     */
-    function _createWeirollWallet(
-        bytes32 _sourceMarketHash,
-        address _owner,
-        uint256 _amount,
-        uint256 _lockedUntil
-    )
-        internal
-        returns (address payable weirollWallet)
-    {
-        // Deploy a new non-forfeitable Weiroll Wallet with immutable args
-        bytes memory weirollParams = abi.encodePacked(_owner, address(this), _amount, _lockedUntil, false, _sourceMarketHash);
-        weirollWallet = payable(WEIROLL_WALLET_IMPLEMENTATION.clone(weirollParams));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -447,7 +384,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _owner The address of the campaign owner.
      */
     function setSourceMarketOwner(bytes32 _sourceMarketHash, address _owner) external onlyOwner {
-        sourceMarketHashToOwner[_sourceMarketHash] = _owner;
+        sourceMarketHashToDepositCampaign[_sourceMarketHash].owner = _owner;
     }
 
     /**
@@ -465,7 +402,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _newOwner The address of the new campaign owner.
      */
     function setNewCampaignOwner(bytes32 _sourceMarketHash, address _newOwner) external onlyCampaignOwner(_sourceMarketHash) {
-        sourceMarketHashToOwner[_sourceMarketHash] = _newOwner;
+        sourceMarketHashToDepositCampaign[_sourceMarketHash].owner = _newOwner;
     }
 
     /**

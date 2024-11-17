@@ -10,7 +10,7 @@ import { IWETH } from "src/interfaces/IWETH.sol";
 import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
 import { DualToken } from "src/periphery/DualToken.sol";
 import { DualTokenFactory } from "src/periphery/DualTokenFactory.sol";
-import { DepositType, DepositPayloadLib } from "src/libraries/DepositPayloadLib.sol";
+import { CCDMPayloadLib } from "src/libraries/CCDMPayloadLib.sol";
 import { IUniswapV2Router01 } from "@uniswap-v2/periphery/contracts/interfaces/IUniswapV2Router01.sol";
 import { IUniswapV2Pair } from "@uniswap-v2/core/contracts/interfaces/IUniswapV2Pair.sol";
 
@@ -21,7 +21,7 @@ import { IUniswapV2Pair } from "@uniswap-v2/core/contracts/interfaces/IUniswapV2
 contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     using SafeTransferLib for ERC20;
     using OptionsBuilder for bytes;
-    using DepositPayloadLib for bytes;
+    using CCDMPayloadLib for bytes;
 
     /*//////////////////////////////////////////////////////////////
                                    Constants
@@ -80,9 +80,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Mapping from depositor's address to Weiroll Wallet to amount deposited by that Weiroll Wallet.
     mapping(address => mapping(address => uint256)) public depositorToWeirollWalletToAmount;
 
-    /// @notice Used to keep track of DUAL_OR_LP_TOKEN bridges.
-    /// @notice A DUAL_OR_LP_TOKEN bridge will result in 2 OFT bridges (each with the same nonce).
-    uint256 public nonce;
+    /// @notice Used to keep track of CCDM bridges.
+    /// @notice A CCDM bridge that results in multiple OFT bridges (eg LP bridge) will have the same ccdmBridgeNonce for each bridge payload.
+    uint256 public ccdmBridgeNonce;
 
     /*//////////////////////////////////////////////////////////////
                             Structures
@@ -132,23 +132,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     event SingleTokensBridgedToDestination(bytes32 indexed marketHash, bytes32 lz_guid, uint64 lz_nonce, uint256 amountBridged);
 
     /// @notice Emitted when dual tokens are bridged to the destination chain.
-    event DualTokensBridgedToDestination(
+    event TwoTokensBridgedToDestination(
         bytes32 indexed marketHash,
-        uint256 indexed dt_bridge_nonce,
-        bytes32 lz_tokenA_guid,
-        uint64 lz_tokenA_nonce,
-        ERC20 tokenA,
-        uint256 lz_tokenA_AmountBridged,
-        bytes32 lz_tokenB_guid,
-        uint64 lz_tokenB_nonce,
-        ERC20 tokenB,
-        uint256 lz_tokenB_AmountBridged
-    );
-
-    /// @notice Emitted when dual tokens are bridged to the destination chain.
-    event LpTokensBridgeToDestinationChain(
-        bytes32 indexed marketHash,
-        uint256 indexed dt_bridge_nonce,
+        uint256 indexed ccdmBridgeNonce,
         bytes32 lz_tokenA_guid,
         uint64 lz_tokenA_nonce,
         ERC20 tokenA,
@@ -353,18 +339,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     {
         require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
 
-        /*
-        Bridge Payload Structure:
-            Per Payload (33 bytes):
-                - DepositType: uint8 (1 byte) - SINGLE_TOKEN
-                - marketHash: bytes32 (32 bytes)
-            Per Depositor (32 bytes):
-                - Depositor / AP address: address (20 bytes)
-                - Amount Deposited: uint96 (12 bytes)
-        */
-
         // Initialize compose message - first 33 bytes are BRIDGE_TYPE and market hash
-        bytes memory composeMsg = DepositPayloadLib.initSingleTokenComposeMsg(_depositors.length, _marketHash);
+        bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, ccdmBridgeNonce);
 
         // Keep track of total amount of deposits to bridge and depositors included in the bridge payload.
         uint256 totalAmountToBridge;
@@ -385,7 +361,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         require(totalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
         // Resize the compose message to reflect the actual number of depositors included in the payload
-        composeMsg.resizeComposeMsg(DepositType.SINGLE_TOKEN, numDepositorsIncluded);
+        composeMsg.resizeComposeMsg(numDepositorsIncluded);
 
         // Get the market's input token
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
@@ -423,17 +399,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     {
         require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
 
-        /*
-        Bridge Payload Structure:
-            Per Payload (65 bytes):
-                - DepositType: uint8 (1 byte) - DUAL_OR_LP_TOKEN
-                - marketHash: bytes32 (32 bytes)
-                - nonce: uint256 (32 bytes)
-            Per Depositor (32 bytes):
-                - Depositor / AP address: address (20 bytes)
-                - Amount Deposited: uint96 (12 bytes)
-        */
-
         // Get the market's input token
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
 
@@ -445,8 +410,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 amountOfTokenBPerDT = dualToken.amountOfTokenBPerDT();
 
         // Initialize compose messages for both tokens
-        bytes memory tokenA_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_depositors.length, _marketHash, nonce);
-        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_depositors.length, _marketHash, nonce);
+        uint256 nonce = ccdmBridgeNonce;
+        bytes memory tokenA_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
+        bytes memory tokenB_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
 
         // Keep track of total amount of deposits to bridge and depositors included in the bridge payload.
         uint256 dt_TotalDepositsInBatch;
@@ -474,8 +440,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         dualToken.burn(dt_TotalDepositsInBatch);
 
         // Resize the compose messages to reflect the actual number of depositors included in the payload
-        tokenA_ComposeMsg.resizeComposeMsg(DepositType.DUAL_OR_LP_TOKEN, numDepositorsIncluded);
-        tokenB_ComposeMsg.resizeComposeMsg(DepositType.DUAL_OR_LP_TOKEN, numDepositorsIncluded);
+        tokenA_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
+        tokenB_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
 
         // Create bridge parameters
         DualOrLpTokensBridgeParams memory bridgeParams = DualOrLpTokensBridgeParams({
@@ -517,17 +483,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     {
         require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
 
-        /*
-        Bridge Payload Structure:
-            Per Payload (65 bytes):
-                - DepositType: uint8 (1 byte) - DUAL_OR_LP_TOKEN
-                - marketHash: bytes32 (32 bytes)
-                - nonce: uint256 (32 bytes)
-            Per Depositor (32 bytes):
-                - Depositor / AP address: address (20 bytes)
-                - Amount Deposited: uint96 (12 bytes)
-        */
-
         // Get deposit amount for each depositor and total deposit amount for this batch
         uint256 lp_TotalDepositsInBatch = 0;
         uint256[] memory lp_DepositAmounts = new uint256[](_depositors.length);
@@ -557,8 +512,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 tokenB_DecimalConversionRate = 10 ** (tokenB.decimals() - tokenToLzV2OFT[tokenB].sharedDecimals());
 
         // Initialize compose messages for both tokens
-        bytes memory tokenA_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_depositors.length, _marketHash, nonce);
-        bytes memory tokenB_ComposeMsg = DepositPayloadLib.initDualOrLpTokenComposeMsg(_depositors.length, _marketHash, nonce);
+        uint256 nonce = ccdmBridgeNonce;
+        bytes memory tokenA_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
+        bytes memory tokenB_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
 
         // Initialize totals
         TotalAmountsToBridge memory totals;
@@ -585,8 +541,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         require(totals.tokenA_TotalAmountToBridge > 0 && totals.tokenB_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
         // Resize the compose messages to reflect the actual number of depositors included in the payload
-        tokenA_ComposeMsg.resizeComposeMsg(DepositType.DUAL_OR_LP_TOKEN, params.numDepositorsIncluded);
-        tokenB_ComposeMsg.resizeComposeMsg(DepositType.DUAL_OR_LP_TOKEN, params.numDepositorsIncluded);
+        tokenA_ComposeMsg.resizeComposeMsg(params.numDepositorsIncluded);
+        tokenB_ComposeMsg.resizeComposeMsg(params.numDepositorsIncluded);
 
         // Create bridge parameters
         DualOrLpTokensBridgeParams memory bridgeParams = DualOrLpTokensBridgeParams({
@@ -640,7 +596,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         _clearDepositorData(_marketHash, _depositor);
 
         // Add depositor to the compose message
-        _composeMsg.writeDepositorToSingleTokenPayload(_depositorIndex, _depositor, uint96(depositAmount));
+        _composeMsg.writeDepositor(_depositorIndex, _depositor, uint96(depositAmount));
     }
 
     /**
@@ -683,8 +639,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         _clearDepositorData(_marketHash, _depositor);
 
         // Update compose messages
-        _tokenA_ComposeMsg.writeDepositorToDualOrLpTokenPayload(_depositorIndex, _depositor, uint96(tokenA_DepositAmount));
-        _tokenB_ComposeMsg.writeDepositorToDualOrLpTokenPayload(_depositorIndex, _depositor, uint96(tokenB_DepositAmount));
+        _tokenA_ComposeMsg.writeDepositor(_depositorIndex, _depositor, uint96(tokenA_DepositAmount));
+        _tokenB_ComposeMsg.writeDepositor(_depositorIndex, _depositor, uint96(tokenB_DepositAmount));
 
         // Update totals
         _totals.tokenA_TotalAmountToBridge += tokenA_DepositAmount;
@@ -738,8 +694,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Update compose messages with acceptable amounts
-        _tokenA_ComposeMsg.writeDepositorToDualOrLpTokenPayload(params.numDepositorsIncluded, params.depositor, uint96(tokenA_DepositAmount));
-        _tokenB_ComposeMsg.writeDepositorToDualOrLpTokenPayload(params.numDepositorsIncluded++, params.depositor, uint96(tokenB_DepositAmount));
+        _tokenA_ComposeMsg.writeDepositor(params.numDepositorsIncluded, params.depositor, uint96(tokenA_DepositAmount));
+        _tokenB_ComposeMsg.writeDepositor(params.numDepositorsIncluded++, params.depositor, uint96(tokenB_DepositAmount));
 
         // Update totals
         _totals.tokenA_TotalAmountToBridge += tokenA_DepositAmount;
@@ -800,9 +756,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Emit event to keep track of bridged deposits
-        emit DualTokensBridgedToDestination(
+        emit TwoTokensBridgedToDestination(
             params.marketHash,
-            nonce++,
+            ccdmBridgeNonce++,
             tokenA_MessageReceipt.guid,
             tokenA_MessageReceipt.nonce,
             params.tokenA,
