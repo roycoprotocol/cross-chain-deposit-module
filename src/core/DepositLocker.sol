@@ -8,8 +8,6 @@ import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
 import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src/interfaces/IOFT.sol";
 import { IWETH } from "src/interfaces/IWETH.sol";
 import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
-import { DualToken } from "src/periphery/DualToken.sol";
-import { DualTokenFactory } from "src/periphery/DualTokenFactory.sol";
 import { CCDMPayloadLib } from "src/libraries/CCDMPayloadLib.sol";
 import { IUniswapV2Router01 } from "@uniswap-v2/periphery/contracts/interfaces/IUniswapV2Router01.sol";
 import { IUniswapV2Pair } from "@uniswap-v2/core/contracts/interfaces/IUniswapV2Pair.sol";
@@ -39,9 +37,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice The RecipeMarketHub keeping track of all Royco markets and offers.
     RecipeMarketHubBase public immutable RECIPE_MARKET_HUB;
-
-    /// @notice The DualToken Factory used to create new DualTokens.
-    DualTokenFactory public immutable DUAL_OR_LP_TOKEN_FACTORY;
 
     /// @notice The wrapped native asset token on the source chain.
     IWETH public immutable WRAPPED_NATIVE_ASSET_TOKEN;
@@ -94,8 +89,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 tokenB_TotalAmountToBridge;
     }
 
-    /// @notice Struct to hold parameters for bridging dual and lp tokens.
-    struct DualOrLpTokensBridgeParams {
+    /// @notice Struct to hold parameters for bridging lp tokens.
+    struct LpTokensBridgeParams {
         bytes32 marketHash;
         uint128 executorGasLimit;
         ERC20 tokenA;
@@ -131,8 +126,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Emitted when single tokens are bridged to the destination chain.
     event SingleTokensBridgedToDestination(bytes32 indexed marketHash, bytes32 lz_guid, uint64 lz_nonce, uint256 amountBridged);
 
-    /// @notice Emitted when dual tokens are bridged to the destination chain.
-    event TwoTokensBridgedToDestination(
+    /// @notice Emitted when LP tokens are bridged to the destination chain.
+    event LpTokensBridgedToDestination(
         bytes32 indexed marketHash,
         uint256 indexed ccdmBridgeNonce,
         bytes32 lz_tokenA_guid,
@@ -251,7 +246,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         RECIPE_MARKET_HUB = _recipeMarketHub;
-        DUAL_OR_LP_TOKEN_FACTORY = new DualTokenFactory(); // Create the DualToken factory
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
         UNISWAP_V2_ROUTER = _uniswap_v2_router;
         GREEN_LIGHTER = _greenLighter;
@@ -276,7 +270,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
-        if (!DUAL_OR_LP_TOKEN_FACTORY.isDualToken(address(marketInputToken)) && !_isUniV2Pair(address(marketInputToken))) {
+        if (!_isUniV2Pair(address(marketInputToken))) {
             // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for SINGLE_TOKEN markets
             bool depositAmountHasValidPrecision =
                 amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
@@ -380,85 +374,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Bridges depositors in dual token markets from the source chain to the destination chain.
-     * @dev NOTE: Be generous with the _executorGasLimit to prevent reversion on the destination chain.
-     * @dev Green light must be given before calling.
-     * @param _marketHash The hash of the market to bridge tokens for.
-     * @param _executorGasLimit The gas limit of the executor on the destination chain.
-     * @param _depositors The addresses of the depositors (APs) to bridge
-     */
-    function bridgeDualTokens(
-        bytes32 _marketHash,
-        uint128 _executorGasLimit,
-        address[] calldata _depositors
-    )
-        external
-        payable
-        readyToBridge(_marketHash)
-        nonReentrant
-    {
-        require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
-
-        // Get the market's input token
-        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
-
-        // Extract DualToken constituent tokens and amounts
-        DualToken dualToken = DualToken(address(marketInputToken));
-        ERC20 tokenA = dualToken.tokenA();
-        ERC20 tokenB = dualToken.tokenB();
-        uint256 amountOfTokenAPerDT = dualToken.amountOfTokenAPerDT();
-        uint256 amountOfTokenBPerDT = dualToken.amountOfTokenBPerDT();
-
-        // Initialize compose messages for both tokens
-        uint256 nonce = ccdmBridgeNonce;
-        bytes memory tokenA_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
-        bytes memory tokenB_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
-
-        // Keep track of total amount of deposits to bridge and depositors included in the bridge payload.
-        uint256 dt_TotalDepositsInBatch;
-        uint256 numDepositorsIncluded;
-        TotalAmountsToBridge memory totals;
-
-        for (uint256 i = 0; i < _depositors.length; ++i) {
-            // Process the depositor and update the compose messages
-            uint256 dt_depositAmount = _processDualTokenDepositor(
-                _marketHash, numDepositorsIncluded, _depositors[i], amountOfTokenAPerDT, amountOfTokenBPerDT, tokenA_ComposeMsg, tokenB_ComposeMsg, totals
-            );
-            if (dt_depositAmount == 0) {
-                // If skipped this depositor, continue.
-                continue;
-            }
-            // Update total amount of DT to burn
-            dt_TotalDepositsInBatch += dt_depositAmount;
-            ++numDepositorsIncluded;
-        }
-
-        // Ensure that at least one depositor was included in the bridge payload
-        require(totals.tokenA_TotalAmountToBridge > 0 && totals.tokenB_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
-
-        // Burn the dual tokens to receive the constituents in the DepositLocker
-        dualToken.burn(dt_TotalDepositsInBatch);
-
-        // Resize the compose messages to reflect the actual number of depositors included in the payload
-        tokenA_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
-        tokenB_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
-
-        // Create bridge parameters
-        DualOrLpTokensBridgeParams memory bridgeParams = DualOrLpTokensBridgeParams({
-            marketHash: _marketHash,
-            executorGasLimit: _executorGasLimit,
-            tokenA: tokenA,
-            tokenB: tokenB,
-            totals: totals,
-            tokenA_ComposeMsg: tokenA_ComposeMsg,
-            tokenB_ComposeMsg: tokenB_ComposeMsg
-        });
-
-        // Execute 2 consecutive bridges for each constituent token
-        _executeConsecutiveBridges(bridgeParams);
-    }
-
-    /**
      * @notice Bridges depositors in Uniswap V2 LP token markets from the source chain to the destination chain.
      * @dev Handles bridge precision by adjusting amounts to acceptable precision and refunding any dust to depositors.
      * @dev Green light must be given before calling.
@@ -499,7 +414,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Approve the LP tokens to be spent by the Uniswap V2 Router
         marketInputToken.safeApprove(address(UNISWAP_V2_ROUTER), lp_TotalDepositsInBatch);
 
-        // Get the individual Pool Tokens in the Uniswap V2 Pair
+        // Get the constituent tokens in the Uniswap V2 Pair
         ERC20 tokenA = ERC20(uniV2Pair.token0());
         ERC20 tokenB = ERC20(uniV2Pair.token1());
 
@@ -545,7 +460,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         tokenB_ComposeMsg.resizeComposeMsg(params.numDepositorsIncluded);
 
         // Create bridge parameters
-        DualOrLpTokensBridgeParams memory bridgeParams = DualOrLpTokensBridgeParams({
+        LpTokensBridgeParams memory bridgeParams = LpTokensBridgeParams({
             marketHash: _marketHash,
             executorGasLimit: _executorGasLimit,
             tokenA: tokenA,
@@ -597,56 +512,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Add depositor to the compose message
         _composeMsg.writeDepositor(_depositorIndex, _depositor, uint96(depositAmount));
-    }
-
-    /**
-     * @notice Processes a dual token depositor by updating compose messages and clearing depositor data.
-     * @dev Calculates the amount of each constituent token and updates the compose messages accordingly.
-     * @param _marketHash The hash of the market to process.
-     * @param _depositorIndex The index of the depositor in the batch of depositors.
-     * @param _depositor The address of the depositor.
-     * @param _amountOfTokenAPerDT The amount of Token A per dual token.
-     * @param _amountOfTokenBPerDT The amount of Token B per dual token.
-     * @param _tokenA_ComposeMsg The current compose message for Token A to be updated.
-     * @param _tokenB_ComposeMsg The current compose message for Token B to be updated.
-     * @param _totals The total amounts for each constituent to bridge
-     */
-    function _processDualTokenDepositor(
-        bytes32 _marketHash,
-        uint256 _depositorIndex,
-        address _depositor,
-        uint256 _amountOfTokenAPerDT,
-        uint256 _amountOfTokenBPerDT,
-        bytes memory _tokenA_ComposeMsg,
-        bytes memory _tokenB_ComposeMsg,
-        TotalAmountsToBridge memory _totals
-    )
-        internal
-        returns (uint256 dt_DepositAmount)
-    {
-        // Get amount deposited by the depositor (AP)
-        dt_DepositAmount = marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
-
-        // Calculate amount of each constituent to bridge
-        uint256 tokenA_DepositAmount = dt_DepositAmount * _amountOfTokenAPerDT;
-        uint256 tokenB_DepositAmount = dt_DepositAmount * _amountOfTokenBPerDT;
-
-        if (tokenA_DepositAmount > type(uint96).max || tokenB_DepositAmount > type(uint96).max) {
-            return 0; // Skip if deposit amount exceeds limit
-        }
-
-        // Delete all Weiroll Wallet state and deposit amounts associated with this depositor
-        _clearDepositorData(_marketHash, _depositor);
-
-        // Update compose messages
-        _tokenA_ComposeMsg.writeDepositor(_depositorIndex, _depositor, uint96(tokenA_DepositAmount));
-        _tokenB_ComposeMsg.writeDepositor(_depositorIndex, _depositor, uint96(tokenB_DepositAmount));
-
-        // Update totals
-        _totals.tokenA_TotalAmountToBridge += tokenA_DepositAmount;
-        _totals.tokenB_TotalAmountToBridge += tokenB_DepositAmount;
-
-        return dt_DepositAmount;
     }
 
     /**
@@ -735,9 +600,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /**
      * @notice Bridges two tokens consecutively to the destination chain using LayerZero's OFT.
      * @dev Handles the bridging of Token A and Token B, fee management, and event emission.
-     * @param params The parameters required for bridging dual tokens.
+     * @param params The parameters required for bridging LP tokens.
      */
-    function _executeConsecutiveBridges(DualOrLpTokensBridgeParams memory params) internal {
+    function _executeConsecutiveBridges(LpTokensBridgeParams memory params) internal {
         uint256 totalBridgingFee = 0;
 
         // Bridge Token A
