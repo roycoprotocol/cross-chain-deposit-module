@@ -90,7 +90,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /// @notice Struct to hold parameters for bridging lp tokens.
-    struct LpTokensBridgeParams {
+    struct LpBridgeParams {
         bytes32 marketHash;
         uint128 executorGasLimit;
         ERC20 tokenA;
@@ -460,7 +460,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         tokenB_ComposeMsg.resizeComposeMsg(params.numDepositorsIncluded);
 
         // Create bridge parameters
-        LpTokensBridgeParams memory bridgeParams = LpTokensBridgeParams({
+        LpBridgeParams memory bridgeParams = LpBridgeParams({
             marketHash: _marketHash,
             executorGasLimit: _executorGasLimit,
             tokenA: tokenA,
@@ -602,7 +602,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @dev Handles the bridging of Token A and Token B, fee management, and event emission.
      * @param params The parameters required for bridging LP tokens.
      */
-    function _executeConsecutiveBridges(LpTokensBridgeParams memory params) internal {
+    function _executeConsecutiveBridges(LpBridgeParams memory params) internal {
         uint256 totalBridgingFee = 0;
 
         // Bridge Token A
@@ -621,7 +621,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Emit event to keep track of bridged deposits
-        emit TwoTokensBridgedToDestination(
+        emit LpTokensBridgedToDestination(
             params.marketHash,
             ccdmBridgeNonce++,
             tokenA_MessageReceipt.guid,

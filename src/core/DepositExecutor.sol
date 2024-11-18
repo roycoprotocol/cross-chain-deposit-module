@@ -209,7 +209,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // If there is no cached Weiroll Wallet for this CCDM ccdmBridgeNonce, create one
         WeirollWalletInfo storage walletInfo = campaign.ccdmNonceToWeirollWalletInfo[ccdmBridgeNonce];
         if (walletInfo.weirollWallet == address(0)) {
-            walletInfo.weirollWallet = _createWeirollWallet(sourceMarketHash, campaign.owner, campaign.unlockTimestamp);
+            walletInfo.weirollWallet = _createWeirollWallet(sourceMarketHash, campaign.unlockTimestamp);
         }
 
         // Transfer amount bridged of the token into the Weiroll Wallets
@@ -308,16 +308,15 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /**
      * @dev Deploys a Weiroll wallet with the specified parameters.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
-     * @param _owner The owner of this Weiroll Wallet.
      * @param _unlockTimestamp The ABSOLUTE unlock timestamp for this Weiroll Wallet.
      * @return weirollWallet The address of the Weiroll wallet.
      */
-    function _createWeirollWallet(bytes32 _sourceMarketHash, address _owner, uint256 _unlockTimestamp) internal returns (address payable weirollWallet) {
+    function _createWeirollWallet(bytes32 _sourceMarketHash, uint256 _unlockTimestamp) internal returns (address payable weirollWallet) {
         // Deploy a fresh, non-forfeitable Weiroll Wallet with immutable args.
         weirollWallet = payable(
             WEIROLL_WALLET_IMPLEMENTATION.clone(
                 abi.encodePacked(
-                    _owner, // Wallet owner - will be campaign owner/
+                    address(0), // Wallet owner will be zero address so that no single party can siphon funds after lock timestamp has passed.
                     address(this), // DepositExecutor will be the entrypoint for recipe execution (in addition to the owner after the unlock timestamp).
                     uint256(0), // Amount will always be 0 since wallets could have multiple tokens.
                     _unlockTimestamp, // ABSOLUTE unlock timestamp for wallets created in this campaign.
