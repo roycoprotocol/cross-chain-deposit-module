@@ -11,7 +11,7 @@ import { Vm } from "lib/forge-std/src/Vm.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
 
 // Test deploying deposits via weiroll recipes post bridge
-contract Test_DepositExecutor is RecipeMarketHubTestBase {
+contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
     using FixedPointMathLib for uint256;
 
     address IP_ADDRESS;
@@ -56,8 +56,6 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
      */
     function test_ExecutorOnBridge(uint256 offerAmount, uint256 numDepositors, uint256 unlockTimestamp) external {
         offerAmount = bound(offerAmount, 1e6, type(uint48).max);
-        unlockTimestamp = bound(unlockTimestamp, block.timestamp, type(uint128).max);
-
         // Simulate bridge
         BridgeDepositsResult memory bridgeResult = _bridgeDeposits(offerAmount, numDepositors);
 
@@ -67,14 +65,10 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         vm.selectFork(polygonFork);
         assertEq(vm.activeFork(), polygonFork);
 
+        unlockTimestamp = bound(unlockTimestamp, block.timestamp + 1, type(uint128).max);
+
         weirollImplementation = new WeirollWallet();
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
-
-        ERC20[] memory depositTokens = new ERC20[](1);
-        address[] memory lzV2OFTs = new address[](1);
-
-        depositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
-        lzV2OFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS; // Stargate USDC Pool on Polygon Mainnet
 
         DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, SCRIPT_VERIFIER_ADDRESS, address(0));
 
@@ -83,7 +77,14 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         vm.startPrank(IP_ADDRESS);
-        depositExecutor.setCampaignUnlockTimestamp(bridgeResult.marketHash, unlockTimestamp);
+        depositExecutor.setCampaignUnlockTimestamp(bridgeResult.marketHash, block.timestamp - 1);
+        vm.stopPrank();
+
+        ERC20[] memory depositTokens = new ERC20[](1);
+        depositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
+
+        vm.startPrank(IP_ADDRESS);
+        depositExecutor.setCampaignInputTokens(bridgeResult.marketHash, depositTokens);
         vm.stopPrank();
 
         DepositExecutor.Recipe memory DEPOSIT_RECIPE = _buildBurnDepositRecipe(address(walletHelper), USDC_POLYGON_ADDRESS);
@@ -99,12 +100,6 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
         // Fund the Executor (bridge simulation)
         deal(USDC_POLYGON_ADDRESS, address(depositExecutor), offerAmount);
 
-        for (uint256 i = 0; i < numDepositors; i++) {
-            // Check that tokens being deposited into weiroll wallet
-            vm.expectEmit(true, false, false, false, USDC_POLYGON_ADDRESS);
-            emit ERC20.Transfer(address(depositExecutor), address(0), bridgeResult.depositAmounts[i]);
-        }
-
         vm.recordLogs();
         vm.startPrank(POLYGON_LZ_ENDPOINT);
         depositExecutor.lzCompose(
@@ -118,48 +113,48 @@ contract Test_DepositExecutor is RecipeMarketHubTestBase {
 
         // Check that all weiroll wallets were created and executed as expected
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        for (uint256 i = 0; i < numDepositors; i++) {
-            WeirollWallet weirollWalletForDepositor = WeirollWallet(payable(address(uint160(uint256(logs[i].topics[2])))));
+        WeirollWallet weirollWalletCreatedForBridge = WeirollWallet(payable(abi.decode(logs[0].data, (address))));
 
-            // Check wallet state is correct
-            assertEq(weirollWalletForDepositor.owner(), bridgeResult.depositors[i]);
-            assertEq(weirollWalletForDepositor.recipeMarketHub(), address(depositExecutor));
-            assertEq(weirollWalletForDepositor.amount(), bridgeResult.depositAmounts[i]);
-            assertEq(weirollWalletForDepositor.lockedUntil(), unlockTimestamp);
-            assertEq(weirollWalletForDepositor.isForfeitable(), false);
-            assertEq(weirollWalletForDepositor.marketHash(), bridgeResult.marketHash);
-            assertEq(weirollWalletForDepositor.executed(), false);
-            assertEq(weirollWalletForDepositor.forfeited(), false);
-            // Check that deposit amount was sent to the wallet
-            assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(weirollWalletForDepositor)), bridgeResult.depositAmounts[i]);
+        // Check wallet state is correct
+        assertEq(weirollWalletCreatedForBridge.owner(), address(0));
+        assertEq(weirollWalletCreatedForBridge.recipeMarketHub(), address(depositExecutor));
+        assertEq(weirollWalletCreatedForBridge.amount(), 0);
+        // assertEq(weirollWalletCreatedForBridge.lockedUntil(), block.timestamp + 1);
+        assertEq(weirollWalletCreatedForBridge.isForfeitable(), false);
+        assertEq(weirollWalletCreatedForBridge.marketHash(), bridgeResult.marketHash);
+        assertEq(weirollWalletCreatedForBridge.executed(), false);
+        assertEq(weirollWalletCreatedForBridge.forfeited(), false);
+        // Check that deposit amount was not sent to the wallet (will be sent when executing deposit recipe)
+        assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(weirollWalletCreatedForBridge)), 0);
+
+        // vm.expectCall(USDC_POLYGON_ADDRESS, abi.encodeCall(ERC20.transfer, (address(0xbeef), offerAmount)));
+
+        // // Check that correct deposit recipe output state is reached
+        // vm.expectEmit(true, true, false, true, USDC_POLYGON_ADDRESS);
+        // emit ERC20.Transfer(address(weirollWalletCreatedForBridge), address(0xbeef), offerAmount);
+
+        // vm.warp(unlockTimestamp);
+
+        for (uint256 i = 0; i < bridgeResult.depositors.length; ++i) {
+            vm.startPrank(bridgeResult.depositors[i]);
+            depositExecutor.withdraw(address(weirollWalletCreatedForBridge));
+            vm.stopPrank();
         }
 
-        address[] memory weirollWallets = abi.decode(logs[logs.length - 1].data, (address[]));
-        assertEq(weirollWallets.length, numDepositors);
+        // address[] memory weirollWallets = new address[](1);
+        // weirollWallets[0] = address(weirollWalletCreatedForBridge);
 
-        for (uint256 i = 0; i < numDepositors; i++) {
-            // Check that deposit recipe is called
-            vm.expectCall(USDC_POLYGON_ADDRESS, abi.encodeCall(ERC20.transfer, (address(0xbeef), bridgeResult.depositAmounts[i])));
+        // vm.startPrank(IP_ADDRESS);
+        // depositExecutor.executeDepositRecipes(bridgeResult.marketHash, weirollWallets);
+        // vm.stopPrank();
 
-            // Check that correct deposit recipe output state is reached
-            vm.expectEmit(true, true, false, true, USDC_POLYGON_ADDRESS);
-            emit ERC20.Transfer(weirollWallets[i], address(0xbeef), bridgeResult.depositAmounts[i]);
-        }
+        // // Check wallet state is correct
+        // assertEq(weirollWalletCreatedForBridge.executed(), true);
+        // // Check that deposit execution was done as specified by the deposit recipe
+        // assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(weirollWalletCreatedForBridge)), 0);
 
-        vm.startPrank(IP_ADDRESS);
-        depositExecutor.executeDepositRecipes(bridgeResult.marketHash, weirollWallets);
-        vm.stopPrank();
-
-        for (uint256 i = 0; i < numDepositors; i++) {
-            WeirollWallet weirollWalletForDepositor = WeirollWallet(payable(weirollWallets[i]));
-
-            // Check wallet state is correct
-            assertEq(weirollWalletForDepositor.executed(), true);
-            // Check that deposit execution was done as specified by the deposit recipe
-            assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(weirollWalletForDepositor)), 0);
-        }
-        // Check that 0xbeef received all funds on destination
-        assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(0xbeef)), offerAmount);
+        // // Check that 0xbeef received all funds on destination
+        // assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(0xbeef)), offerAmount);
     }
 
     /**

@@ -17,9 +17,9 @@ import { IUniswapV2Pair } from "@uniswap-v2/core/contracts/interfaces/IUniswapV2
 /// @notice A singleton contract for managing deposits for the destination chain on the source chain.
 /// @notice Facilitates deposits, withdrawals, and bridging deposits for all deposit markets.
 contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
-    using SafeTransferLib for ERC20;
-    using OptionsBuilder for bytes;
     using CCDMPayloadLib for bytes;
+    using OptionsBuilder for bytes;
+    using SafeTransferLib for ERC20;
 
     /*//////////////////////////////////////////////////////////////
                                    Constants
@@ -76,7 +76,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     mapping(address => mapping(address => uint256)) public depositorToWeirollWalletToAmount;
 
     /// @notice Used to keep track of CCDM bridges.
-    /// @notice A CCDM bridge that results in multiple OFT bridges (eg LP bridge) will have the same ccdmBridgeNonce for each bridge payload.
+    /// @notice A CCDM bridge that results in multiple OFTs being bridged (LP bridge) will have the same nonce.
     uint256 public ccdmBridgeNonce;
 
     /*//////////////////////////////////////////////////////////////
@@ -89,7 +89,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 tokenB_TotalAmountToBridge;
     }
 
-    /// @notice Struct to hold parameters for bridging lp tokens.
+    /// @notice Struct to hold parameters for bridging LP tokens.
     struct LpBridgeParams {
         bytes32 marketHash;
         uint128 executorGasLimit;
@@ -718,7 +718,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _token The address of the token to check.
      * @return True if the token is a Uniswap V2 LP token, false otherwise.
      */
-    function _isUniV2Pair(address _token) public view returns (bool) {
+    function _isUniV2Pair(address _token) internal view returns (bool) {
         bytes32 codeHash;
         assembly ("memory-safe") {
             codeHash := extcodehash(_token)
