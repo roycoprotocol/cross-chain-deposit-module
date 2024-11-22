@@ -323,7 +323,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @dev Deploys a Weiroll wallet with the specified parameters.
+     * @dev Creates a Weiroll wallet with the specified parameters.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _unlockTimestamp The ABSOLUTE unlock timestamp for this Weiroll Wallet.
      * @return weirollWallet The address of the Weiroll wallet.
@@ -333,12 +333,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         weirollWallet = payable(
             WEIROLL_WALLET_IMPLEMENTATION.clone(
                 abi.encodePacked(
-                    address(0), // Wallet owner will be zero address so that no single party can siphon funds after lock timestamp has passed.
+                    address(0), // Wallet owner will be zero address so that no single party can siphon depositor funds after lock timestamp has passed.
                     address(this), // DepositExecutor will be the entrypoint for recipe execution (in addition to the owner after the unlock timestamp).
                     uint256(0), // Amount will always be 0 since a Weiroll Wallet may hold multiple tokens.
                     _unlockTimestamp, // The ABSOLUTE unlock timestamp for wallets created for this campaign.
-                    false, // Wallet is non-forfeitable since the deposits have reached the destination chain.
-                    _sourceMarketHash // The source market hash that this wallet belongs to
+                    false, // Weiroll Wallet is non-forfeitable since the deposits have reached the destination chain.
+                    _sourceMarketHash // The source market hash and its corresponding campaign identifier that this wallet belongs to.
                 )
             )
         );
