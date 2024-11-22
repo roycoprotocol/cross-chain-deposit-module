@@ -558,6 +558,18 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             tokenB_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _tokenB, tokenB_DepositAmount, params.tokenB_DecimalConversionRate);
         }
 
+        if (tokenA_DepositAmount == 0 || tokenB_DepositAmount == 0) {
+            // Can't bridge this depositor because they were trying to bridge a dust amount of at least one token.
+            // Refund the non-dust if any and omit from the payload
+            if (tokenA_DepositAmount != 0) {
+                _tokenA.safeTransfer(params.depositor, tokenA_DepositAmount);
+            }
+            if (tokenB_DepositAmount != 0) {
+                _tokenB.safeTransfer(params.depositor, tokenB_DepositAmount);
+            }
+            return;
+        }
+
         // Update compose messages with acceptable amounts
         _tokenA_ComposeMsg.writeDepositor(params.numDepositorsIncluded, params.depositor, uint96(tokenA_DepositAmount));
         _tokenB_ComposeMsg.writeDepositor(params.numDepositorsIncluded++, params.depositor, uint96(tokenB_DepositAmount));
