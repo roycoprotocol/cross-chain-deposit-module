@@ -136,9 +136,11 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
 
         assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(weirollWalletCreatedForBridge)), 0);
 
+        uint256 initialReceiptTokenBalance = ERC20(aUSDC_POLYGON).balanceOf(address(weirollWalletCreatedForBridge));
+
         vm.warp(unlockTimestamp);
 
-        uint256 receiptTokensReceived = ERC20(aUSDC_POLYGON).balanceOf(address(weirollWalletCreatedForBridge));
+        uint256 postUnlockReceiptTokenBalance = ERC20(aUSDC_POLYGON).balanceOf(address(weirollWalletCreatedForBridge));
 
         for (uint256 i = 0; i < bridgeResult.depositors.length; ++i) {
             // Withdraw without executing deposit recipes
@@ -146,9 +148,13 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
             depositExecutor.withdraw(address(weirollWalletCreatedForBridge));
             vm.stopPrank();
 
+            assertGt(ERC20(aUSDC_POLYGON).balanceOf(bridgeResult.depositors[i]), ((initialReceiptTokenBalance * bridgeResult.depositAmounts[i]) / offerAmount));
+
             // Assert that depositor got their receipt tokens and any interest.
             assertApproxEqRel(
-                ERC20(aUSDC_POLYGON).balanceOf(bridgeResult.depositors[i]), ((receiptTokensReceived * bridgeResult.depositAmounts[i]) / offerAmount), 0.0001e18
+                ERC20(aUSDC_POLYGON).balanceOf(bridgeResult.depositors[i]),
+                ((postUnlockReceiptTokenBalance * bridgeResult.depositAmounts[i]) / offerAmount),
+                0.0001e18
             );
         }
         assertEq(ERC20(aUSDC_POLYGON).balanceOf(address(weirollWalletCreatedForBridge)), 0);
