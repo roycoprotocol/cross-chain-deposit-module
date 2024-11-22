@@ -48,13 +48,13 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         uint256 unlockTimestamp;
         Recipe depositRecipe;
         mapping(uint256 => address) ccdmBridgeNonceToWeirollWallet;
-        mapping(address => SingleEntryLedger) weirollWalletToLedger;
+        mapping(address => WeirollWalletAccounting) weirollWalletToLedger;
     }
 
     /// @dev Holds the granular depositor balances of a WeirollWallet.
     /// @custom:field depositorToTokenToAmount Mapping to account for depositor's balance of each token in this Weiroll Wallet.
     /// @custom:field tokenToTotalAmount Mapping to account for total amounts deposited for each token in this Weiroll Wallet.
-    struct SingleEntryLedger {
+    struct WeirollWalletAccounting {
         mapping(address => mapping(ERC20 => uint256)) depositorToTokenToAmountDeposited;
         mapping(ERC20 => uint256) tokenToTotalAmountDeposited;
     }
@@ -216,7 +216,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         }
 
         // Get the accounting ledger for this Weiroll Wallet
-        SingleEntryLedger storage walletLedger = campaign.weirollWalletToLedger[cachedWeirollWallet];
+        WeirollWalletAccounting storage walletLedger = campaign.weirollWalletToLedger[cachedWeirollWallet];
 
         // Execute accounting logic to keep track of each depositor's position in this wallet.
         _accountForDeposits(walletLedger, composeMsg, depositToken, tokenAmountBridged);
@@ -250,7 +250,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             // Only execute deposit if the wallet belongs to this market
             if (weirollWallet.marketHash() == _sourceMarketHash) {
                 // Get this wallet's deposit accouting ledger
-                SingleEntryLedger storage walletLedger = campaign.weirollWalletToLedger[_weirollWallets[i]];
+                WeirollWalletAccounting storage walletLedger = campaign.weirollWalletToLedger[_weirollWallets[i]];
 
                 // Transfer input tokens from the executor into the Weiroll Wallet for use in the deposit recipe.
                 _transferInputTokensToWallet(campaign.inputTokens, walletLedger, _weirollWallets[i]);
@@ -278,7 +278,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Get the campaign details for the source market
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[weirollWallet.marketHash()];
         // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM bridge nonce on destination)
-        SingleEntryLedger storage walletLedger = campaign.weirollWalletToLedger[_weirollWallet];
+        WeirollWalletAccounting storage walletLedger = campaign.weirollWalletToLedger[_weirollWallet];
 
         // Do some checks to ensure that the withdrawal is valid
         require(weirollWallet.lockedUntil() <= block.timestamp, WalletLocked());
@@ -356,7 +356,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @custom:error CantAccountForMoreDepositsThanBridged Thrown if the total deposits accounted for exceed the amount bridged.
      */
     function _accountForDeposits(
-        SingleEntryLedger storage _walletLedger,
+        WeirollWalletAccounting storage _walletLedger,
         bytes memory _composeMsg,
         ERC20 _depositToken,
         uint256 _tokenAmountBridged
@@ -394,7 +394,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _walletLedger The ledger associated with the Weiroll Wallet.
      * @param _weirollWallet The address of the Weiroll Wallet.
      */
-    function _transferInputTokensToWallet(ERC20[] storage _inputTokens, SingleEntryLedger storage _walletLedger, address _weirollWallet) internal {
+    function _transferInputTokensToWallet(ERC20[] storage _inputTokens, WeirollWalletAccounting storage _walletLedger, address _weirollWallet) internal {
         for (uint256 i = 0; i < _inputTokens.length; ++i) {
             ERC20 inputToken = _inputTokens[i];
 
@@ -428,9 +428,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /**
-     * @notice Sets the scripts to verified (now they are executable) for a campaign identified by _sourceMarketHash.
+     * @notice Sets the scripts to verified (making them executable) for a campaign identified by _sourceMarketHash.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
-     * @param _scriptHash The hash of the script that the script verifier wants to verify - preclude script frontrunning attacks by the campaign owner.
+     * @param _scriptHash The hash of the script that the script verifier wants to verify - precludes script frontrunning attacks by the campaign owner.
      * @param _scriptVerified Boolean indicating whether or not the script is verified.
      */
     function setScriptVerificationStatus(bytes32 _sourceMarketHash, bytes32 _scriptHash, bool _scriptVerified) external onlyScriptVerifier {

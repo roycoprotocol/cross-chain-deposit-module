@@ -31,6 +31,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
     uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
 
+    // Code hash of the Uniswap V2 Pair contract.
+    bytes32 public constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;
+
     /*//////////////////////////////////////////////////////////////
                                     State
     //////////////////////////////////////////////////////////////*/
@@ -43,9 +46,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice The Uniswap V2 router on the source chain.
     IUniswapV2Router01 public immutable UNISWAP_V2_ROUTER;
-
-    // Code hash of the Uniswap V2 Pair contract
-    bytes32 public constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;
 
     /// @notice The party that green lights bridging
     address public GREEN_LIGHTER;
@@ -85,19 +85,19 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Struct to hold total amounts for Token A and Token B.
     struct TotalAmountsToBridge {
-        uint256 tokenA_TotalAmountToBridge;
-        uint256 tokenB_TotalAmountToBridge;
+        uint256 token0_TotalAmountToBridge;
+        uint256 token1_TotalAmountToBridge;
     }
 
     /// @notice Struct to hold parameters for bridging LP tokens.
     struct LpBridgeParams {
         bytes32 marketHash;
         uint128 executorGasLimit;
-        ERC20 tokenA;
-        ERC20 tokenB;
+        ERC20 token0;
+        ERC20 token1;
         TotalAmountsToBridge totals;
-        bytes tokenA_ComposeMsg;
-        bytes tokenB_ComposeMsg;
+        bytes token0_ComposeMsg;
+        bytes token1_ComposeMsg;
     }
 
     /// @notice Struct to hold parameters for processing LP token depositors.
@@ -107,10 +107,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         address depositor;
         uint256 lpToken_DepositAmount;
         uint256 lp_TotalAmountToBridge;
-        uint256 tokenA_TotalAmountReceivedOnBurn;
-        uint256 tokenB_TotalAmountReceivedOnBurn;
-        uint256 tokenA_DecimalConversionRate;
-        uint256 tokenB_DecimalConversionRate;
+        uint256 token0_TotalAmountReceivedOnBurn;
+        uint256 token1_TotalAmountReceivedOnBurn;
+        uint256 token0_DecimalConversionRate;
+        uint256 token1_DecimalConversionRate;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -130,14 +130,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     event LpTokensBridgedToDestination(
         bytes32 indexed marketHash,
         uint256 indexed ccdmBridgeNonce,
-        bytes32 lz_tokenA_guid,
-        uint64 lz_tokenA_nonce,
-        ERC20 tokenA,
-        uint256 lz_tokenA_AmountBridged,
-        bytes32 lz_tokenB_guid,
-        uint64 lz_tokenB_nonce,
-        ERC20 tokenB,
-        uint256 lz_tokenB_AmountBridged
+        bytes32 lz_token0_guid,
+        uint64 lz_token0_nonce,
+        ERC20 token0,
+        uint256 lz_token0_AmountBridged,
+        bytes32 lz_token1_guid,
+        uint64 lz_token1_nonce,
+        ERC20 token1,
+        uint256 lz_token1_AmountBridged
     );
 
     /// @notice Error emitted when setting a lzV2OFT for a token that doesn't match the OApp's underlying token
@@ -155,7 +155,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when trying to bridge during the rage quit period.
     error RageQuitPeriodInProgress();
 
-    /// @notice Error emitted when trying to bridge funds to an invaild deposit executor.
+    /// @notice Error emitted when trying to bridge funds to an uninitialized destination chain.
+    error DestinationChainEidNotSet();
+
+    /// @notice Error emitted when trying to bridge funds to an uninitialized deposit executor.
     error DepositExecutorNotSet();
 
     /// @notice Error emitted when the caller is not the global GREEN_LIGHTER.
@@ -192,9 +195,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @dev Modifier to check if green light is given for bridging and depositExecutor has been set.
     modifier readyToBridge(bytes32 _marketHash) {
         uint256 greenLightSetTimestamp = marketHashToGreenLightSetTimestamp[_marketHash];
+        require(dstChainLzEid != 0, DestinationChainEidNotSet());
+        require(depositExecutor != address(0), DepositExecutorNotSet());
         require(greenLightSetTimestamp != 0, GreenLightNotGiven());
         require(block.timestamp > greenLightSetTimestamp + RAGE_QUIT_PERIOD_DURATION, RageQuitPeriodInProgress());
-        require(depositExecutor != address(0), DepositExecutorNotSet());
         _;
     }
 
@@ -238,11 +242,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Initialize the contract state
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
-            // Get the underlying token for this OFT
-            address underlyingToken = _lzV2OFTs[i].token();
-            // Check that the underlying token is the specified token or the chain's native asset
-            require(underlyingToken == address(_depositTokens[i]) || underlyingToken == address(0), InvalidLzV2OFTForToken());
-            tokenToLzV2OFT[_depositTokens[i]] = _lzV2OFTs[i];
+            _setLzV2OFTForToken(_depositTokens[i], _lzV2OFTs[i]);
         }
 
         RECIPE_MARKET_HUB = _recipeMarketHub;
@@ -379,15 +379,15 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @dev Green light must be given before calling.
      * @param _marketHash The hash of the market to bridge tokens for.
      * @param _executorGasLimit The gas limit of the executor on the destination chain.
-     * @param _minAmountOfTokenAToBridge The minimum amount of Token A to receive from removing liquidity.
-     * @param _minAmountOfTokenBToBridge The minimum amount of Token B to receive from removing liquidity.
+     * @param _minAmountOfToken0ToBridge The minimum amount of Token A to receive from removing liquidity.
+     * @param _minAmountOfToken1ToBridge The minimum amount of Token B to receive from removing liquidity.
      * @param _depositors The addresses of the depositors (APs) to bridge.
      */
     function bridgeLpTokens(
         bytes32 _marketHash,
         uint128 _executorGasLimit,
-        uint96 _minAmountOfTokenAToBridge,
-        uint96 _minAmountOfTokenBToBridge,
+        uint96 _minAmountOfToken0ToBridge,
+        uint96 _minAmountOfToken1ToBridge,
         address[] calldata _depositors
     )
         external
@@ -415,21 +415,21 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         marketInputToken.safeApprove(address(UNISWAP_V2_ROUTER), lp_TotalDepositsInBatch);
 
         // Get the constituent tokens in the Uniswap V2 Pair
-        ERC20 tokenA = ERC20(uniV2Pair.token0());
-        ERC20 tokenB = ERC20(uniV2Pair.token1());
+        ERC20 token0 = ERC20(uniV2Pair.token0());
+        ERC20 token1 = ERC20(uniV2Pair.token1());
 
         // Burn the LP tokens and retrieve the pair's underlying tokens
-        (uint256 tokenA_AmountReceivedOnBurn, uint256 tokenB_AmountReceivedOnBurn) = UNISWAP_V2_ROUTER.removeLiquidity(
-            address(tokenA), address(tokenB), lp_TotalDepositsInBatch, _minAmountOfTokenAToBridge, _minAmountOfTokenBToBridge, address(this), block.timestamp
+        (uint256 token0_AmountReceivedOnBurn, uint256 token1_AmountReceivedOnBurn) = UNISWAP_V2_ROUTER.removeLiquidity(
+            address(token0), address(token1), lp_TotalDepositsInBatch, _minAmountOfToken0ToBridge, _minAmountOfToken1ToBridge, address(this), block.timestamp
         );
 
-        uint256 tokenA_DecimalConversionRate = 10 ** (tokenA.decimals() - tokenToLzV2OFT[tokenA].sharedDecimals());
-        uint256 tokenB_DecimalConversionRate = 10 ** (tokenB.decimals() - tokenToLzV2OFT[tokenB].sharedDecimals());
+        uint256 token0_DecimalConversionRate = 10 ** (token0.decimals() - tokenToLzV2OFT[token0].sharedDecimals());
+        uint256 token1_DecimalConversionRate = 10 ** (token1.decimals() - tokenToLzV2OFT[token1].sharedDecimals());
 
         // Initialize compose messages for both tokens
         uint256 nonce = ccdmBridgeNonce;
-        bytes memory tokenA_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
-        bytes memory tokenB_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
+        bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
+        bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
 
         // Initialize totals
         TotalAmountsToBridge memory totals;
@@ -437,10 +437,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         LpTokenDepositorParams memory params;
         params.marketHash = _marketHash;
         params.lp_TotalAmountToBridge = lp_TotalDepositsInBatch;
-        params.tokenA_TotalAmountReceivedOnBurn = tokenA_AmountReceivedOnBurn;
-        params.tokenB_TotalAmountReceivedOnBurn = tokenB_AmountReceivedOnBurn;
-        params.tokenA_DecimalConversionRate = tokenA_DecimalConversionRate;
-        params.tokenB_DecimalConversionRate = tokenB_DecimalConversionRate;
+        params.token0_TotalAmountReceivedOnBurn = token0_AmountReceivedOnBurn;
+        params.token1_TotalAmountReceivedOnBurn = token1_AmountReceivedOnBurn;
+        params.token0_DecimalConversionRate = token0_DecimalConversionRate;
+        params.token1_DecimalConversionRate = token1_DecimalConversionRate;
 
         // Marshal the bridge payload for each token's bridge
         for (uint256 i = 0; i < _depositors.length; ++i) {
@@ -449,25 +449,25 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             params.lpToken_DepositAmount = lp_DepositAmounts[i];
 
             // Process the depositor and update the compose messages and totals
-            _processLpTokenDepositor(params, tokenA, tokenB, tokenA_ComposeMsg, tokenB_ComposeMsg, totals);
+            _processLpTokenDepositor(params, token0, token1, token0_ComposeMsg, token1_ComposeMsg, totals);
         }
 
         // Ensure that at least one depositor was included in the bridge payload
-        require(totals.tokenA_TotalAmountToBridge > 0 && totals.tokenB_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+        require(totals.token0_TotalAmountToBridge > 0 && totals.token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
         // Resize the compose messages to reflect the actual number of depositors included in the payload
-        tokenA_ComposeMsg.resizeComposeMsg(params.numDepositorsIncluded);
-        tokenB_ComposeMsg.resizeComposeMsg(params.numDepositorsIncluded);
+        token0_ComposeMsg.resizeComposeMsg(params.numDepositorsIncluded);
+        token1_ComposeMsg.resizeComposeMsg(params.numDepositorsIncluded);
 
         // Create bridge parameters
         LpBridgeParams memory bridgeParams = LpBridgeParams({
             marketHash: _marketHash,
             executorGasLimit: _executorGasLimit,
-            tokenA: tokenA,
-            tokenB: tokenB,
+            token0: token0,
+            token1: token1,
             totals: totals,
-            tokenA_ComposeMsg: tokenA_ComposeMsg,
-            tokenB_ComposeMsg: tokenB_ComposeMsg
+            token0_ComposeMsg: token0_ComposeMsg,
+            token1_ComposeMsg: token1_ComposeMsg
         });
 
         // Execute 2 consecutive bridges for each constituent token
@@ -520,63 +520,63 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * conversion rates,
      *      refunds any residual amounts (dust) back to the depositor, clears depositor data, and updates the compose messages.
      * @param params The parameters required for processing the LP token depositor.
-     * @param _tokenA The ERC20 instance of Token A.
-     * @param _tokenB The ERC20 instance of Token B.
-     * @param _tokenA_ComposeMsg The compose message for Token A to be updated.
-     * @param _tokenB_ComposeMsg The compose message for Token B to be updated.
+     * @param _token0 The ERC20 instance of Token A.
+     * @param _token1 The ERC20 instance of Token B.
+     * @param _token0_ComposeMsg The compose message for Token A to be updated.
+     * @param _token1_ComposeMsg The compose message for Token B to be updated.
      * @param _totals The totals for Token A and Token B to be updated.
      */
     function _processLpTokenDepositor(
         LpTokenDepositorParams memory params,
-        ERC20 _tokenA,
-        ERC20 _tokenB,
-        bytes memory _tokenA_ComposeMsg,
-        bytes memory _tokenB_ComposeMsg,
+        ERC20 _token0,
+        ERC20 _token1,
+        bytes memory _token0_ComposeMsg,
+        bytes memory _token1_ComposeMsg,
         TotalAmountsToBridge memory _totals
     )
         internal
     {
         // Calculate the depositor's share of each underlying token
-        uint256 tokenA_DepositAmount = (params.tokenA_TotalAmountReceivedOnBurn * params.lpToken_DepositAmount) / params.lp_TotalAmountToBridge;
-        uint256 tokenB_DepositAmount = (params.tokenB_TotalAmountReceivedOnBurn * params.lpToken_DepositAmount) / params.lp_TotalAmountToBridge;
+        uint256 token0_DepositAmount = (params.token0_TotalAmountReceivedOnBurn * params.lpToken_DepositAmount) / params.lp_TotalAmountToBridge;
+        uint256 token1_DepositAmount = (params.token1_TotalAmountReceivedOnBurn * params.lpToken_DepositAmount) / params.lp_TotalAmountToBridge;
 
         // Delete all Weiroll Wallet state and deposit amounts associated with this depositor
         _clearDepositorData(params.marketHash, params.depositor);
 
-        if (tokenA_DepositAmount > type(uint96).max || tokenB_DepositAmount > type(uint96).max) {
+        if (token0_DepositAmount > type(uint96).max || token1_DepositAmount > type(uint96).max) {
             // If can't bridge this depositor, refund their redeemed tokens + fees accrued from LPing
-            _tokenA.safeTransfer(params.depositor, tokenA_DepositAmount);
-            _tokenB.safeTransfer(params.depositor, tokenB_DepositAmount);
+            _token0.safeTransfer(params.depositor, token0_DepositAmount);
+            _token1.safeTransfer(params.depositor, token1_DepositAmount);
             return;
         }
 
         // Adjust depositor amounts to acceptable precision and refund dust if conversion from LD to SD is needed
-        if (params.tokenA_DecimalConversionRate != 1) {
-            tokenA_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _tokenA, tokenA_DepositAmount, params.tokenA_DecimalConversionRate);
+        if (params.token0_DecimalConversionRate != 1) {
+            token0_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _token0, token0_DepositAmount, params.token0_DecimalConversionRate);
         }
-        if (params.tokenB_DecimalConversionRate != 1) {
-            tokenB_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _tokenB, tokenB_DepositAmount, params.tokenB_DecimalConversionRate);
+        if (params.token1_DecimalConversionRate != 1) {
+            token1_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _token1, token1_DepositAmount, params.token1_DecimalConversionRate);
         }
 
-        if (tokenA_DepositAmount == 0 || tokenB_DepositAmount == 0) {
+        if (token0_DepositAmount == 0 || token1_DepositAmount == 0) {
             // Can't bridge this depositor because they were trying to bridge a dust amount of at least one token.
             // Refund the non-dust if any and omit from the payload
-            if (tokenA_DepositAmount != 0) {
-                _tokenA.safeTransfer(params.depositor, tokenA_DepositAmount);
+            if (token0_DepositAmount != 0) {
+                _token0.safeTransfer(params.depositor, token0_DepositAmount);
             }
-            if (tokenB_DepositAmount != 0) {
-                _tokenB.safeTransfer(params.depositor, tokenB_DepositAmount);
+            if (token1_DepositAmount != 0) {
+                _token1.safeTransfer(params.depositor, token1_DepositAmount);
             }
             return;
         }
 
         // Update compose messages with acceptable amounts
-        _tokenA_ComposeMsg.writeDepositor(params.numDepositorsIncluded, params.depositor, uint96(tokenA_DepositAmount));
-        _tokenB_ComposeMsg.writeDepositor(params.numDepositorsIncluded++, params.depositor, uint96(tokenB_DepositAmount));
+        _token0_ComposeMsg.writeDepositor(params.numDepositorsIncluded, params.depositor, uint96(token0_DepositAmount));
+        _token1_ComposeMsg.writeDepositor(params.numDepositorsIncluded++, params.depositor, uint96(token1_DepositAmount));
 
         // Update totals
-        _totals.tokenA_TotalAmountToBridge += tokenA_DepositAmount;
-        _totals.tokenB_TotalAmountToBridge += tokenB_DepositAmount;
+        _totals.token0_TotalAmountToBridge += token0_DepositAmount;
+        _totals.token1_TotalAmountToBridge += token1_DepositAmount;
     }
 
     /**
@@ -618,14 +618,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 totalBridgingFee = 0;
 
         // Bridge Token A
-        MessagingReceipt memory tokenA_MessageReceipt =
-            _executeBridge(params.tokenA, params.totals.tokenA_TotalAmountToBridge, params.tokenA_ComposeMsg, totalBridgingFee, params.executorGasLimit);
-        totalBridgingFee += tokenA_MessageReceipt.fee.nativeFee;
+        MessagingReceipt memory token0_MessageReceipt =
+            _executeBridge(params.token0, params.totals.token0_TotalAmountToBridge, params.token0_ComposeMsg, totalBridgingFee, params.executorGasLimit);
+        totalBridgingFee += token0_MessageReceipt.fee.nativeFee;
 
         // Bridge Token B
-        MessagingReceipt memory tokenB_MessageReceipt =
-            _executeBridge(params.tokenB, params.totals.tokenB_TotalAmountToBridge, params.tokenB_ComposeMsg, totalBridgingFee, params.executorGasLimit);
-        totalBridgingFee += tokenB_MessageReceipt.fee.nativeFee;
+        MessagingReceipt memory token1_MessageReceipt =
+            _executeBridge(params.token1, params.totals.token1_TotalAmountToBridge, params.token1_ComposeMsg, totalBridgingFee, params.executorGasLimit);
+        totalBridgingFee += token1_MessageReceipt.fee.nativeFee;
 
         // Refund excess value sent with the transaction
         if (msg.value > totalBridgingFee) {
@@ -636,14 +636,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         emit LpTokensBridgedToDestination(
             params.marketHash,
             ccdmBridgeNonce++,
-            tokenA_MessageReceipt.guid,
-            tokenA_MessageReceipt.nonce,
-            params.tokenA,
-            params.totals.tokenA_TotalAmountToBridge,
-            tokenB_MessageReceipt.guid,
-            tokenB_MessageReceipt.nonce,
-            params.tokenB,
-            params.totals.tokenB_TotalAmountToBridge
+            token0_MessageReceipt.guid,
+            token0_MessageReceipt.nonce,
+            params.token0,
+            params.totals.token0_TotalAmountToBridge,
+            token1_MessageReceipt.guid,
+            token1_MessageReceipt.nonce,
+            params.token1,
+            params.totals.token1_TotalAmountToBridge
         );
     }
 
@@ -685,6 +685,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         MessagingFee memory messagingFee = lzV2OFT.quoteSend(sendParam, false);
         require(msg.value - _feesAlreadyPaid >= messagingFee.nativeFee, InsufficientValueForBridgeFee());
 
+        // Var to store the LZ V2 OFT bridgiing receipt
         OFTReceipt memory bridgeReceipt;
 
         if (lzV2OFT.token() == address(0)) {
@@ -706,7 +707,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Deletes all Weiroll Wallet state and deposit amounts associated with this depositor for the specified market.
+     * @notice Deletes all deposit and Weiroll Wallet specific accounting associated with this depositor for the specified market.
      * @param _marketHash The market hash to clear the depositor data for.
      * @param _depositor The depositor to clear the depositor data for.
      */
@@ -723,6 +724,20 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         delete marketHashToDepositorToWeirollWallets[_marketHash][_depositor];
         // Set the total deposit amount from this depositor (AP) to zero
         delete marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
+    }
+
+    /**
+     * @notice Sets the LayerZero V2 OFT for a given token.
+     * @dev NOTE: _lzV2OFT must implement IOFT.
+     * @param _token Token to set the LayerZero Omnichain App for.
+     * @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
+     */
+    function _setLzV2OFTForToken(ERC20 _token, IOFT _lzV2OFT) internal {
+        // Get the underlying token for this OFT
+        address underlyingToken = _lzV2OFT.token();
+        // Check that the underlying token is the specified token or the chain's native asset
+        require(underlyingToken == address(_token) || underlyingToken == address(0), InvalidLzV2OFTForToken());
+        tokenToLzV2OFT[_token] = _lzV2OFT;
     }
 
     /**
@@ -783,11 +798,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
      */
     function setLzV2OFTForToken(ERC20 _token, IOFT _lzV2OFT) external onlyOwner {
-        // Get the underlying token for this OFT
-        address underlyingToken = _lzV2OFT.token();
-        // Check that the underlying token is the specified token or the chain's native asset
-        require(underlyingToken == address(_token) || underlyingToken == address(0), InvalidLzV2OFTForToken());
-        tokenToLzV2OFT[_token] = _lzV2OFT;
+        _setLzV2OFTForToken(_token, _lzV2OFT);
     }
 
     /**
