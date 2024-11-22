@@ -65,7 +65,7 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
         vm.selectFork(polygonFork);
         assertEq(vm.activeFork(), polygonFork);
 
-        unlockTimestamp = bound(unlockTimestamp, block.timestamp + 10 minutes, block.timestamp + 7 days);
+        unlockTimestamp = bound(unlockTimestamp, block.timestamp + 1 hours, block.timestamp + 7 days);
 
         weirollImplementation = new WeirollWallet();
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
