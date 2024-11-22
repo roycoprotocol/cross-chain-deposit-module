@@ -241,7 +241,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     {
         // Get the campaign's receipt token and deposit recipe
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
-        ERC20[] storage inputTokens = campaign.inputTokens;
         ERC20 receiptToken = campaign.receiptToken;
         Recipe memory depositRecipe = campaign.depositRecipe;
         // Execute deposit recipes for specified wallets
@@ -253,7 +252,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                 WeirollWalletAccounting storage walletLedger = campaign.weirollWalletToLedger[_weirollWallets[i]];
 
                 // Transfer input tokens from the executor into the Weiroll Wallet for use in the deposit recipe.
-                _transferInputTokensToWallet(campaign.inputTokens, walletLedger, _weirollWallets[i]);
+                _transferInputTokensToWeirollWallet(campaign.inputTokens, walletLedger, _weirollWallets[i]);
 
                 // Get initial receipt token balance of the Weiroll Wallet to ensure that the post-deposit balance is greater.
                 uint256 initialReceiptTokenBalance = receiptToken.balanceOf(_weirollWallets[i]);
@@ -394,7 +393,13 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _walletLedger The ledger associated with the Weiroll Wallet.
      * @param _weirollWallet The address of the Weiroll Wallet.
      */
-    function _transferInputTokensToWallet(ERC20[] storage _inputTokens, WeirollWalletAccounting storage _walletLedger, address _weirollWallet) internal {
+    function _transferInputTokensToWeirollWallet(
+        ERC20[] storage _inputTokens,
+        WeirollWalletAccounting storage _walletLedger,
+        address _weirollWallet
+    )
+        internal
+    {
         for (uint256 i = 0; i < _inputTokens.length; ++i) {
             ERC20 inputToken = _inputTokens[i];
 

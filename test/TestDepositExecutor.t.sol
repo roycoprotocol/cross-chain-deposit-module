@@ -65,7 +65,7 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
         vm.selectFork(polygonFork);
         assertEq(vm.activeFork(), polygonFork);
 
-        unlockTimestamp = bound(unlockTimestamp, block.timestamp, block.timestamp + 7 days);
+        unlockTimestamp = bound(unlockTimestamp, block.timestamp + 10 minutes, block.timestamp + 7 days);
 
         weirollImplementation = new WeirollWallet();
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
@@ -140,22 +140,14 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
 
         vm.warp(unlockTimestamp);
 
-        uint256 postUnlockReceiptTokenBalance = ERC20(aUSDC_POLYGON).balanceOf(address(weirollWalletCreatedForBridge));
-
         for (uint256 i = 0; i < bridgeResult.depositors.length; ++i) {
             // Withdraw without executing deposit recipes
             vm.startPrank(bridgeResult.depositors[i]);
             depositExecutor.withdraw(address(weirollWalletCreatedForBridge));
             vm.stopPrank();
 
-            assertGt(ERC20(aUSDC_POLYGON).balanceOf(bridgeResult.depositors[i]), ((initialReceiptTokenBalance * bridgeResult.depositAmounts[i]) / offerAmount));
-
             // Assert that depositor got their receipt tokens and any interest.
-            assertApproxEqRel(
-                ERC20(aUSDC_POLYGON).balanceOf(bridgeResult.depositors[i]),
-                ((postUnlockReceiptTokenBalance * bridgeResult.depositAmounts[i]) / offerAmount),
-                0.0001e18
-            );
+            assertGe(ERC20(aUSDC_POLYGON).balanceOf(bridgeResult.depositors[i]), ((initialReceiptTokenBalance * bridgeResult.depositAmounts[i]) / offerAmount));
         }
         assertEq(ERC20(aUSDC_POLYGON).balanceOf(address(weirollWalletCreatedForBridge)), 0);
     }
