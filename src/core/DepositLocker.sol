@@ -28,7 +28,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The limit for how many depositors can be bridged in a single transaction
     uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 100;
 
-    /// @notice The duration of time that depositors have after the market's green light is given to rage quit.
+    /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
     uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
 
     /*//////////////////////////////////////////////////////////////

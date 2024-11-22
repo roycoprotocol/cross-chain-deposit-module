@@ -93,7 +93,7 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         vm.startPrank(SCRIPT_VERIFIER_ADDRESS);
-        depositExecutor.setScriptVerificationStatus(bridgeResult.marketHash, true);
+        depositExecutor.setScriptVerificationStatus(bridgeResult.marketHash, keccak256(abi.encode(DEPOSIT_RECIPE)), true);
         vm.stopPrank();
 
         // Fund the Executor (bridge simulation)
