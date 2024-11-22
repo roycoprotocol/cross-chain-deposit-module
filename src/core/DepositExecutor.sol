@@ -22,7 +22,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     using SafeTransferLib for ERC20;
 
     /*//////////////////////////////////////////////////////////////
-                                   Structures
+                                Structures
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Represents a recipe containing Weiroll commands and state.
@@ -39,28 +39,28 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @custom:field receiptToken The receipt token returned to the Weiroll Wallet upon executing the deposit recipe.
     /// @custom:field unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign.
     /// @custom:field depositRecipe The Weiroll Recipe executed on deposit (specified by the owner of the campaign).
-    /// @custom:field Mapping from a CCDM bridge nonce to its corresponding Weiroll Wallet.
+    /// @custom:field ccdmBridgeNonceToWeirollWallet Mapping from a CCDM bridge nonce to its corresponding Weiroll Wallet.
+    /// @custom:field weirollWalletToLedger Mapping from a Weiroll Wallet to its corresponding depositor accounting ledger.
     struct DepositCampaign {
         address owner;
         ERC20[] inputTokens;
         ERC20 receiptToken;
         uint256 unlockTimestamp;
         Recipe depositRecipe;
-        mapping(uint256 => WeirollWalletInfo) ccdmNonceToWeirollWalletInfo;
+        mapping(uint256 => address) ccdmBridgeNonceToWeirollWallet;
+        mapping(address => SingleEntryLedger) weirollWalletToLedger;
     }
 
-    /// @dev Holds the address of and the granular depositor balances of a WeirollWallet.
-    /// @custom:field weirollWallet The address of the Weiroll Wallet that this accounting is for.
+    /// @dev Holds the granular depositor balances of a WeirollWallet.
     /// @custom:field tokenToTotalAmount Mapping to account for total amounts deposited for each token in this Weiroll Wallet.
     /// @custom:field depositorToTokenToAmount Mapping to account for depositor's balance of each token in this Weiroll Wallet.
-    struct WeirollWalletInfo {
-        address weirollWallet;
+    struct SingleEntryLedger {
         mapping(ERC20 => uint256) tokenToTotalAmountDeposited;
         mapping(address => mapping(ERC20 => uint256)) depositorToTokenToAmountDeposited;
     }
 
     /*//////////////////////////////////////////////////////////////
-                                State Variables
+                            State Variables
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The address of the Weiroll wallet implementation used for cloning.
@@ -73,7 +73,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     address public immutable WRAPPED_NATIVE_ASSET_TOKEN;
 
     /// @notice The address of the script verifier responsible for verifying scripts before execution.
-    address public SCRIPT_VERIFIER;
+    address public scriptVerifier;
 
     /// @dev Mapping from a source market hash to its DepositCampaign struct.
     mapping(bytes32 => DepositCampaign) public sourceMarketHashToDepositCampaign;
@@ -101,7 +101,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @param depositor The address of the depositor withdrawan from the Weiroll Wallet.
     event DepositorWithdrawn(address indexed weirollWallet, address indexed depositor);
 
-    /// @notice Error emitted when the caller is not the SCRIPT_VERIFIER.
+    /// @notice Error emitted when the caller is not the scriptVerifier.
     error OnlyScriptVerifier();
 
     /// @notice Error emitted when the caller is not the owner of the campaign.
@@ -119,6 +119,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice Error emitted when the caller of the lzCompose function isn't the LZ endpoint address for destination chain.
     error NotFromLzV2Endpoint();
 
+    /// @notice Error emitted when executing the deposit recipe doesn't return any receipt tokens to the Weiroll Wallet.
+    error MustReturnReceiptTokensOnDeposit();
+
     /// @notice Error emitted when executing the deposit recipe doesn't render a max allowance for the DepositExecutor on the Weiroll Wallet.
     error MustMaxAllowDepositExecutor();
 
@@ -132,9 +135,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                                   Modifiers
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Modifier to ensure the caller is the global SCRIPT_VERIFIER.
+    /// @dev Modifier to ensure the caller is the global scriptVerifier.
     modifier onlyScriptVerifier() {
-        require(msg.sender == SCRIPT_VERIFIER, OnlyScriptVerifier());
+        require(msg.sender == scriptVerifier, OnlyScriptVerifier());
         _;
     }
 
@@ -164,13 +167,15 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     constructor(address _owner, address _lzV2Endpoint, address _scriptVerifier, address _wrapped_native_asset_token) Ownable(_owner) {
         // Deploy the Weiroll Wallet implementation on the destination chain to use for cloning with immutable args
         WEIROLL_WALLET_IMPLEMENTATION = address(new WeirollWallet());
+
+        // Initialize the DepositExecutor's state
         LAYER_ZERO_V2_ENDPOINT = _lzV2Endpoint;
-        SCRIPT_VERIFIER = _scriptVerifier;
+        scriptVerifier = _scriptVerifier;
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
     }
 
     /*//////////////////////////////////////////////////////////////
-                              External Functions
+                            External Functions
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -202,16 +207,21 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         // Get the campaign corresponding to this source market hash
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[sourceMarketHash];
-        // If there is no cached Weiroll Wallet for this CCDM ccdmBridgeNonce, create one
-        WeirollWalletInfo storage walletInfo = campaign.ccdmNonceToWeirollWalletInfo[ccdmBridgeNonce];
-        if (walletInfo.weirollWallet == address(0)) {
-            walletInfo.weirollWallet = _createWeirollWallet(sourceMarketHash, ccdmBridgeNonce, campaign.unlockTimestamp);
+
+        // If there is no cached Weiroll Wallet for this CCDM bridge nonce in the market, create one
+        address cachedWeirollWallet = campaign.ccdmBridgeNonceToWeirollWallet[ccdmBridgeNonce];
+        if (cachedWeirollWallet == address(0)) {
+            cachedWeirollWallet = _createWeirollWallet(sourceMarketHash, campaign.unlockTimestamp);
+            campaign.ccdmBridgeNonceToWeirollWallet[ccdmBridgeNonce] = cachedWeirollWallet;
         }
 
-        // Execute accounting logic to keep track of each depositor's position in this wallet.
-        _accountForDeposits(walletInfo, composeMsg, depositToken, tokenAmountBridged);
+        // Get the accounting ledger for this Weiroll Wallet
+        SingleEntryLedger storage walletLedger = campaign.weirollWalletToLedger[cachedWeirollWallet];
 
-        emit CCDMBridgeProcessed(sourceMarketHash, _guid, ccdmBridgeNonce, walletInfo.weirollWallet);
+        // Execute accounting logic to keep track of each depositor's position in this wallet.
+        _accountForDeposits(walletLedger, composeMsg, depositToken, tokenAmountBridged);
+
+        emit CCDMBridgeProcessed(sourceMarketHash, _guid, ccdmBridgeNonce, cachedWeirollWallet);
     }
 
     /**
@@ -238,20 +248,22 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallets[i]));
             // Only execute deposit if the wallet belongs to this market
-            // Transfer input tokens from the executor into the Weiroll Wallet for use in the deposit recipe
             if (weirollWallet.marketHash() == _sourceMarketHash) {
-                // Get the CCDM bridge nonce associated with this wallet (amount arg is repurposed for nonce on the destination chain)
-                uint256 ccdmBridgeNonceForThisWallet = weirollWallet.amount();
-                WeirollWalletInfo storage walletInfo = campaign.ccdmNonceToWeirollWalletInfo[ccdmBridgeNonceForThisWallet];
-                for (uint256 j = 0; j < inputTokens.length; ++j) {
-                    ERC20 inputToken = inputTokens[j];
-                    // Get total amount of this token deposited into the Weiroll Wallet
-                    uint256 amountOfTokenDepositedIntoWallet = walletInfo.tokenToTotalAmountDeposited[inputToken];
-                    // Transfer amount bridged of the input token into the Weiroll Wallets
-                    inputToken.safeTransfer(_weirollWallets[i], amountOfTokenDepositedIntoWallet);
-                }
+                // Get this wallet's deposit accouting ledger
+                SingleEntryLedger storage walletLedger = campaign.weirollWalletToLedger[_weirollWallets[i]];
+
+                // Transfer input tokens from the executor into the Weiroll Wallet for use in the deposit recipe.
+                _transferInputTokensToWallet(campaign.inputTokens, walletLedger, _weirollWallets[i]);
+
+                // Get initial receipt token balance of the Weiroll Wallet to ensure that the post-deposit balance is greater.
+                uint256 initialReceiptTokenBalance = receiptToken.balanceOf(_weirollWallets[i]);
+
                 // Execute the deposit recipe on the Weiroll wallet
                 weirollWallet.executeWeiroll(depositRecipe.weirollCommands, depositRecipe.weirollState);
+
+                // Check that receipt tokens were received on deposit
+                require(receiptToken.balanceOf(_weirollWallets[i]) - initialReceiptTokenBalance > 0, MustReturnReceiptTokensOnDeposit());
+
                 // Check that the executor has the proper allowance for the Weiroll Wallet's receipt tokens
                 require(receiptToken.allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
             }
@@ -265,8 +277,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         // Get the campaign details for the source market
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[weirollWallet.marketHash()];
-        // Get the deposit info for this Weiroll Wallet (amount arg is repurposed as the CCDM bridge nonce on destination)
-        WeirollWalletInfo storage walletInfo = campaign.ccdmNonceToWeirollWalletInfo[weirollWallet.amount()];
+        // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM bridge nonce on destination)
+        SingleEntryLedger storage walletLedger = campaign.weirollWalletToLedger[_weirollWallet];
 
         // Do some checks to ensure that the withdrawal is valid
         require(weirollWallet.lockedUntil() <= block.timestamp, WalletLocked());
@@ -274,16 +286,16 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         if (weirollWallet.executed()) {
             // If deposit recipe has been executed, return the depositor's share of the receipt tokens
             ERC20 receiptToken = campaign.receiptToken;
-            uint256 totalReceiptTokensReceived = receiptToken.balanceOf(address(weirollWallet));
 
-            // Calculate receipt tokens owed to the depositor
+            // Calculate the receipt tokens owed to the depositor
             ERC20 firstInputToken = campaign.inputTokens[0];
-            uint256 amountDepositedByDepositor = walletInfo.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
-            uint256 totalAmountDeposited = walletInfo.tokenToTotalAmountDeposited[firstInputToken];
-            uint256 receiptTokensOwed = (totalReceiptTokensReceived * amountDepositedByDepositor) / totalAmountDeposited;
+            uint256 amountDepositedByDepositor = walletLedger.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
+            uint256 totalAmountDeposited = walletLedger.tokenToTotalAmountDeposited[firstInputToken];
+            uint256 receiptTokensOwed = (receiptToken.balanceOf(_weirollWallet) * amountDepositedByDepositor) / totalAmountDeposited;
 
             // Update the accounting to reflect the withdrawal
-            delete walletInfo.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
+            delete walletLedger.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
+            walletLedger.tokenToTotalAmountDeposited[firstInputToken] -= amountDepositedByDepositor;
 
             // Remit the receipt tokens to the depositor
             receiptToken.safeTransferFrom(_weirollWallet, msg.sender, receiptTokensOwed);
@@ -292,11 +304,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             for (uint256 i = 0; i < campaign.inputTokens.length; ++i) {
                 // Get the amount of this input token deposited by the depositor
                 ERC20 inputToken = campaign.inputTokens[i];
-                uint256 amountDeposited = walletInfo.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+                uint256 amountDeposited = walletLedger.depositorToTokenToAmountDeposited[msg.sender][inputToken];
 
                 // Update the accounting to reflect the withdrawal
-                delete walletInfo.depositorToTokenToAmountDeposited[msg.sender][inputToken];
-                walletInfo.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
+                delete walletLedger.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+                walletLedger.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
 
                 // Transfer the amount deposited back to the depositor
                 inputToken.safeTransfer(msg.sender, amountDeposited);
@@ -307,7 +319,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /*//////////////////////////////////////////////////////////////
-                              Internal Functions
+                            Internal Functions
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -316,22 +328,15 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _unlockTimestamp The ABSOLUTE unlock timestamp for this Weiroll Wallet.
      * @return weirollWallet The address of the Weiroll wallet.
      */
-    function _createWeirollWallet(
-        bytes32 _sourceMarketHash,
-        uint256 _ccdmBridgeNonce,
-        uint256 _unlockTimestamp
-    )
-        internal
-        returns (address payable weirollWallet)
-    {
+    function _createWeirollWallet(bytes32 _sourceMarketHash, uint256 _unlockTimestamp) internal returns (address payable weirollWallet) {
         // Deploy a fresh, non-forfeitable Weiroll Wallet with immutable args.
         weirollWallet = payable(
             WEIROLL_WALLET_IMPLEMENTATION.clone(
                 abi.encodePacked(
                     address(0), // Wallet owner will be zero address so that no single party can siphon funds after lock timestamp has passed.
                     address(this), // DepositExecutor will be the entrypoint for recipe execution (in addition to the owner after the unlock timestamp).
-                    _ccdmBridgeNonce, // Amount is repurposed to be used as the ccdmBridgeNonce associated with this Weiroll Wallet.
-                    _unlockTimestamp, // ABSOLUTE unlock timestamp for wallets created in this campaign.
+                    uint256(0), // Amount will always be 0 since a Weiroll Wallet may hold multiple tokens.
+                    _unlockTimestamp, // The ABSOLUTE unlock timestamp for wallets created for this campaign.
                     false, // Wallet is non-forfeitable since the deposits have reached the destination chain.
                     _sourceMarketHash // The source market hash that this wallet belongs to
                 )
@@ -344,13 +349,20 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @dev Processes the compose message to extract depositor addresses and deposit amounts, ensuring that the total deposits accounted for do not exceed the
      * amount bridged.
      * @dev Updates the wallet info with each depositor's deposited amounts and the total deposited amounts for the token.
-     * @param _walletInfo The storage reference to the Weiroll wallet information to be updated.
+     * @param _walletLedger The storage reference to the Weiroll wallet information to be updated.
      * @param _composeMsg The compose message containing depositor addresses and deposit amounts.
      * @param _depositToken The ERC20 token that was deposited.
      * @param _tokenAmountBridged The total amount of tokens that were bridged and available for deposits.
      * @custom:error CantAccountForMoreDepositsThanBridged Thrown if the total deposits accounted for exceed the amount bridged.
      */
-    function _accountForDeposits(WeirollWalletInfo storage _walletInfo, bytes memory _composeMsg, ERC20 _depositToken, uint256 _tokenAmountBridged) internal {
+    function _accountForDeposits(
+        SingleEntryLedger storage _walletLedger,
+        bytes memory _composeMsg,
+        ERC20 _depositToken,
+        uint256 _tokenAmountBridged
+    )
+        internal
+    {
         // Amount of deposits accounted for so far
         uint256 depositsAccountedFor = 0;
 
@@ -358,7 +370,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         uint256 offset = CCDMPayloadLib.METADATA_SIZE;
 
         while (offset + CCDMPayloadLib.BYTES_PER_DEPOSITOR <= _composeMsg.length) {
-            // Extract AP address (20 bytes)
+            // Extract Depositor/AP address (20 bytes)
             address depositor = _composeMsg.readAddress(offset);
             offset += 20;
 
@@ -371,8 +383,26 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             require(depositsAccountedFor <= _tokenAmountBridged, CantAccountForMoreDepositsThanBridged());
 
             // Update the accounting to reflect the deposit
-            _walletInfo.depositorToTokenToAmountDeposited[depositor][_depositToken] += depositAmount;
-            _walletInfo.tokenToTotalAmountDeposited[_depositToken] += depositAmount;
+            _walletLedger.depositorToTokenToAmountDeposited[depositor][_depositToken] += depositAmount;
+            _walletLedger.tokenToTotalAmountDeposited[_depositToken] += depositAmount;
+        }
+    }
+
+    /**
+     * @notice Transfers input tokens from the contract to the specified Weiroll Wallet.
+     * @param _inputTokens The list of input tokens to transfer.
+     * @param _walletLedger The ledger associated with the Weiroll Wallet.
+     * @param _weirollWallet The address of the Weiroll Wallet.
+     */
+    function _transferInputTokensToWallet(ERC20[] storage _inputTokens, SingleEntryLedger storage _walletLedger, address _weirollWallet) internal {
+        for (uint256 i = 0; i < _inputTokens.length; ++i) {
+            ERC20 inputToken = _inputTokens[i];
+
+            // Get total amount of this token deposited into the Weiroll Wallet
+            uint256 amountOfTokenDepositedIntoWallet = _walletLedger.tokenToTotalAmountDeposited[inputToken];
+
+            // Transfer amount of the input token into the Weiroll Wallet
+            inputToken.safeTransfer(_weirollWallet, amountOfTokenDepositedIntoWallet);
         }
     }
 
@@ -385,7 +415,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _scriptVerifier The address of the script verifier.
      */
     function setVerifier(address _scriptVerifier) external onlyOwner {
-        SCRIPT_VERIFIER = _scriptVerifier;
+        scriptVerifier = _scriptVerifier;
     }
 
     /**

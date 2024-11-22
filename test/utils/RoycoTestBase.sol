@@ -36,6 +36,9 @@ contract RoycoTestBase is Test {
     address UNI_V2_wBTC_USDC_PAIR = 0x004375Dff511095CC5A197A54140a24eFEF3A416;
     address UNI_V2_wETH_USDC_PAIR = 0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc;
 
+    address AAVE_POOL_V3_POLYGON = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    address aUSDC_POLYGON = 0xA4D94019934D8333Ef880ABFFbF2FDd611C762BD;
+
     // -----------------------------------------
     // Test Wallets
     // -----------------------------------------
