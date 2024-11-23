@@ -11,7 +11,7 @@ import { Vm } from "lib/forge-std/src/Vm.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
 
 // Test deploying deposits via weiroll recipes post bridge
-contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
+contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
     using FixedPointMathLib for uint256;
 
     address IP_ADDRESS;
@@ -20,8 +20,6 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
 
     string MAINNET_RPC_URL = vm.envString("MAINNET_RPC_URL");
     string POLYGON_RPC_URL = vm.envString("POLYGON_RPC_URL");
-
-    address constant POLYGON_LZ_ENDPOINT = 0x1a44076050125825900e736c501f859c50fE728c;
 
     uint256 mainnetFork;
     uint256 polygonFork;
@@ -73,7 +71,7 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
         DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, SCRIPT_VERIFIER_ADDRESS, address(0));
 
         vm.startPrank(OWNER_ADDRESS);
-        depositExecutor.setSourceMarketOwner(bridgeResult.marketHash, IP_ADDRESS);
+        depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
         vm.stopPrank();
 
         vm.startPrank(IP_ADDRESS);
@@ -93,7 +91,7 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         vm.startPrank(SCRIPT_VERIFIER_ADDRESS);
-        depositExecutor.setScriptVerificationStatus(bridgeResult.marketHash, keccak256(abi.encode(DEPOSIT_RECIPE)), true);
+        depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getCampaignVerificationHash(bridgeResult.marketHash));
         vm.stopPrank();
 
         // Fund the Executor (bridge simulation)
@@ -177,7 +175,7 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
         DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, SCRIPT_VERIFIER_ADDRESS, address(0));
 
         vm.startPrank(OWNER_ADDRESS);
-        depositExecutor.setSourceMarketOwner(bridgeResult.marketHash, IP_ADDRESS);
+        depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
         vm.stopPrank();
 
         vm.startPrank(IP_ADDRESS);
@@ -189,6 +187,10 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
 
         vm.startPrank(IP_ADDRESS);
         depositExecutor.setCampaignInputTokens(bridgeResult.marketHash, depositTokens);
+        vm.stopPrank();
+
+        vm.startPrank(SCRIPT_VERIFIER_ADDRESS);
+        depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getCampaignVerificationHash(bridgeResult.marketHash));
         vm.stopPrank();
 
         // Fund the Executor (bridge simulation)
@@ -322,7 +324,7 @@ contract TestLzCompose_DepositExecutor is RecipeMarketHubTestBase {
         }
 
         vm.startPrank(GREEN_LIGHTER_ADDRESS);
-        depositLocker.setGreenLight(result.marketHash, true);
+        depositLocker.turnGreenLightOn(result.marketHash);
         vm.stopPrank();
 
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);

@@ -63,7 +63,7 @@ contract SourceBridgeScript is Script {
 
         depositLocker.setGreenLighter(deployer);
 
-        depositLocker.setGreenLight(marketHash, true);
+        depositLocker.turnGreenLightOn(marketHash);
 
         depositLocker.bridgeSingleTokens{ value: 1 ether }(marketHash, 25_000_000, depositorWallets);
 

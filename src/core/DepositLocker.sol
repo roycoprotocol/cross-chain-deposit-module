@@ -19,11 +19,9 @@ import { IUniswapV2Pair } from "@uniswap-v2/core/contracts/interfaces/IUniswapV2
 contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     using CCDMPayloadLib for bytes;
     using OptionsBuilder for bytes;
-    using SafeTransferLib for ERC20;
-
-    /*//////////////////////////////////////////////////////////////
-                                   Constants
-    //////////////////////////////////////////////////////////////*/
+    using SafeTransferLib for ERC20; /*//////////////////////////////////////////////////////////////
+                                Constants
+        //////////////////////////////////////////////////////////////*/
 
     /// @notice The limit for how many depositors can be bridged in a single transaction
     uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 100;
@@ -33,51 +31,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     // Code hash of the Uniswap V2 Pair contract.
     bytes32 public constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;
-
-    /*//////////////////////////////////////////////////////////////
-                                    State
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice The RecipeMarketHub keeping track of all Royco markets and offers.
-    RecipeMarketHubBase public immutable RECIPE_MARKET_HUB;
-
-    /// @notice The wrapped native asset token on the source chain.
-    IWETH public immutable WRAPPED_NATIVE_ASSET_TOKEN;
-
-    /// @notice The Uniswap V2 router on the source chain.
-    IUniswapV2Router01 public immutable UNISWAP_V2_ROUTER;
-
-    /// @notice The party that green lights bridging
-    address public GREEN_LIGHTER;
-
-    /// @notice The LayerZero endpoint ID for the destination chain.
-    uint32 public dstChainLzEid;
-
-    /// @notice Mapping of an ERC20 token to its corresponding LayerZero OFT.
-    /// @dev NOTE: Must implement the IOFT interface.
-    mapping(ERC20 => IOFT) public tokenToLzV2OFT;
-
-    /// @notice Address of the DepositExecutor on the destination chain.
-    address public depositExecutor;
-
-    /// @notice Mapping from market hash to the time the green light was set.
-    mapping(bytes32 => uint256) public marketHashToGreenLightSetTimestamp;
-
-    /// @notice Mapping from market hash to the owner of the LP market.
-    mapping(bytes32 => address) public marketHashToLpMarketOwner;
-
-    /// @notice Mapping from market hash to depositor's address to the total amount they deposited.
-    mapping(bytes32 => mapping(address => uint256)) public marketHashToDepositorToAmountDeposited;
-
-    /// @notice Mapping from market hash to depositor's address to their Weiroll Wallets.
-    mapping(bytes32 => mapping(address => address[])) public marketHashToDepositorToWeirollWallets;
-
-    /// @notice Mapping from depositor's address to Weiroll Wallet to amount deposited by that Weiroll Wallet.
-    mapping(address => mapping(address => uint256)) public depositorToWeirollWalletToAmount;
-
-    /// @notice Used to keep track of CCDM bridges.
-    /// @notice A CCDM bridge that results in multiple OFTs being bridged (LP bridge) will have the same nonce.
-    uint256 public ccdmBridgeNonce;
 
     /*//////////////////////////////////////////////////////////////
                             Structures
@@ -114,19 +67,95 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /*//////////////////////////////////////////////////////////////
+                            State Variables
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice The RecipeMarketHub keeping track of all Royco markets and offers.
+    RecipeMarketHubBase public immutable RECIPE_MARKET_HUB;
+
+    /// @notice The wrapped native asset token on the source chain.
+    IWETH public immutable WRAPPED_NATIVE_ASSET_TOKEN;
+
+    /// @notice The Uniswap V2 router on the source chain.
+    IUniswapV2Router01 public immutable UNISWAP_V2_ROUTER;
+
+    /// @notice The party that green lights bridging
+    address public GREEN_LIGHTER;
+
+    /// @notice The LayerZero endpoint ID for the destination chain.
+    uint32 public dstChainLzEid;
+
+    /// @notice Mapping of an ERC20 token to its corresponding LayerZero OFT.
+    /// @dev NOTE: Must implement the IOFT interface.
+    mapping(ERC20 => IOFT) public tokenToLzV2OFT;
+
+    /// @notice Address of the DepositExecutor on the destination chain.
+    address public depositExecutor;
+
+    /// @notice Mapping from market hash to the time the green light will turn on for bridging.
+    mapping(bytes32 => uint256) public marketHashToBridgingAllowedTimestamp;
+
+    /// @notice Mapping from market hash to the owner of the LP market.
+    mapping(bytes32 => address) public marketHashToLpMarketOwner;
+
+    /// @notice Mapping from market hash to depositor's address to the total amount they deposited.
+    mapping(bytes32 => mapping(address => uint256)) public marketHashToDepositorToAmountDeposited;
+
+    /// @notice Mapping from market hash to depositor's address to their Weiroll Wallets.
+    mapping(bytes32 => mapping(address => address[])) public marketHashToDepositorToWeirollWallets;
+
+    /// @notice Mapping from depositor's address to Weiroll Wallet to amount deposited by that Weiroll Wallet.
+    mapping(address => mapping(address => uint256)) public depositorToWeirollWalletToAmount;
+
+    /// @notice Used to keep track of CCDM bridges.
+    /// @notice A CCDM bridge that results in multiple OFTs being bridged (LP bridge) will have the same nonce.
+    uint256 public ccdmBridgeNonce;
+
+    /*//////////////////////////////////////////////////////////////
                             Events and Errors
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Emitted when a user deposits funds.
+    /**
+     * @notice Emitted when a user deposits funds into a market.
+     * @param marketHash The unique hash identifier of the market where the deposit occurred.
+     * @param depositor The address of the user who made the deposit.
+     * @param amountDeposited The amount of funds that were deposited by the user.
+     */
     event UserDeposited(bytes32 indexed marketHash, address indexed depositor, uint256 amountDeposited);
 
-    /// @notice Emitted when a user withdraws funds.
+    /**
+     * @notice Emitted when a user withdraws funds from a market.
+     * @param marketHash The unique hash identifier of the market from which the withdrawal was made.
+     * @param depositor The address of the user who invoked the withdrawal.
+     * @param amountWithdrawn The amount of funds that were withdrawn by the user.
+     */
     event UserWithdrawn(bytes32 indexed marketHash, address indexed depositor, uint256 amountWithdrawn);
 
-    /// @notice Emitted when single tokens are bridged to the destination chain.
-    event SingleTokensBridgedToDestination(bytes32 indexed marketHash, bytes32 lz_guid, uint64 lz_nonce, uint256 amountBridged);
+    /**
+     * @notice Emitted when single tokens are bridged to the destination chain.
+     * @param marketHash The unique hash identifier of the market related to the bridged tokens.
+     * @param ccdmBridgeNonce The CCDM bridge nonce for this bridge.
+     * @param lz_guid The LayerZero unique identifier associated with the bridging transaction.
+     * @param lz_nonce The LayerZero nonce value for the bridging message.
+     * @param amountBridged The total amount of tokens that were bridged to the destination chain.
+     */
+    event SingleTokensBridgedToDestination(
+        bytes32 indexed marketHash, uint256 indexed ccdmBridgeNonce, bytes32 lz_guid, uint64 lz_nonce, uint256 amountBridged
+    );
 
-    /// @notice Emitted when LP tokens are bridged to the destination chain.
+    /**
+     * @notice Emitted when LP tokens are bridged to the destination chain.
+     * @param marketHash The unique hash identifier of the market associated with the LP tokens.
+     * @param ccdmBridgeNonce The CCDM bridge nonce for this bridge.
+     * @param lz_token0_guid The LayerZero unique identifier for the bridging of token0.
+     * @param lz_token0_nonce The LayerZero nonce value for the bridging of token0.
+     * @param token0 The address of the first token in the liquidity pair.
+     * @param lz_token0_AmountBridged The amount of token0 that was bridged to the destination chain.
+     * @param lz_token1_guid The LayerZero unique identifier for the bridging of token1.
+     * @param lz_token1_nonce The LayerZero nonce value for the bridging of token1.
+     * @param token1 The address of the second token in the liquidity pair.
+     * @param lz_token1_AmountBridged The amount of token1 that was bridged to the destination chain.
+     */
     event LpTokensBridgedToDestination(
         bytes32 indexed marketHash,
         uint256 indexed ccdmBridgeNonce,
@@ -139,6 +168,51 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         ERC20 token1,
         uint256 lz_token1_AmountBridged
     );
+
+    /**
+     * @notice Emitted when the destination chain LayerZero endpoint ID is updated.
+     * @param dstChainLzEid The new LayerZero endpoint ID for the destination chain.
+     */
+    event DestinationChainEidUpdated(uint32 dstChainLzEid);
+
+    /**
+     * @notice Emitted when the DepositExecutor address is updated.
+     * @param depositExecutor The new address of the DepositExecutor on the destination chain.
+     */
+    event DepositExecutorUpdated(address depositExecutor);
+
+    /**
+     * @notice Emitted when the LP token market owner is updated.
+     * @param marketHash The hash of the market for which the LP token owner was updated.
+     * @param lpMarketOwner The address of the LP token market owner.
+     */
+    event LpMarketOwnerUpdated(bytes32 indexed marketHash, address lpMarketOwner);
+
+    /**
+     * @notice Emitted when the LayerZero V2 OFT for a token is updated.
+     * @param token The address of the token.
+     * @param lzV2OFT The LayerZero V2 OFT contract address for the token.
+     */
+    event LzV2OFTForTokenUpdated(address indexed token, address lzV2OFT);
+
+    /**
+     * @notice Emitted when the green lighter address is updated.
+     * @param greenLighter The new address of the green lighter.
+     */
+    event GreenLighterUpdated(address greenLighter);
+
+    /**
+     * @notice Emitted when the green light is turned on for a market.
+     * @param marketHash The hash of the market for which the green light was turned on for.
+     * @param bridgingAllowedTimestamp The timestamp when deposits will be bridgable (RAGE_QUIT_PERIOD_DURATION after the green light was turned on).
+     */
+    event GreenLightTurnedOn(bytes32 indexed marketHash, uint256 bridgingAllowedTimestamp);
+
+    /**
+     * @notice Emitted when the green light is turned off for a market.
+     * @param marketHash The hash of the market for which the green light was turned off for.
+     */
+    event GreenLightTurnedOff(bytes32 indexed marketHash);
 
     /// @notice Error emitted when setting a lzV2OFT for a token that doesn't match the OApp's underlying token
     error InvalidLzV2OFTForToken();
@@ -194,11 +268,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @dev Modifier to check if green light is given for bridging and depositExecutor has been set.
     modifier readyToBridge(bytes32 _marketHash) {
-        uint256 greenLightSetTimestamp = marketHashToGreenLightSetTimestamp[_marketHash];
+        uint256 bridgingAllowedTimestamp = marketHashToBridgingAllowedTimestamp[_marketHash];
         require(dstChainLzEid != 0, DestinationChainEidNotSet());
         require(depositExecutor != address(0), DepositExecutorNotSet());
-        require(greenLightSetTimestamp != 0, GreenLightNotGiven());
-        require(block.timestamp > greenLightSetTimestamp + RAGE_QUIT_PERIOD_DURATION, RageQuitPeriodInProgress());
+        require(bridgingAllowedTimestamp != 0, GreenLightNotGiven());
+        require(block.timestamp >= bridgingAllowedTimestamp, RageQuitPeriodInProgress());
         _;
     }
 
@@ -370,7 +444,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Emit event to keep track of bridged deposits
-        emit SingleTokensBridgedToDestination(_marketHash, messageReceipt.guid, messageReceipt.nonce, totalAmountToBridge);
+        emit SingleTokensBridgedToDestination(_marketHash, ccdmBridgeNonce++, messageReceipt.guid, messageReceipt.nonce, totalAmountToBridge);
     }
 
     /**
@@ -738,6 +812,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Check that the underlying token is the specified token or the chain's native asset
         require(underlyingToken == address(_token) || underlyingToken == address(0), InvalidLzV2OFTForToken());
         tokenToLzV2OFT[_token] = _lzV2OFT;
+        emit LzV2OFTForTokenUpdated(address(_token), address(_lzV2OFT));
     }
 
     /**
@@ -768,32 +843,40 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /**
      * @notice Sets the LayerZero endpoint ID for the destination chain.
+     * @dev Only callable by the contract owner.
+     * Emits a {DestinationChainEidUpdated} event.
      * @param _dstChainLzEid LayerZero endpoint ID for the destination chain.
      */
     function setDestinationChainEid(uint32 _dstChainLzEid) external onlyOwner {
         dstChainLzEid = _dstChainLzEid;
+        emit DestinationChainEidUpdated(_dstChainLzEid);
     }
 
     /**
      * @notice Sets the DepositExecutor address.
+     * @dev Only callable by the contract owner.
      * @param _depositExecutor Address of the new DepositExecutor on the destination chain.
      */
     function setDepositExecutor(address _depositExecutor) external onlyOwner {
         depositExecutor = _depositExecutor;
+        emit DepositExecutorUpdated(_depositExecutor);
     }
 
     /**
-     * @notice Set the owner of an LP token market.
+     * @notice Sets the owner of an LP token market.
+     * @dev Only callable by the contract owner.
      * @param _marketHash The market hash to set the LP token owner for.
      * @param _lpMarketOwner Address of the LP token market owner.
      */
     function setLpMarketOwner(bytes32 _marketHash, address _lpMarketOwner) external onlyOwner {
         marketHashToLpMarketOwner[_marketHash] = _lpMarketOwner;
+        emit LpMarketOwnerUpdated(_marketHash, _lpMarketOwner);
     }
 
     /**
      * @notice Sets the LayerZero V2 OFT for a given token.
-     * @dev NOTE: _lzV2OFT must implement IOFT.
+     * @notice _lzV2OFT must implement IOFT.
+     * @dev Only callable by the contract owner.
      * @param _token Token to set the LayerZero Omnichain App for.
      * @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
      */
@@ -802,19 +885,35 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Sets the global GREEN_LIGHTER.
-     * @param _greenLighter The address of the green lighter responsible for marking deposits as bridgable.
+     * @notice Sets the global green lighter.
+     * @dev Only callable by the contract owner.
+     * @param _greenLighter The address of the green lighter responsible for marking deposits as bridgeable for specific markets.
      */
     function setGreenLighter(address _greenLighter) external onlyOwner {
         GREEN_LIGHTER = _greenLighter;
+        emit GreenLighterUpdated(_greenLighter);
     }
 
     /**
-     * @notice Turns the green light on or off for a market. Turning it on will trigger the 48 hour rage quit duration.
-     * @param _marketHash The market hash to set the green light for.
-     * @param _greenLightStatus Boolean indicating if deposits can be bridged. True = On. False = Off.
+     * @notice Turns the green light on for a market.
+     * @notice Will trigger the 48-hour rage quit duration, after which funds will be bridgable for this market.
+     * @dev Only callable by the green lighter.
+     * @param _marketHash The market hash to turn the green light on for.
      */
-    function setGreenLight(bytes32 _marketHash, bool _greenLightStatus) external onlyGreenLighter {
-        marketHashToGreenLightSetTimestamp[_marketHash] = _greenLightStatus ? block.timestamp : 0;
+    function turnGreenLightOn(bytes32 _marketHash) external onlyGreenLighter {
+        uint256 bridgingAllowedTimestamp = block.timestamp + RAGE_QUIT_PERIOD_DURATION;
+        marketHashToBridgingAllowedTimestamp[_marketHash] = bridgingAllowedTimestamp;
+        emit GreenLightTurnedOn(_marketHash, bridgingAllowedTimestamp);
+    }
+
+    /**
+     * @notice Turns the green light off for a market.
+     * @notice Will render funds unbridgeable for this market.
+     * @dev Only callable by the green lighter.
+     * @param _marketHash The market hash to turn the green light off for.
+     */
+    function turnGreenLightOff(bytes32 _marketHash) external onlyGreenLighter {
+        delete marketHashToBridgingAllowedTimestamp[_marketHash];
+        emit GreenLightTurnedOff(_marketHash);
     }
 }

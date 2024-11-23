@@ -97,14 +97,14 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         }
 
         vm.startPrank(GREEN_LIGHTER_ADDRESS);
-        depositLocker.setGreenLight(marketHash, true);
+        depositLocker.turnGreenLightOn(marketHash);
         vm.stopPrank();
 
         vm.expectEmit(true, true, true, true, USDC_MAINNET_ADDRESS);
         emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
 
         vm.expectEmit(false, false, true, false, address(depositLocker));
-        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, offerAmount);
+        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, 0, bytes32(0), 0, offerAmount);
 
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
@@ -193,11 +193,11 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         }
 
         vm.startPrank(GREEN_LIGHTER_ADDRESS);
-        depositLocker.setGreenLight(marketHash, true);
+        depositLocker.turnGreenLightOn(marketHash);
         vm.stopPrank();
 
         vm.expectEmit(true, false, false, false, address(depositLocker));
-        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, filledSoFar);
+        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, 0, bytes32(0), 0, filledSoFar);
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
@@ -278,14 +278,14 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         }
 
         vm.startPrank(GREEN_LIGHTER_ADDRESS);
-        depositLocker.setGreenLight(marketHash, true);
+        depositLocker.turnGreenLightOn(marketHash);
         vm.stopPrank();
 
         vm.expectEmit(true, true, true, true, WBTC_MAINNET_ADDRESS);
         emit ERC20.Transfer(address(depositLocker), WBTC_OFT_ADAPTER_MAINNET_ADDRESS, offerAmount);
 
         vm.expectEmit(false, false, true, false, address(depositLocker));
-        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, bytes32(0), 0, offerAmount);
+        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, 0, bytes32(0), 0, offerAmount);
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
@@ -386,7 +386,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         vm.startPrank(GREEN_LIGHTER_ADDRESS);
-        depositLocker.setGreenLight(marketHash, true);
+        depositLocker.turnGreenLightOn(marketHash);
         vm.stopPrank();
 
         vm.expectEmit(true, true, false, false, USDC_MAINNET_ADDRESS);
