@@ -16,7 +16,7 @@ library CCDMPayloadLib {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Size of payload metadata and offset to the first depositor in a CCDM payload.
-    // (32 bytes for sourceMarketHash + 32 bytes for ccdmBridgeNonce) = 65 bytes
+    // (32 bytes for sourceMarketHash + 32 bytes for ccdmNonce) = 65 bytes
     uint256 internal constant METADATA_SIZE = 64;
 
     /// @notice Bytes used per depositor position in the payload
@@ -30,15 +30,15 @@ library CCDMPayloadLib {
     /// @dev Initializes a compose message for CCDM.
     /// @param _numDepositors The number of depositors that will be bridged using this compose message.
     /// @param _marketHash The Royco market hash associated with the deposits.
-    /// @param _ccdmBridgeNonce The ccdmBridgeNonce associated with the DUAL_OR_LP_TOKEN deposits.
+    /// @param _ccdmNonce The ccdmNonce associated with the DUAL_OR_LP_TOKEN deposits.
     /// @return composeMsg The compose message initialized with the params.
-    function initComposeMsg(uint256 _numDepositors, bytes32 _marketHash, uint256 _ccdmBridgeNonce) internal pure returns (bytes memory composeMsg) {
+    function initComposeMsg(uint256 _numDepositors, bytes32 _marketHash, uint256 _ccdmNonce) internal pure returns (bytes memory composeMsg) {
         uint256 msgSizeInBytes = METADATA_SIZE + (_numDepositors * BYTES_PER_DEPOSITOR);
         composeMsg = new bytes(msgSizeInBytes);
         assembly ("memory-safe") {
             let ptr := add(composeMsg, 32) // Pointer to the start of the data in _composeMsg
             mstore(ptr, _marketHash) // Write _marketHash (32 bytes)
-            mstore(add(ptr, 32), _ccdmBridgeNonce) // Write _ccdmBridgeNonce (32 bytes)
+            mstore(add(ptr, 32), _ccdmNonce) // Write _ccdmNonce (32 bytes)
         }
     }
 
@@ -71,16 +71,16 @@ library CCDMPayloadLib {
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Reads the metadata of the _composeMsg.
-    /// @dev The metadata is the source market hash (first 32 bytes) and ccdmBridgeNonce (following 32 bytes).
+    /// @dev The metadata is the source market hash (first 32 bytes) and ccdmNonce (following 32 bytes).
     /// @param _composeMsg The compose message received in lzCompose.
-    function readComposeMsgMetadata(bytes memory _composeMsg) internal pure returns (bytes32 sourceMarketHash, uint256 ccdmBridgeNonce) {
+    function readComposeMsgMetadata(bytes memory _composeMsg) internal pure returns (bytes32 sourceMarketHash, uint256 ccdmNonce) {
         assembly ("memory-safe") {
             // Pointer to the start of the compose message data (first 32 bytes is the length)
             let ptr := add(_composeMsg, 32)
             // Read the first 32 bytes as sourceMarketHash
             sourceMarketHash := mload(ptr)
-            // Read the next 32 bytes as ccdmBridgeNonce
-            ccdmBridgeNonce := mload(add(ptr, 32))
+            // Read the next 32 bytes as ccdmNonce
+            ccdmNonce := mload(add(ptr, 32))
         }
     }
 

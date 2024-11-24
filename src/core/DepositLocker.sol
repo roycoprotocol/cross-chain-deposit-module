@@ -111,7 +111,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Used to keep track of CCDM bridges.
     /// @notice A CCDM bridge that results in multiple OFTs being bridged (LP bridge) will have the same nonce.
-    uint256 public ccdmBridgeNonce;
+    uint256 public ccdmNonce;
 
     /*//////////////////////////////////////////////////////////////
                             Events and Errors
@@ -136,19 +136,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /**
      * @notice Emitted when single tokens are bridged to the destination chain.
      * @param marketHash The unique hash identifier of the market related to the bridged tokens.
-     * @param ccdmBridgeNonce The CCDM bridge nonce for this bridge.
+     * @param ccdmNonce The CCDM Nonce for this bridge.
      * @param lz_guid The LayerZero unique identifier associated with the bridging transaction.
      * @param lz_nonce The LayerZero nonce value for the bridging message.
      * @param amountBridged The total amount of tokens that were bridged to the destination chain.
      */
-    event SingleTokensBridgedToDestination(
-        bytes32 indexed marketHash, uint256 indexed ccdmBridgeNonce, bytes32 lz_guid, uint64 lz_nonce, uint256 amountBridged
-    );
+    event SingleTokensBridgedToDestination(bytes32 indexed marketHash, uint256 indexed ccdmNonce, bytes32 lz_guid, uint64 lz_nonce, uint256 amountBridged);
 
     /**
      * @notice Emitted when LP tokens are bridged to the destination chain.
      * @param marketHash The unique hash identifier of the market associated with the LP tokens.
-     * @param ccdmBridgeNonce The CCDM bridge nonce for this bridge.
+     * @param ccdmNonce The CCDM Nonce for this bridge.
      * @param lz_token0_guid The LayerZero unique identifier for the bridging of token0.
      * @param lz_token0_nonce The LayerZero nonce value for the bridging of token0.
      * @param token0 The address of the first token in the liquidity pair.
@@ -160,7 +158,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     event LpTokensBridgedToDestination(
         bytes32 indexed marketHash,
-        uint256 indexed ccdmBridgeNonce,
+        uint256 indexed ccdmNonce,
         bytes32 lz_token0_guid,
         uint64 lz_token0_nonce,
         ERC20 token0,
@@ -410,7 +408,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
 
         // Initialize compose message - first 33 bytes are BRIDGE_TYPE and market hash
-        bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, ccdmBridgeNonce);
+        bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, ccdmNonce);
 
         // Keep track of total amount of deposits to bridge and depositors included in the bridge payload.
         uint256 totalAmountToBridge;
@@ -446,7 +444,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Emit event to keep track of bridged deposits
-        emit SingleTokensBridgedToDestination(_marketHash, ccdmBridgeNonce++, messageReceipt.guid, messageReceipt.nonce, totalAmountToBridge);
+        emit SingleTokensBridgedToDestination(_marketHash, ccdmNonce++, messageReceipt.guid, messageReceipt.nonce, totalAmountToBridge);
     }
 
     /**
@@ -503,7 +501,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 token1_DecimalConversionRate = 10 ** (token1.decimals() - tokenToLzV2OFT[token1].sharedDecimals());
 
         // Initialize compose messages for both tokens
-        uint256 nonce = ccdmBridgeNonce;
+        uint256 nonce = ccdmNonce;
         bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
         bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
 
@@ -741,7 +739,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Emit event to keep track of bridged deposits
         emit LpTokensBridgedToDestination(
             params.marketHash,
-            ccdmBridgeNonce++,
+            ccdmNonce++,
             token0_MessageReceipt.guid,
             token0_MessageReceipt.nonce,
             params.token0,

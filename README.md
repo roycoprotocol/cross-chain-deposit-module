@@ -15,24 +15,27 @@ CCDM allows users to deposit funds on one chain (source) and have those funds br
 
 1. **[WeirollWallet](https://github.com/roycoprotocol/royco/blob/main/src/WeirollWallet.sol)**: Smart contract wallets (owned by depositors) used to execute recipes
    - Used on the source chain to deposit funds for liquidity provision on the destination chain and to withdraw funds (rage quit) from the ```DepositLocker``` prior to bridge.
-   - Used on the destination chain to represent a depositor's position, execute the destination campaign's deposit recipes, and withdrawals after an absolute locktime.
+   - Used on the destination chain to hold multiple depositors' positions from the same market, execute the destination campaign's deposit recipes, and hold the receipt tokens for withdrawal after an unlock timestamp.
 
 2. **[DepositLocker](https://github.com/roycoprotocol/cross-chain-deposit-module/blob/main/src/core/DepositLocker.sol)**: Deployed on the source chain
    - Integrates with Royco's RecipeMarketHub to facilitate deposits and withdrawals.
    - Accepts deposits from depositors' Weiroll Wallets upon an offer being filled in any CCDM integrated market.
    - Allows for depositors to withdraw funds until deposits are bridged.
    - Relies on a verifying party (green lighter) to flag when funds for a specific market are ready to bridge based on the state of the ```DepositExecutor``` on the destination chain.
-      - The green lighter will maintain a wholestic view of the entire system (locker and executor) to deem whether or not the funds for a given market are safe to bridge based on the destination campaign's recipes in addition to the causal effects of executing them.
-   - Bridges funds and destination execution parameters to the destination chain via LayerZero V2.
+      - The green lighter will maintain a wholestic view of the entire system (locker and executor) to deem whether or not the funds for a given market are safe to bridge based on the destination campaign's input tokens, receipt token, and deposits recipe in addition to the causal effects of executing them.
+      - After the green lighter gives the green light for a market, depositors have an additional 48 hours to "rage quit" from the campaign before they can be bridged.
+   - Bridges funds and specific depositer data (addresses and deposit amounts) to the destination chain via LayerZero V2.
+      - Each bridge transaction has a CCDM Nonce attached to it. Multiple LZ bridge transactions can have the same CCDM Nonce, ensuring that the tokens end up in the same Weiroll Wallet on the destination chain.
 
 3. **[DepositExecutor](https://github.com/roycoprotocol/cross-chain-deposit-module/blob/main/src/core/DepositExecutor.sol)**: Deployed on the destination chain
-   - Maintains a mapping of source Royco markets to their corresponding deposit campaign's owner, locktime, and recipes on the destination chain.
-   - Lets the owner of the deposit campaign set its locktime (once) and the campaign's deposit and withdrawal recipes.
-   - Receives the bridged funds and parameters via LayerZero and atomically creates Weiroll Wallets for all bridged depositors
-   - Allows the owner of the deposit campaign to execute deposit scripts for wallets associated with their campaign.
-   - Allows the depositor to execute the withdrawal recipe after the locktime has passed
-   - Relies on a verifying party (script verifier) to validate that the deposit and withdrawal recipe's work as expected.
-      - The campaign's owner cannot execute the deposit recipes for their depositors' Weiroll Wallets until newly added scripts have been verified.
+   - Maintains a mapping of source chain Royco markets to their corresponding deposit campaign's owner, unlock timestamp, input tokens, receipt token, and deposit recipe on the destination chain.
+   - Relies on a verifying party (campaing verifier) to validate that the deposit recipe will work as expected given the currently set deposit recipe, input tokens, and receipt token.
+   - Lets the owner of the deposit campaign set its unlock timestamp (once) and the campaign's input tokens, receipt token, and deposit recipe.
+      - The input tokens and receipt token are considered immutable after the first deposit recipe successfully executes for a campaign.
+      - Deposit recipes are eternally mutable, but changing them unverfies the campaign.
+   - Receives the bridged funds and depositor data via LayerZero and atomically creates one Weiroll Wallet per CCDM Nonce.
+   - Allows owners of deposit campaigns to execute deposit recipes for wallets associated with their campaign.
+   - Allows depositors to withdraw their prorated share of receipt tokens (if deposit recipe has executed) or their original deposit (if the deposit recipe hasn't executed) after the unlock timestamp has passed.
 
 ## CCDM Flow
 1. IP creates a Royco Recipe Market on the source chain.
@@ -42,23 +45,18 @@ CCDM allows users to deposit funds on one chain (source) and have those funds br
    - The Recipe Market Hub creates a fresh Weiroll Wallet owned by the AP.
    - The Recipe Market Hub automatically executes the market's deposit recipe through the wallet, depositing the liqudiity into the ```DepositLocker```.
    - The deposit is withdrawable by the AP any time prior to their funds being bridged.
-4. Once green light is given for a market, its funds can be bridged to the destination chain from the ```DepositLocker```.
-5. The ```DepositExecutor``` receives bridged funds belonging to a source market and creates Weiroll Wallets for each depositor as specified by the bridged execution parameters and the destination campaign's parameters.
+4. Once green light is given for a market, its funds can be bridged to the destination chain from the ```DepositLocker``` after.
+5. The ```DepositExecutor``` receives bridged funds belonging to a source market and creates a Weiroll Wallet for the CCDM nonce associated with the bridge transaction if it hasn't aleady. It also stores granular accounting for each bridged depositor to facilitate prorated withdrawals.
 6. The destination deposit recipe is executed (if verified) by the campaign's owner for the Weiroll Wallets associated with their campaign on the destination chain.
-7. Users can withdraw funds through the ```DepositExecutor``` after the campaign's locktime has elapsed.
+7. Users can withdraw funds through the ```DepositExecutor``` after the campaign's unlock timestamp has passed.
 
 ## CCDM Token Support
-As of today, CCDM supports 2 types of input tokens for Royco Markets: Single and LP (only UNIV2 for now). As the name suggests, single tokens will result in a single LZ bridging transaction invoked by the ```DepositLocker```, resulting in the ```DepositExecutor``` creating Weiroll Wallets for all bridged depositors with their respective deposit amounts. Dual and LP tokens will result in two consecutive LZ bridging transactions, one for each constituent/pool token, invoked by the ```DepositLocker```. Each bridge transaction will contain the same CCDM nonce, notifying the ```DepositExecutor``` to create Weiroll Wallets and fund them with the received constiutuent upon receving the first bridge, and simply transfer the second constituents to the previously created Weiroll Wallets upon receiving the second bridge.
+As of today, CCDM supports 2 types of input tokens for Royco Markets: Single and LP (only UNIV2 for now). As the name suggests, bridging single tokens will result in a single LZ bridging transaction invoked by the ```DepositLocker```. Birdging LP tokens, on the other hand, will result in two consecutive LZ bridging transactions, one for each constituent token in the pool. Each LZ bridge transaction will contain the same CCDM Nonce, notifying the ```DepositExecutor``` to send both constiutuents to the same Weiroll Wallet.
 
 1. **Single Tokens**: Any ERC20 token which represents a single asset (wETH, wBTC, LINK, etc.).
    - Bridging Function: ```bridgeSingleTokens()```
-3. **Dual Tokens**: An ERC20 token which is backed by a static ratio of 2 constiuent ERC20 tokens.
-   - DualTokens are a CCDM specific standard and are meant to be used for bridging relatively stable pairs of tokens.
-   - DualTokens have 0 decimals, meaning they can only be expressed as whole units.
-   - DualTokens should be created through the ```DualTokenFactory``` contract which is deployed in the constructor of the ```DepositLocker```.
-   - Bridging Function: ```bridgeDualTokens()```
-3. **[Uniswap V2 LP Tokens](https://docs.uniswap.org/contracts/v2/reference/smart-contracts/pair)**
-   - They are meant to be used when bridging unstable token pairs. Since they are self-rebalancing, they maintain the correct ratio of each asset based on their market prices. 
-   - When the incentivized action on the destination chain is LPing into an unstable pool, LP tokens will reflect accurate ratios for the target pool up until the bridge.
+2. **[Uniswap V2 LP Tokens](https://docs.uniswap.org/contracts/v2/reference/smart-contracts/pair)**
+   - Meant to be used when the incentivized action on the destination chain is LPing into a liquidity pool.
+   - Since LP tokens are continuously rebalancing, they maintain the correct ratio for the constituents based on the market price. 
    - Since bridging LP tokens requires redeeming them for their underlying pool tokens, impermanent loss becomes permanent. Due to this condition, only the owner of an LP market can bridge LP tokens in addition to specifying the minimum amounts of each pool token received on redeem.
    - Bridging Function: ```bridgeLpTokens()```

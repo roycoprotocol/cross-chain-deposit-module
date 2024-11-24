@@ -401,6 +401,6 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         // Ensure that the nonce was incremented
-        assertEq(depositLocker.ccdmBridgeNonce(), 1);
+        assertEq(depositLocker.ccdmNonce(), 1);
     }
 }

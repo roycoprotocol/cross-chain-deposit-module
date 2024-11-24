@@ -47,7 +47,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @custom:field unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign.
     /// @custom:field depositRecipe The Weiroll Recipe executed on deposit (specified by the owner of the campaign).
     /// @custom:field verified A flag indicating whether this campaign's input tokens, receipt token, and deposit recipe are verified.
-    /// @custom:field ccdmBridgeNonceToWeirollWallet Mapping from a CCDM bridge nonce to its corresponding Weiroll Wallet.
+    /// @custom:field ccdmNonceToWeirollWallet Mapping from a CCDM Nonce to its corresponding Weiroll Wallet.
     /// @custom:field weirollWalletToAccounting Mapping from a Weiroll Wallet to its corresponding depositor accounting data.
     struct DepositCampaign {
         address owner;
@@ -56,7 +56,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         uint256 unlockTimestamp;
         Recipe depositRecipe;
         bool verified;
-        mapping(uint256 => address) ccdmBridgeNonceToWeirollWallet;
+        mapping(uint256 => address) ccdmNonceToWeirollWallet;
         mapping(address => WeirollWalletAccounting) weirollWalletToAccounting;
     }
 
@@ -98,10 +98,10 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @notice Emitted when lzCompose is executed for a bridge transaction.
      * @param sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param guid The global unique identifier of the LayerZero V2 bridge transaction.
-     * @param ccdmBridgeNonce The nonce for the CCDM bridge transaction.
-     * @param weirollWallet The weiroll wallet associated with this CCDM bridge nonce for this campaign.
+     * @param ccdmNonce The nonce for the CCDM bridge transaction.
+     * @param weirollWallet The weiroll wallet associated with this CCDM Nonce for this campaign.
      */
-    event CCDMBridgeProcessed(bytes32 indexed sourceMarketHash, bytes32 indexed guid, uint256 indexed ccdmBridgeNonce, address weirollWallet);
+    event CCDMBridgeProcessed(bytes32 indexed sourceMarketHash, bytes32 indexed guid, uint256 indexed ccdmNonce, address weirollWallet);
 
     /**
      * @notice Emitted on batch execute of Weiroll Wallet deposits.
@@ -259,8 +259,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         bytes memory composeMsg = OFTComposeMsgCodec.composeMsg(_message);
         uint256 tokenAmountBridged = OFTComposeMsgCodec.amountLD(_message);
 
-        // Extract the source market's hash (first 32 bytes) and ccdmBridgeNonce (following 32 bytes).
-        (bytes32 sourceMarketHash, uint256 ccdmBridgeNonce) = composeMsg.readComposeMsgMetadata();
+        // Extract the source market's hash (first 32 bytes) and ccdmNonce (following 32 bytes).
+        (bytes32 sourceMarketHash, uint256 ccdmNonce) = composeMsg.readComposeMsgMetadata();
 
         // Get the deposit token from the LZ V2 OApp that invoked the compose call
         ERC20 depositToken = ERC20(IOFT(_from).token());
@@ -273,11 +273,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Get the campaign corresponding to this source market hash
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[sourceMarketHash];
 
-        // If there is no cached Weiroll Wallet for this CCDM bridge nonce in the market, create one
-        address cachedWeirollWallet = campaign.ccdmBridgeNonceToWeirollWallet[ccdmBridgeNonce];
+        // If there is no cached Weiroll Wallet for this CCDM Nonce in the market, create one
+        address cachedWeirollWallet = campaign.ccdmNonceToWeirollWallet[ccdmNonce];
         if (cachedWeirollWallet == address(0)) {
             cachedWeirollWallet = _createWeirollWallet(sourceMarketHash, campaign.unlockTimestamp);
-            campaign.ccdmBridgeNonceToWeirollWallet[ccdmBridgeNonce] = cachedWeirollWallet;
+            campaign.ccdmNonceToWeirollWallet[ccdmNonce] = cachedWeirollWallet;
         }
 
         // Get the accounting ledger for this Weiroll Wallet
@@ -286,7 +286,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Execute accounting logic to keep track of each depositor's position in this wallet.
         _accountForDeposits(walletAccounting, composeMsg, depositToken, tokenAmountBridged);
 
-        emit CCDMBridgeProcessed(sourceMarketHash, _guid, ccdmBridgeNonce, cachedWeirollWallet);
+        emit CCDMBridgeProcessed(sourceMarketHash, _guid, ccdmNonce, cachedWeirollWallet);
     }
 
     /**
@@ -345,7 +345,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Checks to ensure that the withdrawal is after the lock timestamp
         require(weirollWallet.lockedUntil() <= block.timestamp, WalletLocked());
 
-        // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM bridge nonce on destination)
+        // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM Nonce on destination)
         WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallet];
 
         if (weirollWallet.executed()) {
@@ -394,13 +394,13 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /**
-     * @notice Retrieves the Weiroll Wallet associated with a given CCDM bridge nonce in a Deposit Campaign.
+     * @notice Retrieves the Weiroll Wallet associated with a given CCDM Nonce in a Deposit Campaign.
      * @param _sourceMarketHash The unique hash identifier of the source market (Deposit Campaign).
-     * @param _ccdmBridgeNonce The CCDM bridge nonce used in the mapping.
-     * @return weirollWallet The address of the Weiroll Wallet associated with the given CCDM bridge nonce.
+     * @param _ccdmNonce The CCDM Nonce used in the mapping.
+     * @return weirollWallet The address of the Weiroll Wallet associated with the given CCDM Nonce.
      */
-    function getWeirollWalletByCcdmBridgeNonce(bytes32 _sourceMarketHash, uint256 _ccdmBridgeNonce) external view returns (address weirollWallet) {
-        weirollWallet = sourceMarketHashToDepositCampaign[_sourceMarketHash].ccdmBridgeNonceToWeirollWallet[_ccdmBridgeNonce];
+    function getWeirollWalletByCcdmNonce(bytes32 _sourceMarketHash, uint256 _ccdmNonce) external view returns (address weirollWallet) {
+        weirollWallet = sourceMarketHashToDepositCampaign[_sourceMarketHash].ccdmNonceToWeirollWallet[_ccdmNonce];
     }
 
     /**
