@@ -388,9 +388,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @notice Hash includes the campaign's input tokens, receipt token, and deposit recipe since correct execution is dependent on all three.
      * @return scriptVerificationHash The hash of the encoded input tokens, receipt token, and deposit recipe.
      */
-    function getCampaignVerificationHash(bytes32 _sourceMarketHash) public view returns (bytes32 scriptVerificationHash) {
+    function getCampaignVerificationHash(bytes32 _sourceMarketHash) public view returns (bytes32 campaignVerificationHash) {
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
-        scriptVerificationHash = keccak256(abi.encode(campaign.inputTokens, campaign.receiptToken, campaign.depositRecipe));
+        campaignVerificationHash = keccak256(abi.encode(campaign.inputTokens, campaign.receiptToken, campaign.depositRecipe));
     }
 
     /**
