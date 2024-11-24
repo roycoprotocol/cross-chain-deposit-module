@@ -53,6 +53,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         TotalAmountsToBridge totals;
         bytes token0_ComposeMsg;
         bytes token1_ComposeMsg;
+        address[] depositorsBridged;
     }
 
     /// @notice Struct to hold parameters for processing LP token depositors.
@@ -137,16 +138,20 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @notice Emitted when single tokens are bridged to the destination chain.
      * @param marketHash The unique hash identifier of the market related to the bridged tokens.
      * @param ccdmNonce The CCDM Nonce for this bridge.
+     * @param depositorsBridged All the depositors bridged in this CCDM bridge transaction.
      * @param lz_guid The LayerZero unique identifier associated with the bridging transaction.
      * @param lz_nonce The LayerZero nonce value for the bridging message.
-     * @param amountBridged The total amount of tokens that were bridged to the destination chain.
+     * @param totalAmountBridged The total amount of tokens that were bridged to the destination chain.
      */
-    event SingleTokensBridgedToDestination(bytes32 indexed marketHash, uint256 indexed ccdmNonce, bytes32 lz_guid, uint64 lz_nonce, uint256 amountBridged);
+    event SingleTokensBridgedToDestination(
+        bytes32 indexed marketHash, uint256 indexed ccdmNonce, address[] depositorsBridged, bytes32 lz_guid, uint64 lz_nonce, uint256 totalAmountBridged
+    );
 
     /**
-     * @notice Emitted when LP tokens are bridged to the destination chain.
+     * @notice Emitted when UNI V2 LP tokens are bridged to the destination chain.
      * @param marketHash The unique hash identifier of the market associated with the LP tokens.
      * @param ccdmNonce The CCDM Nonce for this bridge.
+     * @param depositorsBridged All the depositors bridged in this CCDM bridge transaction.
      * @param lz_token0_guid The LayerZero unique identifier for the bridging of token0.
      * @param lz_token0_nonce The LayerZero nonce value for the bridging of token0.
      * @param token0 The address of the first token in the liquidity pair.
@@ -159,6 +164,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     event LpTokensBridgedToDestination(
         bytes32 indexed marketHash,
         uint256 indexed ccdmNonce,
+        address[] depositorsBridged,
         bytes32 lz_token0_guid,
         uint64 lz_token0_nonce,
         ERC20 token0,
@@ -410,6 +416,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Initialize compose message - first 33 bytes are BRIDGE_TYPE and market hash
         bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, ccdmNonce);
 
+        // Array to store the actual depositors bridged
+        address[] memory depositorsBridged = new address[](_depositors.length);
+
         // Keep track of total amount of deposits to bridge and depositors included in the bridge payload.
         uint256 totalAmountToBridge;
         uint256 numDepositorsIncluded;
@@ -418,11 +427,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             // Process depositor and update the compose message
             uint256 depositAmount = _processSingleTokenDepositor(_marketHash, numDepositorsIncluded, _depositors[i], composeMsg);
             if (depositAmount == 0) {
-                // If skipped this depositor, continue.
+                // If this depositor was omitted, continue.
                 continue;
             }
             totalAmountToBridge += depositAmount;
-            ++numDepositorsIncluded;
+            depositorsBridged[numDepositorsIncluded++] = _depositors[i];
         }
 
         // Ensure that at least one depositor was included in the bridge payload
@@ -430,6 +439,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Resize the compose message to reflect the actual number of depositors included in the payload
         composeMsg.resizeComposeMsg(numDepositorsIncluded);
+
+        // Resize depositors bridged array to reflect the actual number of depositors bridged
+        assembly ("memory-safe") {
+            mstore(depositorsBridged, numDepositorsIncluded)
+        }
 
         // Get the market's input token
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
@@ -444,7 +458,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Emit event to keep track of bridged deposits
-        emit SingleTokensBridgedToDestination(_marketHash, ccdmNonce++, messageReceipt.guid, messageReceipt.nonce, totalAmountToBridge);
+        emit SingleTokensBridgedToDestination(_marketHash, ccdmNonce++, depositorsBridged, messageReceipt.guid, messageReceipt.nonce, totalAmountToBridge);
     }
 
     /**
@@ -505,8 +519,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
         bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
 
+        // Array to store the actual depositors bridged
+        address[] memory depositorsBridged = new address[](_depositors.length);
+
         // Initialize totals
         TotalAmountsToBridge memory totals;
+
         // Create params struct
         LpTokenDepositorParams memory params;
         params.marketHash = _marketHash;
@@ -523,15 +541,21 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             params.lpToken_DepositAmount = lp_DepositAmounts[i];
 
             // Process the depositor and update the compose messages and totals
-            _processLpTokenDepositor(params, token0, token1, token0_ComposeMsg, token1_ComposeMsg, totals);
+            _processLpTokenDepositor(params, token0, token1, token0_ComposeMsg, token1_ComposeMsg, depositorsBridged, totals);
         }
 
         // Ensure that at least one depositor was included in the bridge payload
         require(totals.token0_TotalAmountToBridge > 0 && totals.token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
-        // Resize the compose messages to reflect the actual number of depositors included in the payload
-        token0_ComposeMsg.resizeComposeMsg(params.numDepositorsIncluded);
-        token1_ComposeMsg.resizeComposeMsg(params.numDepositorsIncluded);
+        // Resize the compose messages to reflect the actual number of depositors bridged
+        uint256 numDepositorsIncluded = params.numDepositorsIncluded;
+        token0_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
+        token1_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
+
+        // Resize depositors bridged array to reflect the actual number of depositors bridged
+        assembly ("memory-safe") {
+            mstore(depositorsBridged, numDepositorsIncluded)
+        }
 
         // Create bridge parameters
         LpBridgeParams memory bridgeParams = LpBridgeParams({
@@ -541,7 +565,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             token1: token1,
             totals: totals,
             token0_ComposeMsg: token0_ComposeMsg,
-            token1_ComposeMsg: token1_ComposeMsg
+            token1_ComposeMsg: token1_ComposeMsg,
+            depositorsBridged: depositorsBridged
         });
 
         // Execute 2 consecutive bridges for each constituent token
@@ -628,6 +653,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _token1 The ERC20 instance of Token B.
      * @param _token0_ComposeMsg The compose message for Token A to be updated.
      * @param _token1_ComposeMsg The compose message for Token B to be updated.
+     * @param _depositorsBridged The array of actual depositors included in this bridge.
      * @param _totals The totals for Token A and Token B to be updated.
      */
     function _processLpTokenDepositor(
@@ -636,6 +662,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         ERC20 _token1,
         bytes memory _token0_ComposeMsg,
         bytes memory _token1_ComposeMsg,
+        address[] memory _depositorsBridged,
         TotalAmountsToBridge memory _totals
     )
         internal
@@ -676,11 +703,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Update compose messages with acceptable amounts
         _token0_ComposeMsg.writeDepositor(params.numDepositorsIncluded, params.depositor, uint96(token0_DepositAmount));
-        _token1_ComposeMsg.writeDepositor(params.numDepositorsIncluded++, params.depositor, uint96(token1_DepositAmount));
+        _token1_ComposeMsg.writeDepositor(params.numDepositorsIncluded, params.depositor, uint96(token1_DepositAmount));
 
         // Update totals
         _totals.token0_TotalAmountToBridge += token0_DepositAmount;
         _totals.token1_TotalAmountToBridge += token1_DepositAmount;
+
+        // Add depositor to depositors bridged array
+        _depositorsBridged[params.numDepositorsIncluded++] = params.depositor;
     }
 
     /**
@@ -716,19 +746,19 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /**
      * @notice Bridges two tokens consecutively to the destination chain using LayerZero's OFT.
      * @dev Handles the bridging of Token A and Token B, fee management, and event emission.
-     * @param params The parameters required for bridging LP tokens.
+     * @param _params The parameters required for bridging LP tokens.
      */
-    function _executeConsecutiveBridges(LpBridgeParams memory params) internal {
+    function _executeConsecutiveBridges(LpBridgeParams memory _params) internal {
         uint256 totalBridgingFee = 0;
 
         // Bridge Token A
         MessagingReceipt memory token0_MessageReceipt =
-            _executeBridge(params.token0, params.totals.token0_TotalAmountToBridge, params.token0_ComposeMsg, totalBridgingFee, params.executorGasLimit);
+            _executeBridge(_params.token0, _params.totals.token0_TotalAmountToBridge, _params.token0_ComposeMsg, totalBridgingFee, _params.executorGasLimit);
         totalBridgingFee += token0_MessageReceipt.fee.nativeFee;
 
         // Bridge Token B
         MessagingReceipt memory token1_MessageReceipt =
-            _executeBridge(params.token1, params.totals.token1_TotalAmountToBridge, params.token1_ComposeMsg, totalBridgingFee, params.executorGasLimit);
+            _executeBridge(_params.token1, _params.totals.token1_TotalAmountToBridge, _params.token1_ComposeMsg, totalBridgingFee, _params.executorGasLimit);
         totalBridgingFee += token1_MessageReceipt.fee.nativeFee;
 
         // Refund excess value sent with the transaction
@@ -738,16 +768,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Emit event to keep track of bridged deposits
         emit LpTokensBridgedToDestination(
-            params.marketHash,
+            _params.marketHash,
             ccdmNonce++,
+            _params.depositorsBridged,
             token0_MessageReceipt.guid,
             token0_MessageReceipt.nonce,
-            params.token0,
-            params.totals.token0_TotalAmountToBridge,
+            _params.token0,
+            _params.totals.token0_TotalAmountToBridge,
             token1_MessageReceipt.guid,
             token1_MessageReceipt.nonce,
-            params.token1,
-            params.totals.token1_TotalAmountToBridge
+            _params.token1,
+            _params.totals.token1_TotalAmountToBridge
         );
     }
 

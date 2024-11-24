@@ -104,7 +104,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDC_MAINNET_ADDRESS))), offerAmount);
 
         vm.expectEmit(false, false, true, false, address(depositLocker));
-        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, 0, bytes32(0), 0, offerAmount);
+        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, 0, new address[](0), bytes32(0), 0, offerAmount);
 
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
@@ -197,7 +197,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         vm.expectEmit(true, false, false, false, address(depositLocker));
-        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, 0, bytes32(0), 0, filledSoFar);
+        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, 0, new address[](0), bytes32(0), 0, filledSoFar);
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
@@ -285,7 +285,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit ERC20.Transfer(address(depositLocker), WBTC_OFT_ADAPTER_MAINNET_ADDRESS, offerAmount);
 
         vm.expectEmit(false, false, true, false, address(depositLocker));
-        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, 0, bytes32(0), 0, offerAmount);
+        emit DepositLocker.SingleTokensBridgedToDestination(marketHash, 0, new address[](0), bytes32(0), 0, offerAmount);
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
@@ -393,7 +393,9 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         emit ERC20.Transfer(address(depositLocker), address(depositLocker.tokenToLzV2OFT(ERC20(USDC_MAINNET_ADDRESS))), 0);
 
         vm.expectEmit(true, true, false, false, address(depositLocker));
-        emit DepositLocker.LpTokensBridgedToDestination(marketHash, 0, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0);
+        emit DepositLocker.LpTokensBridgedToDestination(
+            marketHash, 0, new address[](0), bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0
+        );
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
