@@ -411,7 +411,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _token The ERC20 token for which the amount is queried.
      * @return amountDeposited The amount of the specified token deposited by the depositor in the Weiroll Wallet.
      */
-    function getDepositorTokenAmountDeposited(
+    function getTokenAmountDepositedByDepositorInWeirollWallet(
         bytes32 _sourceMarketHash,
         address _weirollWallet,
         address _depositor,
@@ -432,7 +432,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _token The ERC20 token for which the total amount is queried.
      * @return totalAmountDeposited The total amount of the specified token deposited in the Weiroll Wallet.
      */
-    function getTotalTokenAmountDeposited(
+    function getTotalTokenAmountDepositedInWeirollWallet(
         bytes32 _sourceMarketHash,
         address _weirollWallet,
         ERC20 _token
