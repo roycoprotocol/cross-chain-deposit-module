@@ -68,7 +68,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         weirollImplementation = new WeirollWallet();
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, SCRIPT_VERIFIER_ADDRESS, address(0));
+        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0));
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
@@ -90,8 +90,8 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         depositExecutor.setCampaignDepositRecipe(bridgeResult.marketHash, DEPOSIT_RECIPE);
         vm.stopPrank();
 
-        vm.startPrank(SCRIPT_VERIFIER_ADDRESS);
-        depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getScriptVerificationHash(bridgeResult.marketHash));
+        vm.startPrank(CAMPAIGN_VERIFIER_ADDRESS);
+        depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getCampaignVerificationHash(bridgeResult.marketHash));
         vm.stopPrank();
 
         // Fund the Executor (bridge simulation)
@@ -170,9 +170,8 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         unlockTimestamp = bound(unlockTimestamp, block.timestamp, type(uint128).max);
 
         weirollImplementation = new WeirollWallet();
-        WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, SCRIPT_VERIFIER_ADDRESS, address(0));
+        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0));
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
@@ -189,8 +188,8 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         depositExecutor.setCampaignInputTokens(bridgeResult.marketHash, depositTokens);
         vm.stopPrank();
 
-        vm.startPrank(SCRIPT_VERIFIER_ADDRESS);
-        depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getScriptVerificationHash(bridgeResult.marketHash));
+        vm.startPrank(CAMPAIGN_VERIFIER_ADDRESS);
+        depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getCampaignVerificationHash(bridgeResult.marketHash));
         vm.stopPrank();
 
         // Fund the Executor (bridge simulation)

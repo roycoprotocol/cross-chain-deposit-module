@@ -74,14 +74,14 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice The wrapped native asset token on the destination chain.
     address public immutable WRAPPED_NATIVE_ASSET_TOKEN;
 
-    /// @notice The address of the script verifier responsible for verifying campaign input tokens, receipt tokens, and scripts before execution.
-    address public scriptVerifier;
+    /// @notice The address of the verifier responsible for verifying campaign input tokens, receipt tokens, and deposit scripts before execution.
+    address public campaignVerifier;
 
     /// @dev Mapping from a source market hash to its DepositCampaign struct.
     mapping(bytes32 => DepositCampaign) public sourceMarketHashToDepositCampaign;
 
     /// @dev Mapping from a source market hash to whether or not the first deposit script has been executed.
-    mapping(bytes32 => bool) public sourceMarketHashToFirstDepositExecuted;
+    mapping(bytes32 => bool) public sourceMarketHashToFirstDepositRecipeExecuted;
 
     /*//////////////////////////////////////////////////////////////
                             Events and Errors
@@ -110,17 +110,17 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     event DepositorWithdrawn(address indexed weirollWallet, address indexed depositor);
 
     /**
-     * @notice Emitted when the script verifier address is set.
-     * @param scriptVerifier The address of the new script verifier.
+     * @notice Emitted when the campaign verifier address is set.
+     * @param campaignVerifier The address of the new campaign verifier.
      */
-    event ScriptVerifierSet(address scriptVerifier);
+    event CampaignVerifierSet(address campaignVerifier);
 
     /**
      * @notice Emitted when a campaign's updates are verified.
      * @param sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param verificationStatus Boolean indicating whether the campaign verification was given or revoked.
      */
-    event ScriptVerificationStatusUpdated(bytes32 indexed sourceMarketHash, bool verificationStatus);
+    event CampaignVerificationStatusUpdated(bytes32 indexed sourceMarketHash, bool verificationStatus);
 
     /**
      * @notice Emitted when a new owner is set for a campaign.
@@ -156,8 +156,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      */
     event CampaignDepositRecipeSet(bytes32 indexed sourceMarketHash);
 
-    /// @notice Error emitted when the caller is not the scriptVerifier.
-    error OnlyScriptVerifier();
+    /// @notice Error emitted when the caller is not the campaignVerifier.
+    error OnlyCampaignVerifier();
 
     /// @notice Error emitted when the caller is not the owner of the campaign.
     error OnlyCampaignOwner();
@@ -190,9 +190,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                                   Modifiers
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Modifier to ensure the caller is the global scriptVerifier.
-    modifier onlyScriptVerifier() {
-        require(msg.sender == scriptVerifier, OnlyScriptVerifier());
+    /// @dev Modifier to ensure the caller is the global campaignVerifier.
+    modifier onlyCampaignVerifier() {
+        require(msg.sender == campaignVerifier, OnlyCampaignVerifier());
         _;
     }
 
@@ -216,16 +216,16 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @notice Initialize the DepositExecutor Contract.
      * @param _owner The address of the owner of this contract.
      * @param _lzV2Endpoint The address of the LayerZero V2 Endpoint on the destination chain.
-     * @param _scriptVerifier The address of the script verifier.
+     * @param _campaignVerifier The address of the campaign verifier.
      * @param _wrapped_native_asset_token The address of the wrapped native asset token on the destination chain.
      */
-    constructor(address _owner, address _lzV2Endpoint, address _scriptVerifier, address _wrapped_native_asset_token) Ownable(_owner) {
+    constructor(address _owner, address _lzV2Endpoint, address _campaignVerifier, address _wrapped_native_asset_token) Ownable(_owner) {
         // Deploy the Weiroll Wallet implementation on the destination chain to use for cloning with immutable args
         WEIROLL_WALLET_IMPLEMENTATION = address(new WeirollWallet());
 
         // Initialize the DepositExecutor's state
         LAYER_ZERO_V2_ENDPOINT = _lzV2Endpoint;
-        scriptVerifier = _scriptVerifier;
+        campaignVerifier = _campaignVerifier;
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
     }
 
@@ -318,8 +318,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
                 // Set once the first deposit recipe has been executed for this market
                 // After this is set, campaign input tokens and the receipt token cannot be modified
-                if (!sourceMarketHashToFirstDepositExecuted[_sourceMarketHash]) {
-                    sourceMarketHashToFirstDepositExecuted[_sourceMarketHash] = true;
+                if (!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash]) {
+                    sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash] = true;
                 }
             }
         }
@@ -332,8 +332,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Get the campaign details for the source market
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[weirollWallet.marketHash()];
 
-        // Checks to ensure that the withdrawal is valid
-        require(campaign.verified, CampaignIsUnverified());
+        // Checks to ensure that the withdrawal is after the lock timestamp
         require(weirollWallet.lockedUntil() <= block.timestamp, WalletLocked());
 
         // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM bridge nonce on destination)
@@ -356,7 +355,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             // Remit the receipt tokens to the depositor
             receiptToken.safeTransferFrom(_weirollWallet, msg.sender, receiptTokensOwed);
         } else {
-            // If it is not, the receipt token might be incorrectly set which would stop them from
             // If deposit recipe hasn't been executed, return the depositor's share of the input tokens
             for (uint256 i = 0; i < campaign.inputTokens.length; ++i) {
                 // Get the amount of this input token deposited by the depositor
@@ -376,10 +374,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /**
-     * @notice Returns the hash of the campaign parameters which must be used to check against the current parameters on verifiaction.
+     * @notice Returns the hash of the campaign parameters which must be used to check against the current parameters on verification.
+     * @notice Hash includes the campaign's input tokens, receipt token, and deposit recipe since correct execution is dependent on all three.
      * @return scriptVerificationHash The hash of the encoded input tokens, receipt token, and deposit recipe.
      */
-    function getScriptVerificationHash(bytes32 _sourceMarketHash) public returns (bytes32 scriptVerificationHash) {
+    function getCampaignVerificationHash(bytes32 _sourceMarketHash) public view returns (bytes32 scriptVerificationHash) {
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
         scriptVerificationHash = keccak256(abi.encode(campaign.inputTokens, campaign.receiptToken, campaign.depositRecipe));
     }
@@ -483,12 +482,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Sets the script verifier address.
-     * @param _scriptVerifier The address of the script verifier.
+     * @notice Sets the campaign verifier address.
+     * @param _campaignVerifier The address of the campaign verifier.
      */
-    function setScriptVerifier(address _scriptVerifier) external onlyOwner {
-        scriptVerifier = _scriptVerifier;
-        emit ScriptVerifierSet(_scriptVerifier);
+    function setCampaignVerifier(address _campaignVerifier) external onlyOwner {
+        campaignVerifier = _campaignVerifier;
+        emit CampaignVerifierSet(_campaignVerifier);
     }
 
     /**
@@ -503,14 +502,14 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Verifies any updates to a campaign's input tokens, receipt token, and deposit recipe.
-     * @notice Deposit Recipe can now be executed and withdrawals can be made.
+     * @notice Deposit Recipe can now be executed.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _scriptVerificationHash The hash of the campaign parameters to verify - prevents token/script setting frontrunning attacks by the campaign owner.
      */
-    function verifyCampaign(bytes32 _sourceMarketHash, bytes32 _scriptVerificationHash) external onlyScriptVerifier {
-        if (_scriptVerificationHash == getScriptVerificationHash(_sourceMarketHash)) {
+    function verifyCampaign(bytes32 _sourceMarketHash, bytes32 _scriptVerificationHash) external onlyCampaignVerifier {
+        if (_scriptVerificationHash == getCampaignVerificationHash(_sourceMarketHash)) {
             sourceMarketHashToDepositCampaign[_sourceMarketHash].verified = true;
-            emit ScriptVerificationStatusUpdated(_sourceMarketHash, true);
+            emit CampaignVerificationStatusUpdated(_sourceMarketHash, true);
         }
     }
 
@@ -519,9 +518,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @notice Deposit Recipe cannot be executed and withdrawals are blocked until verified.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      */
-    function unverifyCampaign(bytes32 _sourceMarketHash) external onlyScriptVerifier {
+    function unverifyCampaign(bytes32 _sourceMarketHash) external onlyCampaignVerifier {
         delete sourceMarketHashToDepositCampaign[_sourceMarketHash].verified;
-        emit ScriptVerificationStatusUpdated(_sourceMarketHash, false);
+        emit CampaignVerificationStatusUpdated(_sourceMarketHash, false);
     }
 
     /**
@@ -543,7 +542,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _inputTokens The input tokens to set for this deposit campaign.
      */
     function setCampaignInputTokens(bytes32 _sourceMarketHash, ERC20[] calldata _inputTokens) external onlyCampaignOwner(_sourceMarketHash) {
-        if (!sourceMarketHashToFirstDepositExecuted[_sourceMarketHash]) {
+        if (!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash]) {
             sourceMarketHashToDepositCampaign[_sourceMarketHash].inputTokens = _inputTokens;
             emit CampaignInputTokensSet(_sourceMarketHash, _inputTokens);
         }
@@ -557,7 +556,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _receiptToken The receipt token to set for this deposit campaign.
      */
     function setCampaignReceiptToken(bytes32 _sourceMarketHash, ERC20 _receiptToken) external onlyCampaignOwner(_sourceMarketHash) {
-        if (!sourceMarketHashToFirstDepositExecuted[_sourceMarketHash]) {
+        if (!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash]) {
             sourceMarketHashToDepositCampaign[_sourceMarketHash].receiptToken = _receiptToken;
             emit CampaignReceiptTokenSet(_sourceMarketHash, _receiptToken);
         }

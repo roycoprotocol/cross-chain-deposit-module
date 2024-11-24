@@ -51,7 +51,7 @@ contract RoycoTestBase is Test {
     address internal GREEN_LIGHTER_ADDRESS;
 
     Vm.Wallet internal SCRIPT_VERIFIER;
-    address internal SCRIPT_VERIFIER_ADDRESS;
+    address internal CAMPAIGN_VERIFIER_ADDRESS;
 
     Vm.Wallet internal POINTS_FACTORY_OWNER;
     address internal POINTS_FACTORY_OWNER_ADDRESS;
@@ -113,7 +113,7 @@ contract RoycoTestBase is Test {
         // Set addresses
         OWNER_ADDRESS = OWNER.addr;
         GREEN_LIGHTER_ADDRESS = GREEN_LIGHTER.addr;
-        SCRIPT_VERIFIER_ADDRESS = SCRIPT_VERIFIER.addr;
+        CAMPAIGN_VERIFIER_ADDRESS = SCRIPT_VERIFIER.addr;
         POINTS_FACTORY_OWNER_ADDRESS = POINTS_FACTORY_OWNER.addr;
         ALICE_ADDRESS = ALICE.addr;
         BOB_ADDRESS = BOB.addr;
