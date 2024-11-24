@@ -6,17 +6,18 @@ pragma solidity ^0.8.0;
 /// @notice A library for encoding and decoding CCDM payloads
 library CCDMPayloadLib {
     /*//////////////////////////////////////////////////////////////
-            CCDM Bridge Payload Structure:
-                Per Payload (64 bytes):
+                    CCDM Payload Structure
+               -------------------------------
+                Per Payload (first 64 bytes):
                     - marketHash: bytes32 (32 bytes)
-                    - nonce: uint256 (32 bytes)
-                Per Depositor (32 bytes):
+                    - ccdmNonce: uint256 (32 bytes)
+                Per Depositor (following 32 byte blocks):
                     - Depositor / AP address: address (20 bytes)
                     - Amount Deposited: uint96 (12 bytes)
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Size of payload metadata and offset to the first depositor in a CCDM payload.
-    // (32 bytes for sourceMarketHash + 32 bytes for ccdmNonce) = 65 bytes
+    // (32 bytes for sourceMarketHash + 32 bytes for CCDM Nonce) = 65 bytes
     uint256 internal constant METADATA_SIZE = 64;
 
     /// @notice Bytes used per depositor position in the payload

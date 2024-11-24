@@ -22,14 +22,14 @@ CCDM allows users to deposit funds on one chain (source) and have those funds br
    - Accepts deposits from depositors' Weiroll Wallets upon an offer being filled in any CCDM integrated market.
    - Allows for depositors to withdraw funds until deposits are bridged.
    - Relies on a verifying party (green lighter) to flag when funds for a specific market are ready to bridge based on the state of the ```DepositExecutor``` on the destination chain.
-      - The green lighter will maintain a wholestic view of the entire system (locker and executor) to deem whether or not the funds for a given market are safe to bridge based on the destination campaign's input tokens, receipt token, and deposits recipe in addition to the causal effects of executing them.
+      - The green lighter will maintain a wholestic view of the entire system (locker and executor) to deem whether or not the funds for a given market are safe to bridge based on the destination campaign's input tokens, receipt token, and deposit recipe in addition to the causal effects of executing them.
       - After the green lighter gives the green light for a market, depositors have an additional 48 hours to "rage quit" from the campaign before they can be bridged.
    - Bridges funds and specific depositer data (addresses and deposit amounts) to the destination chain via LayerZero V2.
       - Each bridge transaction has a CCDM Nonce attached to it. Multiple LZ bridge transactions can have the same CCDM Nonce, ensuring that the tokens end up in the same Weiroll Wallet on the destination chain.
 
 3. **[DepositExecutor](https://github.com/roycoprotocol/cross-chain-deposit-module/blob/main/src/core/DepositExecutor.sol)**: Deployed on the destination chain
    - Maintains a mapping of source chain Royco markets to their corresponding deposit campaign's owner, unlock timestamp, input tokens, receipt token, and deposit recipe on the destination chain.
-   - Relies on a verifying party (campaing verifier) to validate that the deposit recipe will work as expected given the currently set deposit recipe, input tokens, and receipt token.
+   - Relies on a verifying party (campaign verifier) to validate that the deposit recipe will work as expected given the currently set input tokens, receipt token, and deposit recipe.
    - Lets the owner of the deposit campaign set its unlock timestamp (once) and the campaign's input tokens, receipt token, and deposit recipe.
       - The input tokens and receipt token are considered immutable after the first deposit recipe successfully executes for a campaign.
       - Deposit recipes are eternally mutable, but changing them unverfies the campaign.
@@ -39,7 +39,8 @@ CCDM allows users to deposit funds on one chain (source) and have those funds br
 
 ## CCDM Flow
 1. IP creates a Royco Recipe Market on the source chain.
-   - The market's deposit and withdrawal recipes will call the ```deposit()``` and ```withdraw()``` functions on the ```DepositLocker``` respectively.
+   - The market's deposit recipe will approve the ```DepositLocker``` to spend the amount of tokens deposited (fill amount) and then call the ```deposit()``` functions on the ```DepositLocker```.
+   -  The market's withdrawal recipe will call ```withdraw()``` on the ```DepositLocker```.
 2. IPs and APs place and negotiate the terms of offers through Royco.
 3. Upon an offer being filled: 
    - The Recipe Market Hub creates a fresh Weiroll Wallet owned by the AP.

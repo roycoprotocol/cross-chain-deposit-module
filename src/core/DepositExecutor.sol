@@ -97,11 +97,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /**
      * @notice Emitted when lzCompose is executed for a bridge transaction.
      * @param sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
-     * @param guid The global unique identifier of the LayerZero V2 bridge transaction.
      * @param ccdmNonce The nonce for the CCDM bridge transaction.
+     * @param guid The global unique identifier of the LayerZero V2 bridge transaction.
      * @param weirollWallet The weiroll wallet associated with this CCDM Nonce for this campaign.
      */
-    event CCDMBridgeProcessed(bytes32 indexed sourceMarketHash, bytes32 indexed guid, uint256 indexed ccdmNonce, address weirollWallet);
+    event CCDMBridgeProcessed(bytes32 indexed sourceMarketHash, uint256 indexed ccdmNonce, bytes32 indexed guid, address weirollWallet);
 
     /**
      * @notice Emitted on batch execute of Weiroll Wallet deposits.
@@ -190,11 +190,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice Error emitted when executing the deposit recipe doesn't render a max allowance for the DepositExecutor on the Weiroll Wallet.
     error MustMaxAllowDepositExecutor();
 
-    /// @notice Error emitted when trying to interact with a locked wallet.
-    error WalletLocked();
+    /// @notice Error emitted when trying to withdraw from a locked wallet.
+    error CannotWithdrawBeforeUnlockTimestamp();
 
     /// @notice Error emitted when the caller of the composeMsg instructs the executor to deploy more funds into Weiroll Wallets than were bridged.
-    error CantAccountForMoreDepositsThanBridged();
+    error CannotAccountForMoreDepositsThanBridged();
 
     /*//////////////////////////////////////////////////////////////
                                   Modifiers
@@ -286,7 +286,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Execute accounting logic to keep track of each depositor's position in this wallet.
         _accountForDeposits(walletAccounting, composeMsg, depositToken, tokenAmountBridged);
 
-        emit CCDMBridgeProcessed(sourceMarketHash, _guid, ccdmNonce, cachedWeirollWallet);
+        emit CCDMBridgeProcessed(sourceMarketHash, ccdmNonce, _guid, cachedWeirollWallet);
     }
 
     /**
@@ -343,7 +343,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[weirollWallet.marketHash()];
 
         // Checks to ensure that the withdrawal is after the lock timestamp
-        require(weirollWallet.lockedUntil() <= block.timestamp, WalletLocked());
+        require(weirollWallet.lockedUntil() <= block.timestamp, CannotWithdrawBeforeUnlockTimestamp());
 
         // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM Nonce on destination)
         WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallet];
@@ -480,7 +480,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _composeMsg The compose message containing depositor addresses and deposit amounts.
      * @param _depositToken The ERC20 token that was deposited.
      * @param _tokenAmountBridged The total amount of tokens that were bridged and available for deposits.
-     * @custom:error CantAccountForMoreDepositsThanBridged Thrown if the total deposits accounted for exceed the amount bridged.
      */
     function _accountForDeposits(
         WeirollWalletAccounting storage _walletAccounting,
@@ -507,7 +506,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
             // Update total amount deposited
             depositsAccountedFor += depositAmount;
-            require(depositsAccountedFor <= _tokenAmountBridged, CantAccountForMoreDepositsThanBridged());
+            require(depositsAccountedFor <= _tokenAmountBridged, CannotAccountForMoreDepositsThanBridged());
 
             // Update the accounting to reflect the deposit
             _walletAccounting.depositorToTokenToAmountDeposited[depositor][_depositToken] += depositAmount;
