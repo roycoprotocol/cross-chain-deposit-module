@@ -167,7 +167,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         vm.selectFork(polygonFork);
         assertEq(vm.activeFork(), polygonFork);
 
-        unlockTimestamp = bound(unlockTimestamp, block.timestamp, type(uint128).max);
+        unlockTimestamp = bound(unlockTimestamp, block.timestamp + 1 hours, block.timestamp + 120 days);
 
         weirollImplementation = new WeirollWallet();
 

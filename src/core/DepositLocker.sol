@@ -556,6 +556,36 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     receive() external payable { }
 
+    /**
+     * @notice Returns the total amount deposited by a depositor in a specific market.
+     * @param _marketHash The unique hash identifier of the market.
+     * @param _depositor The address of the depositor.
+     * @return amountDeposited The total amount deposited by the depositor in the specified market.
+     */
+    function getAmountDepositedByDepositor(bytes32 _marketHash, address _depositor) external view returns (uint256 amountDeposited) {
+        amountDeposited = marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
+    }
+
+    /**
+     * @notice Returns the list of Weiroll Wallets associated with a depositor in a specific market.
+     * @param _marketHash The unique hash identifier of the market.
+     * @param _depositor The address of the depositor.
+     * @return weirollWallets An array of Weiroll Wallet addresses associated with the depositor in the specified market.
+     */
+    function getWeirollWalletsForDepositor(bytes32 _marketHash, address _depositor) external view returns (address[] memory weirollWallets) {
+        weirollWallets = marketHashToDepositorToWeirollWallets[_marketHash][_depositor];
+    }
+
+    /**
+     * @notice Returns the amount deposited by a depositor's Weiroll Wallet.
+     * @param _depositor The address of the depositor.
+     * @param _weirollWallet The address of the Weiroll Wallet.
+     * @return amountDeposited The amount deposited by the specified Weiroll Wallet.
+     */
+    function getWeirollWalletAmountForDepositor(address _depositor, address _weirollWallet) external view returns (uint256 amountDeposited) {
+        amountDeposited = depositorToWeirollWalletToAmount[_depositor][_weirollWallet];
+    }
+
     /*//////////////////////////////////////////////////////////////
                             Internal Functions
     //////////////////////////////////////////////////////////////*/

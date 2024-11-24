@@ -26,7 +26,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The limit for how long a campaign's unlock time can be from the time it is set
-    uint256 public constant MAX_CAMPAIGN_LOCKUP_TIME = 2920 hours; // Approx 4 months
+    uint256 public constant MAX_CAMPAIGN_LOCKUP_TIME = 120 days; // Approximately 4 months
 
     /*//////////////////////////////////////////////////////////////
                                 Structures
@@ -393,6 +393,58 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         scriptVerificationHash = keccak256(abi.encode(campaign.inputTokens, campaign.receiptToken, campaign.depositRecipe));
     }
 
+    /**
+     * @notice Retrieves the Weiroll Wallet associated with a given CCDM bridge nonce in a Deposit Campaign.
+     * @param _sourceMarketHash The unique hash identifier of the source market (Deposit Campaign).
+     * @param _ccdmBridgeNonce The CCDM bridge nonce used in the mapping.
+     * @return weirollWallet The address of the Weiroll Wallet associated with the given CCDM bridge nonce.
+     */
+    function getWeirollWalletByCcdmBridgeNonce(bytes32 _sourceMarketHash, uint256 _ccdmBridgeNonce) external view returns (address weirollWallet) {
+        weirollWallet = sourceMarketHashToDepositCampaign[_sourceMarketHash].ccdmBridgeNonceToWeirollWallet[_ccdmBridgeNonce];
+    }
+
+    /**
+     * @notice Retrieves the amount deposited by a specific depositor for a specific token in a Weiroll Wallet within a Deposit Campaign.
+     * @param _sourceMarketHash The unique hash identifier of the source market (Deposit Campaign).
+     * @param _weirollWallet The address of the Weiroll Wallet.
+     * @param _depositor The address of the depositor.
+     * @param _token The ERC20 token for which the amount is queried.
+     * @return amountDeposited The amount of the specified token deposited by the depositor in the Weiroll Wallet.
+     */
+    function getDepositorTokenAmountDeposited(
+        bytes32 _sourceMarketHash,
+        address _weirollWallet,
+        address _depositor,
+        ERC20 _token
+    )
+        external
+        view
+        returns (uint256 amountDeposited)
+    {
+        amountDeposited =
+            sourceMarketHashToDepositCampaign[_sourceMarketHash].weirollWalletToAccounting[_weirollWallet].depositorToTokenToAmountDeposited[_depositor][_token];
+    }
+
+    /**
+     * @notice Retrieves the total amount deposited for a specific token in a Weiroll Wallet within a Deposit Campaign.
+     * @param _sourceMarketHash The unique hash identifier of the source market (Deposit Campaign).
+     * @param _weirollWallet The address of the Weiroll Wallet.
+     * @param _token The ERC20 token for which the total amount is queried.
+     * @return totalAmountDeposited The total amount of the specified token deposited in the Weiroll Wallet.
+     */
+    function getTotalTokenAmountDeposited(
+        bytes32 _sourceMarketHash,
+        address _weirollWallet,
+        ERC20 _token
+    )
+        external
+        view
+        returns (uint256 totalAmountDeposited)
+    {
+        totalAmountDeposited =
+            sourceMarketHashToDepositCampaign[_sourceMarketHash].weirollWalletToAccounting[_weirollWallet].tokenToTotalAmountDeposited[_token];
+    }
+
     /*//////////////////////////////////////////////////////////////
                             Internal Functions
     //////////////////////////////////////////////////////////////*/
@@ -535,7 +587,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Sets the unlock timestamp for a Deposit Campaign.
-     * @notice The unlock timestamp can only be set once per campaign.
+     * @notice The unlock timestamp can only be set once per campaign and must be less than the global relative limit.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign.
      */
