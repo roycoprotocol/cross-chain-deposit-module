@@ -41,7 +41,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @custom:field depositRecipe The Weiroll Recipe executed on deposit (specified by the owner of the campaign).
     /// @custom:field verified A flag indicating whether this campaign's input tokens, receipt token, and deposit recipe are verified.
     /// @custom:field ccdmBridgeNonceToWeirollWallet Mapping from a CCDM bridge nonce to its corresponding Weiroll Wallet.
-    /// @custom:field weirollWalletToLedger Mapping from a Weiroll Wallet to its corresponding depositor accounting ledger.
+    /// @custom:field weirollWalletToAccounting Mapping from a Weiroll Wallet to its corresponding depositor accounting data.
     struct DepositCampaign {
         address owner;
         ERC20[] inputTokens;
@@ -50,7 +50,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         Recipe depositRecipe;
         bool verified;
         mapping(uint256 => address) ccdmBridgeNonceToWeirollWallet;
-        mapping(address => WeirollWalletAccounting) weirollWalletToLedger;
+        mapping(address => WeirollWalletAccounting) weirollWalletToAccounting;
     }
 
     /// @dev Holds the granular depositor balances of a WeirollWallet.
@@ -74,11 +74,14 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice The wrapped native asset token on the destination chain.
     address public immutable WRAPPED_NATIVE_ASSET_TOKEN;
 
-    /// @notice The address of the script verifier responsible for verifying campaing input tokens, receipt tokens, and scripts before execution.
-    address public campaignVerifier;
+    /// @notice The address of the script verifier responsible for verifying campaign input tokens, receipt tokens, and scripts before execution.
+    address public scriptVerifier;
 
     /// @dev Mapping from a source market hash to its DepositCampaign struct.
     mapping(bytes32 => DepositCampaign) public sourceMarketHashToDepositCampaign;
+
+    /// @dev Mapping from a source market hash to whether or not the first deposit script has been executed.
+    mapping(bytes32 => bool) public sourceMarketHashToFirstDepositExecuted;
 
     /*//////////////////////////////////////////////////////////////
                             Events and Errors
@@ -108,16 +111,16 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Emitted when the script verifier address is set.
-     * @param campaignVerifier The address of the new script verifier.
+     * @param scriptVerifier The address of the new script verifier.
      */
-    event VerifierSet(address campaignVerifier);
+    event ScriptVerifierSet(address scriptVerifier);
 
     /**
      * @notice Emitted when a campaign's updates are verified.
      * @param sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param verificationStatus Boolean indicating whether the campaign verification was given or revoked.
      */
-    event CampaignVerificationStatusUpdated(bytes32 indexed sourceMarketHash, bool verificationStatus);
+    event ScriptVerificationStatusUpdated(bytes32 indexed sourceMarketHash, bool verificationStatus);
 
     /**
      * @notice Emitted when a new owner is set for a campaign.
@@ -153,8 +156,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      */
     event CampaignDepositRecipeSet(bytes32 indexed sourceMarketHash);
 
-    /// @notice Error emitted when the caller is not the campaignVerifier.
-    error OnlyCampaignVerifier();
+    /// @notice Error emitted when the caller is not the scriptVerifier.
+    error OnlyScriptVerifier();
 
     /// @notice Error emitted when the caller is not the owner of the campaign.
     error OnlyCampaignOwner();
@@ -187,9 +190,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                                   Modifiers
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Modifier to ensure the caller is the global campaignVerifier.
-    modifier onlyCampaignVerifier() {
-        require(msg.sender == campaignVerifier, OnlyCampaignVerifier());
+    /// @dev Modifier to ensure the caller is the global scriptVerifier.
+    modifier onlyScriptVerifier() {
+        require(msg.sender == scriptVerifier, OnlyScriptVerifier());
         _;
     }
 
@@ -213,16 +216,16 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @notice Initialize the DepositExecutor Contract.
      * @param _owner The address of the owner of this contract.
      * @param _lzV2Endpoint The address of the LayerZero V2 Endpoint on the destination chain.
-     * @param _campaignVerifier The address of the script verifier.
+     * @param _scriptVerifier The address of the script verifier.
      * @param _wrapped_native_asset_token The address of the wrapped native asset token on the destination chain.
      */
-    constructor(address _owner, address _lzV2Endpoint, address _campaignVerifier, address _wrapped_native_asset_token) Ownable(_owner) {
+    constructor(address _owner, address _lzV2Endpoint, address _scriptVerifier, address _wrapped_native_asset_token) Ownable(_owner) {
         // Deploy the Weiroll Wallet implementation on the destination chain to use for cloning with immutable args
         WEIROLL_WALLET_IMPLEMENTATION = address(new WeirollWallet());
 
         // Initialize the DepositExecutor's state
         LAYER_ZERO_V2_ENDPOINT = _lzV2Endpoint;
-        campaignVerifier = _campaignVerifier;
+        scriptVerifier = _scriptVerifier;
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
     }
 
@@ -268,10 +271,10 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         }
 
         // Get the accounting ledger for this Weiroll Wallet
-        WeirollWalletAccounting storage walletLedger = campaign.weirollWalletToLedger[cachedWeirollWallet];
+        WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[cachedWeirollWallet];
 
         // Execute accounting logic to keep track of each depositor's position in this wallet.
-        _accountForDeposits(walletLedger, composeMsg, depositToken, tokenAmountBridged);
+        _accountForDeposits(walletAccounting, composeMsg, depositToken, tokenAmountBridged);
 
         emit CCDMBridgeProcessed(sourceMarketHash, _guid, ccdmBridgeNonce, cachedWeirollWallet);
     }
@@ -293,13 +296,13 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Execute deposit recipes for specified wallets
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallets[i]));
-            // Only execute deposit if the wallet belongs to this market
-            if (weirollWallet.marketHash() == _sourceMarketHash) {
+            // Only execute deposit if the wallet belongs to this market and the recipe hasn't already been executed
+            if (weirollWallet.marketHash() == _sourceMarketHash && !weirollWallet.executed()) {
                 // Get this wallet's deposit accouting ledger
-                WeirollWalletAccounting storage walletLedger = campaign.weirollWalletToLedger[_weirollWallets[i]];
+                WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallets[i]];
 
                 // Transfer input tokens from the executor into the Weiroll Wallet for use in the deposit recipe.
-                _transferInputTokensToWeirollWallet(campaign.inputTokens, walletLedger, _weirollWallets[i]);
+                _transferInputTokensToWeirollWallet(campaign.inputTokens, walletAccounting, _weirollWallets[i]);
 
                 // Get initial receipt token balance of the Weiroll Wallet to ensure that the post-deposit balance is greater.
                 uint256 initialReceiptTokenBalance = receiptToken.balanceOf(_weirollWallets[i]);
@@ -312,6 +315,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
                 // Check that the executor has the proper allowance for the Weiroll Wallet's receipt tokens
                 require(receiptToken.allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
+
+                // Set once the first deposit recipe has been executed for this market
+                // After this is set, campaign input tokens and the receipt token cannot be modified
+                if (!sourceMarketHashToFirstDepositExecuted[_sourceMarketHash]) {
+                    sourceMarketHashToFirstDepositExecuted[_sourceMarketHash] = true;
+                }
             }
         }
         emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
@@ -328,7 +337,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         require(weirollWallet.lockedUntil() <= block.timestamp, WalletLocked());
 
         // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM bridge nonce on destination)
-        WeirollWalletAccounting storage walletLedger = campaign.weirollWalletToLedger[_weirollWallet];
+        WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallet];
 
         if (weirollWallet.executed()) {
             // If deposit recipe has been executed, return the depositor's share of the receipt tokens
@@ -336,13 +345,13 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
             // Calculate the receipt tokens owed to the depositor
             ERC20 firstInputToken = campaign.inputTokens[0];
-            uint256 amountDeposited = walletLedger.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
-            uint256 totalAmountDeposited = walletLedger.tokenToTotalAmountDeposited[firstInputToken];
+            uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
+            uint256 totalAmountDeposited = walletAccounting.tokenToTotalAmountDeposited[firstInputToken];
             uint256 receiptTokensOwed = (receiptToken.balanceOf(_weirollWallet) * amountDeposited) / totalAmountDeposited;
 
             // Update the accounting to reflect the withdrawal
-            delete walletLedger.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
-            walletLedger.tokenToTotalAmountDeposited[firstInputToken] -= amountDeposited;
+            delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
+            walletAccounting.tokenToTotalAmountDeposited[firstInputToken] -= amountDeposited;
 
             // Remit the receipt tokens to the depositor
             receiptToken.safeTransferFrom(_weirollWallet, msg.sender, receiptTokensOwed);
@@ -352,11 +361,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             for (uint256 i = 0; i < campaign.inputTokens.length; ++i) {
                 // Get the amount of this input token deposited by the depositor
                 ERC20 inputToken = campaign.inputTokens[i];
-                uint256 amountDeposited = walletLedger.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+                uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
 
                 // Update the accounting to reflect the withdrawal
-                delete walletLedger.depositorToTokenToAmountDeposited[msg.sender][inputToken];
-                walletLedger.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
+                delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+                walletAccounting.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
 
                 // Transfer the amount deposited back to the depositor
                 inputToken.safeTransfer(msg.sender, amountDeposited);
@@ -368,11 +377,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Returns the hash of the campaign parameters which must be used to check against the current parameters on verifiaction.
-     * @return campaignVerificationHash The hash of the encoded input tokens, receipt token, and deposit recipe.
+     * @return scriptVerificationHash The hash of the encoded input tokens, receipt token, and deposit recipe.
      */
-    function getCampaignVerificationHash(bytes32 _sourceMarketHash) public returns (bytes32 campaignVerificationHash) {
+    function getScriptVerificationHash(bytes32 _sourceMarketHash) public returns (bytes32 scriptVerificationHash) {
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
-        campaignVerificationHash = keccak256(abi.encode(campaign.inputTokens, campaign.receiptToken, campaign.depositRecipe));
+        scriptVerificationHash = keccak256(abi.encode(campaign.inputTokens, campaign.receiptToken, campaign.depositRecipe));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -406,14 +415,14 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @dev Processes the compose message to extract depositor addresses and deposit amounts, ensuring that the total deposits accounted for do not exceed the
      * amount bridged.
      * @dev Updates the wallet info with each depositor's deposited amounts and the total deposited amounts for the token.
-     * @param _walletLedger The storage reference to the Weiroll wallet information to be updated.
+     * @param _walletAccounting The storage reference to the Weiroll wallet information to be updated.
      * @param _composeMsg The compose message containing depositor addresses and deposit amounts.
      * @param _depositToken The ERC20 token that was deposited.
      * @param _tokenAmountBridged The total amount of tokens that were bridged and available for deposits.
      * @custom:error CantAccountForMoreDepositsThanBridged Thrown if the total deposits accounted for exceed the amount bridged.
      */
     function _accountForDeposits(
-        WeirollWalletAccounting storage _walletLedger,
+        WeirollWalletAccounting storage _walletAccounting,
         bytes memory _composeMsg,
         ERC20 _depositToken,
         uint256 _tokenAmountBridged
@@ -440,20 +449,20 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             require(depositsAccountedFor <= _tokenAmountBridged, CantAccountForMoreDepositsThanBridged());
 
             // Update the accounting to reflect the deposit
-            _walletLedger.depositorToTokenToAmountDeposited[depositor][_depositToken] += depositAmount;
-            _walletLedger.tokenToTotalAmountDeposited[_depositToken] += depositAmount;
+            _walletAccounting.depositorToTokenToAmountDeposited[depositor][_depositToken] += depositAmount;
+            _walletAccounting.tokenToTotalAmountDeposited[_depositToken] += depositAmount;
         }
     }
 
     /**
      * @notice Transfers input tokens from the contract to the specified Weiroll Wallet.
      * @param _inputTokens The list of input tokens to transfer.
-     * @param _walletLedger The ledger associated with the Weiroll Wallet.
+     * @param _walletAccounting The ledger associated with the Weiroll Wallet.
      * @param _weirollWallet The address of the Weiroll Wallet.
      */
     function _transferInputTokensToWeirollWallet(
         ERC20[] storage _inputTokens,
-        WeirollWalletAccounting storage _walletLedger,
+        WeirollWalletAccounting storage _walletAccounting,
         address _weirollWallet
     )
         internal
@@ -462,7 +471,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             ERC20 inputToken = _inputTokens[i];
 
             // Get total amount of this token deposited into the Weiroll Wallet
-            uint256 amountOfTokenDepositedIntoWallet = _walletLedger.tokenToTotalAmountDeposited[inputToken];
+            uint256 amountOfTokenDepositedIntoWallet = _walletAccounting.tokenToTotalAmountDeposited[inputToken];
 
             // Transfer amount of the input token into the Weiroll Wallet
             inputToken.safeTransfer(_weirollWallet, amountOfTokenDepositedIntoWallet);
@@ -475,11 +484,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Sets the script verifier address.
-     * @param _campaignVerifier The address of the script verifier.
+     * @param _scriptVerifier The address of the script verifier.
      */
-    function setVerifier(address _campaignVerifier) external onlyOwner {
-        campaignVerifier = _campaignVerifier;
-        emit VerifierSet(_campaignVerifier);
+    function setScriptVerifier(address _scriptVerifier) external onlyOwner {
+        scriptVerifier = _scriptVerifier;
+        emit ScriptVerifierSet(_scriptVerifier);
     }
 
     /**
@@ -496,12 +505,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @notice Verifies any updates to a campaign's input tokens, receipt token, and deposit recipe.
      * @notice Deposit Recipe can now be executed and withdrawals can be made.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
-     * @param _campaignVerificationHash The hash of the campaign parameters to verify—prevents script frontrunning attacks by the campaign owner.
+     * @param _scriptVerificationHash The hash of the campaign parameters to verify - prevents token/script setting frontrunning attacks by the campaign owner.
      */
-    function verifyCampaign(bytes32 _sourceMarketHash, bytes32 _campaignVerificationHash) external onlyCampaignVerifier {
-        if (_campaignVerificationHash == getCampaignVerificationHash(_sourceMarketHash)) {
+    function verifyCampaign(bytes32 _sourceMarketHash, bytes32 _scriptVerificationHash) external onlyScriptVerifier {
+        if (_scriptVerificationHash == getScriptVerificationHash(_sourceMarketHash)) {
             sourceMarketHashToDepositCampaign[_sourceMarketHash].verified = true;
-            emit CampaignVerificationStatusUpdated(_sourceMarketHash, true);
+            emit ScriptVerificationStatusUpdated(_sourceMarketHash, true);
         }
     }
 
@@ -510,9 +519,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @notice Deposit Recipe cannot be executed and withdrawals are blocked until verified.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      */
-    function unverifyCampaign(bytes32 _sourceMarketHash) external onlyCampaignVerifier {
+    function unverifyCampaign(bytes32 _sourceMarketHash) external onlyScriptVerifier {
         delete sourceMarketHashToDepositCampaign[_sourceMarketHash].verified;
-        emit CampaignVerificationStatusUpdated(_sourceMarketHash, false);
+        emit ScriptVerificationStatusUpdated(_sourceMarketHash, false);
     }
 
     /**
@@ -529,27 +538,29 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Sets the input tokens of a Deposit Campaign.
-     * @dev Automatically unverifies a campaign. Must be reverified in order to execute the deposit recipe or process withdrawals.
+     * @dev Once the first deposit recipe for a campaign has been executed, the input tokens are immutable.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _inputTokens The input tokens to set for this deposit campaign.
      */
     function setCampaignInputTokens(bytes32 _sourceMarketHash, ERC20[] calldata _inputTokens) external onlyCampaignOwner(_sourceMarketHash) {
-        sourceMarketHashToDepositCampaign[_sourceMarketHash].inputTokens = _inputTokens;
-        delete sourceMarketHashToDepositCampaign[_sourceMarketHash].verified;
-        emit CampaignInputTokensSet(_sourceMarketHash, _inputTokens);
+        if (!sourceMarketHashToFirstDepositExecuted[_sourceMarketHash]) {
+            sourceMarketHashToDepositCampaign[_sourceMarketHash].inputTokens = _inputTokens;
+            emit CampaignInputTokensSet(_sourceMarketHash, _inputTokens);
+        }
     }
 
     /**
      * @notice Sets the receipt token of a Deposit Campaign.
-     * @dev Automatically unverifies a campaign. Must be reverified in order to execute the deposit recipe or process withdrawals.
+     * @dev Once the first deposit recipe for a campaign has been executed, the receipt token is immutable.
      * @dev The receipt token MUST be returned to the Weiroll Wallet upon executing the deposit recipe.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _receiptToken The receipt token to set for this deposit campaign.
      */
     function setCampaignReceiptToken(bytes32 _sourceMarketHash, ERC20 _receiptToken) external onlyCampaignOwner(_sourceMarketHash) {
-        sourceMarketHashToDepositCampaign[_sourceMarketHash].receiptToken = _receiptToken;
-        delete sourceMarketHashToDepositCampaign[_sourceMarketHash].verified;
-        emit CampaignReceiptTokenSet(_sourceMarketHash, _receiptToken);
+        if (!sourceMarketHashToFirstDepositExecuted[_sourceMarketHash]) {
+            sourceMarketHashToDepositCampaign[_sourceMarketHash].receiptToken = _receiptToken;
+            emit CampaignReceiptTokenSet(_sourceMarketHash, _receiptToken);
+        }
     }
 
     /**

@@ -91,7 +91,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         vm.startPrank(SCRIPT_VERIFIER_ADDRESS);
-        depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getCampaignVerificationHash(bridgeResult.marketHash));
+        depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getScriptVerificationHash(bridgeResult.marketHash));
         vm.stopPrank();
 
         // Fund the Executor (bridge simulation)
@@ -190,7 +190,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         vm.stopPrank();
 
         vm.startPrank(SCRIPT_VERIFIER_ADDRESS);
-        depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getCampaignVerificationHash(bridgeResult.marketHash));
+        depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getScriptVerificationHash(bridgeResult.marketHash));
         vm.stopPrank();
 
         // Fund the Executor (bridge simulation)

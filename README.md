@@ -4,7 +4,7 @@ The Cross-Chain Deposit Module (CCDM) is a sophisticated system designed to faci
 
 ## CCDM Technical Overview
 
-CCDM allows users to deposit funds on one chain (source) and have those funds bridged and utilized on another chain (destination) according to campaign specific action logic. It leverages [LayerZero](https://layerzero.network) V2 for cross-chain communication and token bridging. The system supports all tokens that can be bridged using LayerZero V2's [OFT](https://docs.layerzero.network/v2/home/token-standards/oft-standard) standard.
+CCDM allows users to deposit funds on one chain (source) and have those funds bridged and utilized on another chain (destination) according to campaign specific action logic. It leverages [LayerZero](https://docs.layerzero.network/v2) V2 for cross-chain communication and token bridging. The system supports all tokens that can be bridged using LayerZero V2's [OFT](https://docs.layerzero.network/v2/home/token-standards/oft-standard) standard.
 
 ### Key Components
 
@@ -48,7 +48,7 @@ CCDM allows users to deposit funds on one chain (source) and have those funds br
 7. Users can withdraw funds through the ```DepositExecutor``` after the campaign's locktime has elapsed.
 
 ## CCDM Token Support
-As of today, CCDM supports 3 types of input tokens for Royco Markets: Single, Dual, and LP (only UNIV2 for now). As the name suggests, single tokens will result in a single LZ bridging transaction invoked by the ```DepositLocker```, resulting in the ```DepositExecutor``` creating Weiroll Wallets for all bridged depositors with their respective deposit amounts. Dual and LP tokens will result in two consecutive LZ bridging transactions, one for each constituent/pool token, invoked by the ```DepositLocker```. Each bridge transaction will contain the same CCDM nonce, notifying the ```DepositExecutor``` to create Weiroll Wallets and fund them with the received constiutuent upon receving the first bridge, and simply transfer the second constituents to the previously created Weiroll Wallets upon receiving the second bridge.
+As of today, CCDM supports 2 types of input tokens for Royco Markets: Single and LP (only UNIV2 for now). As the name suggests, single tokens will result in a single LZ bridging transaction invoked by the ```DepositLocker```, resulting in the ```DepositExecutor``` creating Weiroll Wallets for all bridged depositors with their respective deposit amounts. Dual and LP tokens will result in two consecutive LZ bridging transactions, one for each constituent/pool token, invoked by the ```DepositLocker```. Each bridge transaction will contain the same CCDM nonce, notifying the ```DepositExecutor``` to create Weiroll Wallets and fund them with the received constiutuent upon receving the first bridge, and simply transfer the second constituents to the previously created Weiroll Wallets upon receiving the second bridge.
 
 1. **Single Tokens**: Any ERC20 token which represents a single asset (wETH, wBTC, LINK, etc.).
    - Bridging Function: ```bridgeSingleTokens()```
