@@ -5,7 +5,7 @@ import "@royco/test/mocks/MockRecipeMarketHub.sol";
 
 import { MockERC20 } from "@royco/test/mocks/MockERC20.sol";
 import { MockERC4626 } from "@royco/test/mocks/MockERC4626.sol";
-import { DepositExecutor } from "src/core/DepositExecutor.sol";
+import { DepositExecutor, ERC20 } from "src/core/DepositExecutor.sol";
 
 import { RoycoTestBase } from "./RoycoTestBase.sol";
 import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
@@ -362,13 +362,27 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
     }
 
     // Burn tokens that were deposited
-    function _buildBurnDepositRecipe(address _helper, address _tokenAddress) internal pure returns (DepositExecutor.Recipe memory) {
-        bytes32[] memory commands = new bytes32[](2);
-        bytes[] memory state = new bytes[](2);
+    function _buildAaveSupplyRecipe(
+        address _helper,
+        address _tokenAddress,
+        address _aavePoolV3,
+        address _receiptToken,
+        address _depositExecutor
+    )
+        internal
+        pure
+        returns (DepositExecutor.Recipe memory)
+    {
+        bytes32[] memory commands = new bytes32[](5);
+        bytes[] memory state = new bytes[](7);
 
-        state[0] = abi.encode(address(0xbeef));
+        state[0] = abi.encode(_tokenAddress);
+        state[1] = abi.encode(_aavePoolV3);
+        state[2] = abi.encode(uint16(0));
+        state[3] = abi.encode(type(uint256).max);
+        state[4] = abi.encode(_depositExecutor);
 
-        // GET FILL AMOUNT
+        // GET wallet address
 
         // STATICCALL
         uint8 f = uint8(0x02);
@@ -378,25 +392,70 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
 
         // Output specifier (fixed length return value stored at index 1 of the output array)
         // 0xff ignores the output if any
-        uint8 o = 0x01;
+        uint8 o = 0x05;
 
         // Encode args and add command to DepositExecutor.Recipe
-        commands[0] = (bytes32(abi.encodePacked(WeirollWalletHelper.amount.selector, f, inputData, o, _helper)));
+        commands[0] = (bytes32(abi.encodePacked(WeirollWalletHelper.thisWallet.selector, f, inputData, o, _helper)));
 
-        // Send tokens to burn address
+        // GET Balance of wallet
+
+        // STATICCALL
+        f = uint8(0x02);
+
+        // Input list: No arguments (END_OF_ARGS = 0xff)
+        inputData = hex"05ffffffffff";
+
+        // Output specifier (fixed length return value stored at index 1 of the output array)
+        // 0xff ignores the output if any
+        o = 0x06;
+
+        // Encode args and add command to DepositExecutor.Recipe
+        commands[1] = (bytes32(abi.encodePacked(bytes4(keccak256("balanceOf(address)")), f, inputData, o, _tokenAddress)));
+
+        // Approve tokens to aave pool
 
         // CALL
         f = uint8(0x01);
 
-        // Input list: Args at state index 0 (fill amount) and args at state index 1 (0 address)
-        inputData = hex"0001ffffffff";
+        // Input list: aave pool address, balance of weiroll wallet
+        inputData = hex"0106ffffffff";
 
         // Output specifier (fixed length return value stored at index 0 of the output array)
         // 0xff ignores the output if any
         o = 0xff;
 
         // Encode args and add command to DepositExecutor.Recipe
-        commands[1] = (bytes32(abi.encodePacked(ERC20.transfer.selector, f, inputData, o, _tokenAddress)));
+        commands[2] = (bytes32(abi.encodePacked(ERC20.approve.selector, f, inputData, o, _tokenAddress)));
+
+        // Supply Tokens to aave
+
+        // CALL
+        f = uint8(0x01);
+
+        // Input list: address of token to supply (usdc), amount of asset to supply, wallet to receive aTokens (weiroll wallet), referal code (none)
+        inputData = hex"00060502ffff";
+
+        // Output specifier (fixed length return value stored at index 0 of the output array)
+        // 0xff ignores the output if any
+        o = 0xff;
+
+        // Encode args and add command to DepositExecutor.Recipe
+        commands[3] = (bytes32(abi.encodePacked(bytes4(0x617ba037), f, inputData, o, _aavePoolV3)));
+
+        // Max approve deposit executor to spend the receipt tokens
+
+        // CALL
+        f = uint8(0x01);
+
+        // Input list: address of deposit executor, amount to approve
+        inputData = hex"0403ffffffff";
+
+        // Output specifier (fixed length return value stored at index 0 of the output array)
+        // 0xff ignores the output if any
+        o = 0xff;
+
+        // Encode args and add command to DepositExecutor.Recipe
+        commands[4] = (bytes32(abi.encodePacked(ERC20.approve.selector, f, inputData, o, _receiptToken)));
 
         return DepositExecutor.Recipe(commands, state);
     }

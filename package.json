@@ -1,15 +1,15 @@
 {
-    "name": "cross-chain-deposit-module",
-    "version": "1.0.0",
-    "description": "A system for facilitating cross-chain deposit campaigns through Royco",
-      "scripts": {
-        "build": "forge build",
-        "test": "forge test -vvv",
-        "coverage": "forge coverage",
-        "hint": "solhint 'src/core/*.sol' && solhint 'src/periphery/*.sol'",
-        "sizes": "forge --version && forge build --sizes --optimize --optimizer-runs 200 --skip test --force"
-    },
-    "devDependencies": {
-      "solhint": "^5.0.3"
-    }
+  "name": "cross-chain-deposit-module",
+  "version": "1.0.0",
+  "description": "A system for facilitating cross-chain deposit campaigns through Royco",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test -vvv",
+    "coverage": "forge coverage",
+    "hint": "solhint 'src/core/*.sol'",
+    "sizes": "forge --version && forge build --sizes --optimize --optimizer-runs 200 --skip test --force"
+  },
+  "devDependencies": {
+    "solhint": "^5.0.3"
   }
+}
