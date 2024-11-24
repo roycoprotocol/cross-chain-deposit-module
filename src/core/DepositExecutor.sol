@@ -22,6 +22,13 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     using SafeTransferLib for ERC20;
 
     /*//////////////////////////////////////////////////////////////
+                                Constants
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice The limit for how long a campaign's unlock time can be from the time it is set
+    uint256 public constant MAX_CAMPAIGN_LOCKUP_TIME = 2920 hours; // Approx 4 months
+
+    /*//////////////////////////////////////////////////////////////
                                 Structures
     //////////////////////////////////////////////////////////////*/
 
@@ -170,6 +177,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /// @notice Error emitted when trying to set a campaign's unlock timestamp more than once.
     error CampaignUnlockTimestampCanOnlyBeSetOnce();
+
+    /// @notice Error emitted when trying to set a campaign's unlock timestamp to more than the current timestamp plus the max allowed time.
+    error ExceedsMaxLockupTime();
 
     /// @notice Error emitted when the caller of the lzCompose function isn't the LZ endpoint address for destination chain.
     error NotFromLzV2Endpoint();
@@ -531,6 +541,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      */
     function setCampaignUnlockTimestamp(bytes32 _sourceMarketHash, uint256 _unlockTimestamp) external onlyCampaignOwner(_sourceMarketHash) {
         require(sourceMarketHashToDepositCampaign[_sourceMarketHash].unlockTimestamp == 0, CampaignUnlockTimestampCanOnlyBeSetOnce());
+        require(_unlockTimestamp <= block.timestamp + MAX_CAMPAIGN_LOCKUP_TIME, ExceedsMaxLockupTime());
+
         sourceMarketHashToDepositCampaign[_sourceMarketHash].unlockTimestamp = _unlockTimestamp;
         emit CampaignUnlockTimestampSet(_sourceMarketHash, _unlockTimestamp);
     }

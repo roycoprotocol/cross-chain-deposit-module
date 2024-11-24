@@ -19,9 +19,11 @@ import { IUniswapV2Pair } from "@uniswap-v2/core/contracts/interfaces/IUniswapV2
 contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     using CCDMPayloadLib for bytes;
     using OptionsBuilder for bytes;
-    using SafeTransferLib for ERC20; /*//////////////////////////////////////////////////////////////
+    using SafeTransferLib for ERC20;
+
+    /*//////////////////////////////////////////////////////////////
                                 Constants
-        //////////////////////////////////////////////////////////////*/
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice The limit for how many depositors can be bridged in a single transaction
     uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 100;
@@ -33,7 +35,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     bytes32 public constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;
 
     /*//////////////////////////////////////////////////////////////
-                            Structures
+                                Structures
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Struct to hold total amounts for Token A and Token B.
