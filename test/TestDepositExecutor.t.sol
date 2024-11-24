@@ -139,6 +139,8 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         vm.warp(unlockTimestamp);
 
         for (uint256 i = 0; i < bridgeResult.depositors.length; ++i) {
+            vm.warp(unlockTimestamp + (i * 1 hours));
+
             // Withdraw without executing deposit recipes
             vm.startPrank(bridgeResult.depositors[i]);
             depositExecutor.withdraw(address(weirollWalletCreatedForBridge));
