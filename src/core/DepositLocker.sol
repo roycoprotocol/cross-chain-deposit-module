@@ -110,8 +110,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Mapping from depositor's address to Weiroll Wallet to amount deposited by that Weiroll Wallet.
     mapping(address => mapping(address => uint256)) public depositorToWeirollWalletToAmount;
 
-    /// @notice Used to keep track of CCDM bridges.
-    /// @notice A CCDM bridge that results in multiple OFTs being bridged (LP bridge) will have the same nonce.
+    /// @notice Used to keep track of CCDM bridge transactions.
+    /// @notice A CCDM bridge transaction that results in multiple OFTs being bridged (LP bridge) will have the same nonce.
     uint256 public ccdmNonce;
 
     /*//////////////////////////////////////////////////////////////
