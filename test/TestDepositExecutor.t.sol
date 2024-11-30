@@ -9,10 +9,12 @@ import { IOFT } from "src/interfaces/IOFT.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
 import { Vm } from "lib/forge-std/src/Vm.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
+import { console2 } from "lib/forge-std/src/console2.sol";
 
 // Test deploying deposits via weiroll recipes post bridge
 contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
     using FixedPointMathLib for uint256;
+    using OFTComposeMsgCodec for bytes;
 
     address IP_ADDRESS;
     address AP_ADDRESS;
@@ -28,6 +30,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         bytes32 marketHash;
         address[] depositors;
         uint256[] depositAmounts;
+        address depositLocker;
         bytes encodedPayload;
         bytes32 guid;
         uint256 actualNumberOfDepositors;
@@ -68,7 +71,11 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         weirollImplementation = new WeirollWallet();
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0));
+        address[] memory validLzOFTs = new address[](1);
+        validLzOFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS;
+
+        DepositExecutor depositExecutor =
+            new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0), bridgeResult.depositLocker, 30_101, validLzOFTs);
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
@@ -102,7 +109,12 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         depositExecutor.lzCompose(
             STARGATE_USDC_POOL_POLYGON_ADDRESS,
             bridgeResult.guid,
-            OFTComposeMsgCodec.encode(uint64(0), uint32(0), offerAmount, abi.encodePacked(bytes32(0), getSlice(188, bridgeResult.encodedPayload))),
+            OFTComposeMsgCodec.encode(
+                uint64(0),
+                uint32(30_101),
+                offerAmount,
+                abi.encodePacked(bytes32(uint256(uint160(bridgeResult.depositLocker))), getSlice(188, bridgeResult.encodedPayload))
+            ),
             address(0),
             bytes(abi.encode(0))
         );
@@ -173,7 +185,11 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         weirollImplementation = new WeirollWallet();
 
-        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0));
+        address[] memory validLzOFTs = new address[](1);
+        validLzOFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS;
+
+        DepositExecutor depositExecutor =
+            new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0), bridgeResult.depositLocker, 30_101, validLzOFTs);
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
@@ -202,7 +218,12 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         depositExecutor.lzCompose(
             STARGATE_USDC_POOL_POLYGON_ADDRESS,
             bridgeResult.guid,
-            OFTComposeMsgCodec.encode(uint64(0), uint32(0), offerAmount, abi.encodePacked(bytes32(0), getSlice(188, bridgeResult.encodedPayload))),
+            OFTComposeMsgCodec.encode(
+                uint64(0),
+                uint32(30_101),
+                offerAmount,
+                abi.encodePacked(bytes32(uint256(uint160(bridgeResult.depositLocker))), getSlice(188, bridgeResult.encodedPayload))
+            ),
             address(0),
             bytes(abi.encode(0))
         );
@@ -284,6 +305,8 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
             depositTokens,
             lzV2OFTs
         );
+
+        result.depositLocker = address(depositLocker);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
         result.actualNumberOfDepositors = numDepositors;

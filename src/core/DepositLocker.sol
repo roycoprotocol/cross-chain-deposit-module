@@ -92,7 +92,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @dev NOTE: Must implement the IOFT interface.
     mapping(ERC20 => IOFT) public tokenToLzV2OFT;
 
-    /// @notice Address of the DepositExecutor on the destination chain.
+    /// @notice The address of the DepositExecutor on the destination chain.
     address public depositExecutor;
 
     /// @notice Mapping from market hash to the time the green light will turn on for bridging.
@@ -176,36 +176,36 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     );
 
     /**
-     * @notice Emitted when the destination chain LayerZero endpoint ID is updated.
+     * @notice Emitted when the destination chain LayerZero endpoint ID is set.
      * @param dstChainLzEid The new LayerZero endpoint ID for the destination chain.
      */
-    event DestinationChainEidUpdated(uint32 dstChainLzEid);
+    event DestinationChainEidSet(uint32 dstChainLzEid);
 
     /**
-     * @notice Emitted when the DepositExecutor address is updated.
-     * @param depositExecutor The new address of the DepositExecutor on the destination chain.
+     * @notice Emitted when the Deposit Executor address is set.
+     * @param depositExecutor The new address of the Deposit Executor on the destination chain.
      */
-    event DepositExecutorUpdated(address depositExecutor);
+    event DepositExecutorSet(address depositExecutor);
 
     /**
-     * @notice Emitted when the LP token market owner is updated.
-     * @param marketHash The hash of the market for which the LP token owner was updated.
+     * @notice Emitted when the LP token market owner is set.
+     * @param marketHash The hash of the market for which the LP token owner was set.
      * @param lpMarketOwner The address of the LP token market owner.
      */
-    event LpMarketOwnerUpdated(bytes32 indexed marketHash, address lpMarketOwner);
+    event LpMarketOwnerSet(bytes32 indexed marketHash, address lpMarketOwner);
 
     /**
-     * @notice Emitted when the LayerZero V2 OFT for a token is updated.
+     * @notice Emitted when the LayerZero V2 OFT for a token is set.
      * @param token The address of the token.
      * @param lzV2OFT The LayerZero V2 OFT contract address for the token.
      */
-    event LzV2OFTForTokenUpdated(address indexed token, address lzV2OFT);
+    event LzV2OFTForTokenSet(address indexed token, address lzV2OFT);
 
     /**
-     * @notice Emitted when the green lighter address is updated.
+     * @notice Emitted when the green lighter address is set.
      * @param greenLighter The new address of the green lighter.
      */
-    event GreenLighterUpdated(address greenLighter);
+    event GreenLighterSet(address greenLighter);
 
     /**
      * @notice Emitted when the green light is turned on for a market.
@@ -873,7 +873,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Check that the underlying token is the specified token or the chain's native asset
         require(underlyingToken == address(_token) || underlyingToken == address(0), InvalidLzV2OFTForToken());
         tokenToLzV2OFT[_token] = _lzV2OFT;
-        emit LzV2OFTForTokenUpdated(address(_token), address(_lzV2OFT));
+        emit LzV2OFTForTokenSet(address(_token), address(_lzV2OFT));
     }
 
     /**
@@ -905,12 +905,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /**
      * @notice Sets the LayerZero endpoint ID for the destination chain.
      * @dev Only callable by the contract owner.
-     * Emits a {DestinationChainEidUpdated} event.
      * @param _dstChainLzEid LayerZero endpoint ID for the destination chain.
      */
     function setDestinationChainEid(uint32 _dstChainLzEid) external onlyOwner {
         dstChainLzEid = _dstChainLzEid;
-        emit DestinationChainEidUpdated(_dstChainLzEid);
+        emit DestinationChainEidSet(_dstChainLzEid);
     }
 
     /**
@@ -920,7 +919,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     function setDepositExecutor(address _depositExecutor) external onlyOwner {
         depositExecutor = _depositExecutor;
-        emit DepositExecutorUpdated(_depositExecutor);
+        emit DepositExecutorSet(_depositExecutor);
     }
 
     /**
@@ -931,7 +930,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     function setLpMarketOwner(bytes32 _marketHash, address _lpMarketOwner) external onlyOwner {
         marketHashToLpMarketOwner[_marketHash] = _lpMarketOwner;
-        emit LpMarketOwnerUpdated(_marketHash, _lpMarketOwner);
+        emit LpMarketOwnerSet(_marketHash, _lpMarketOwner);
     }
 
     /**
@@ -952,7 +951,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     function setGreenLighter(address _greenLighter) external onlyOwner {
         GREEN_LIGHTER = _greenLighter;
-        emit GreenLighterUpdated(_greenLighter);
+        emit GreenLighterSet(_greenLighter);
     }
 
     /**
