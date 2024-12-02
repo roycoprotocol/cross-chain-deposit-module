@@ -224,6 +224,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice Error emitted when the bridge was not initiated by the Deposit Locker on the source chain.
     error NotFromDepositLockerOnSourceChain();
 
+    /// @notice Error emitted when the trying to execute the deposit recipe when an input token has not been received by the target wallet.
+    error InputTokenNotReceivedByThisWallet(ERC20 inputToken);
+
     /// @notice Error emitted when executing the deposit recipe doesn't return any receipt tokens to the Weiroll Wallet.
     error MustReturnReceiptTokensOnDeposit();
 
@@ -235,6 +238,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /// @notice Error emitted when the caller of the composeMsg instructs the executor to deploy more funds into Weiroll Wallets than were bridged.
     error CannotAccountForMoreDepositsThanBridged();
+
+    /// @notice Error emitted when trying to set duplicate campaign input tokens.
+    error NoDuplicateInputTokensAllowed();
 
     /*//////////////////////////////////////////////////////////////
                                   Modifiers
@@ -380,12 +386,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Execute deposit recipes for specified wallets
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallets[i]));
-            // Only execute deposit if the wallet belongs to this market and the recipe hasn't already been executed
-            if (weirollWallet.marketHash() == _sourceMarketHash && !weirollWallet.executed()) {
+            // Only execute deposit if the wallet belongs to this market
+            if (weirollWallet.marketHash() == _sourceMarketHash) {
                 // Get this wallet's deposit accouting ledger
                 WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallets[i]];
 
-                // Transfer input tokens from the executor into the Weiroll Wallet for use in the deposit recipe.
+                // Transfer input tokens from the executor into the Weiroll Wallet for use in the deposit recipe execution.
                 _transferInputTokensToWeirollWallet(campaign.inputTokens, walletAccounting, _weirollWallets[i]);
 
                 // Get initial receipt token balance of the Weiroll Wallet to ensure that the post-deposit balance is greater.
@@ -606,9 +612,24 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
             // Get total amount of this token deposited into the Weiroll Wallet
             uint256 amountOfTokenDepositedIntoWallet = _walletAccounting.tokenToTotalAmountDeposited[inputToken];
+            // Check that this input token was received through a CCDM bridge for this wallet.
+            require(amountOfTokenDepositedIntoWallet > 0, InputTokenNotReceivedByThisWallet(inputToken));
 
             // Transfer amount of the input token into the Weiroll Wallet
             inputToken.safeTransfer(_weirollWallet, amountOfTokenDepositedIntoWallet);
+        }
+    }
+
+    /**
+     * @dev Internal helper function that checks for duplicate tokens in an array.
+     * @param _tokens The array of ERC20 tokens to check for duplicates.
+     */
+    function _checkForDuplicates(ERC20[] calldata _tokens) internal pure {
+        uint256 length = _tokens.length;
+        for (uint256 i = 0; i < length; ++i) {
+            for (uint256 j = i + 1; j < length; ++j) {
+                require(_tokens[i] != _tokens[j], NoDuplicateInputTokensAllowed());
+            }
         }
     }
 
@@ -726,6 +747,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      */
     function setCampaignInputTokens(bytes32 _sourceMarketHash, ERC20[] calldata _inputTokens) external onlyCampaignOwner(_sourceMarketHash) {
         if (!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash]) {
+            _checkForDuplicates(_inputTokens);
             sourceMarketHashToDepositCampaign[_sourceMarketHash].inputTokens = _inputTokens;
             emit CampaignInputTokensSet(_sourceMarketHash, _inputTokens);
         }
