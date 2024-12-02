@@ -82,8 +82,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The Uniswap V2 router on the source chain.
     IUniswapV2Router01 public immutable UNISWAP_V2_ROUTER;
 
-    /// @notice The party that green lights bridging
-    address public GREEN_LIGHTER;
+    /// @notice The party that green lights bridging on a per market basis
+    address public greenLighter;
 
     /// @notice The LayerZero endpoint ID for the destination chain.
     uint32 public dstChainLzEid;
@@ -179,7 +179,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @notice Emitted when the destination chain LayerZero endpoint ID is set.
      * @param dstChainLzEid The new LayerZero endpoint ID for the destination chain.
      */
-    event DestinationChainEidSet(uint32 dstChainLzEid);
+    event DestinationChainLzEidSet(uint32 dstChainLzEid);
 
     /**
      * @notice Emitted when the Deposit Executor address is set.
@@ -241,7 +241,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when trying to bridge funds to an uninitialized deposit executor.
     error DepositExecutorNotSet();
 
-    /// @notice Error emitted when the caller is not the global GREEN_LIGHTER.
+    /// @notice Error emitted when the caller is not the global greenLighter.
     error OnlyGreenLighter();
 
     /// @notice Error emitted when the caller is not the LP token market's owner.
@@ -268,7 +268,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @dev Modifier to ensure the caller is the authorized multisig for the market.
     modifier onlyGreenLighter() {
-        require(msg.sender == GREEN_LIGHTER, OnlyGreenLighter());
+        require(msg.sender == greenLighter, OnlyGreenLighter());
         _;
     }
 
@@ -321,16 +321,22 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         require(_depositTokens.length == _lzV2OFTs.length, ArrayLengthMismatch());
 
         // Initialize the contract state
+        RECIPE_MARKET_HUB = _recipeMarketHub;
+        WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
+        UNISWAP_V2_ROUTER = _uniswap_v2_router;
+
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
             _setLzV2OFTForToken(_depositTokens[i], _lzV2OFTs[i]);
         }
 
-        RECIPE_MARKET_HUB = _recipeMarketHub;
-        WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
-        UNISWAP_V2_ROUTER = _uniswap_v2_router;
-        GREEN_LIGHTER = _greenLighter;
+        greenLighter = _greenLighter;
+        emit GreenLighterSet(_greenLighter);
+
         dstChainLzEid = _dstChainLzEid;
+        emit DestinationChainLzEidSet(_dstChainLzEid);
+
         depositExecutor = _depositExecutor;
+        emit DepositExecutorSet(_depositExecutor);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -909,7 +915,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     function setDestinationChainEid(uint32 _dstChainLzEid) external onlyOwner {
         dstChainLzEid = _dstChainLzEid;
-        emit DestinationChainEidSet(_dstChainLzEid);
+        emit DestinationChainLzEidSet(_dstChainLzEid);
     }
 
     /**
@@ -950,7 +956,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _greenLighter The address of the green lighter responsible for marking deposits as bridgeable for specific markets.
      */
     function setGreenLighter(address _greenLighter) external onlyOwner {
-        GREEN_LIGHTER = _greenLighter;
+        greenLighter = _greenLighter;
         emit GreenLighterSet(_greenLighter);
     }
 

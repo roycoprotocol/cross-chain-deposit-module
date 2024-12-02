@@ -136,7 +136,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @notice Emitted when the source chain LayerZero endpoint ID is set.
      * @param srcChainLzEid The new LayerZero endpoint ID for the source chain.
      */
-    event SourceChainEidSet(uint32 srcChainLzEid);
+    event SourceChainLzEidSet(uint32 srcChainLzEid);
 
     /**
      * @notice Emitted when the Deposit Locker address is set.
@@ -288,14 +288,21 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         // Initialize the DepositExecutor's state
         LAYER_ZERO_V2_ENDPOINT = _lzV2Endpoint;
-        campaignVerifier = _campaignVerifier;
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
+
+        campaignVerifier = _campaignVerifier;
+        emit CampaignVerifierSet(_campaignVerifier);
+
         depositLocker = _depositLocker;
+        emit DepositLockerSet(_depositLocker);
+
         srcChainLzEid = _srcChainLzEid;
+        emit SourceChainLzEidSet(_srcChainLzEid);
 
         // Flag all valid LZ OFTs as such
         for (uint256 i = 0; i < _validLzV2OFTs.length; ++i) {
             isValidLzV2OFT[_validLzV2OFTs[i]] = true;
+            emit ValidLzOftSet(_validLzV2OFTs[i]);
         }
     }
 
@@ -626,7 +633,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      */
     function setSourceChainEid(uint32 _srcChainLzEid) external onlyOwner {
         srcChainLzEid = _srcChainLzEid;
-        emit SourceChainEidSet(_srcChainLzEid);
+        emit SourceChainLzEidSet(_srcChainLzEid);
     }
 
     /**
