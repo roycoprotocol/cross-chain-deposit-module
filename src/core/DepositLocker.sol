@@ -223,6 +223,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when setting a lzV2OFT for a token that doesn't match the OApp's underlying token
     error InvalidLzV2OFTForToken();
 
+    /// @notice Error emitted when trying to deposit into the locker for a Royco market that is either not created or has an undeployed input token.
+    error RoycoMarketNotInitialized();
+
     /// @notice Error emitted when calling withdraw with nothing deposited
     error NothingToWithdraw();
 
@@ -362,6 +365,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
                 amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
             require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
         }
+
+        // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
+        if (address(marketInputToken).code.length == 0) revert RoycoMarketNotInitialized();
 
         // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
