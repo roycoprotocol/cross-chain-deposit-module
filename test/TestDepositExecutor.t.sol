@@ -84,11 +84,6 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         vm.startPrank(IP_ADDRESS);
         depositExecutor.setCampaignUnlockTimestamp(bridgeResult.marketHash, unlockTimestamp);
 
-        ERC20[] memory depositTokens = new ERC20[](1);
-        depositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
-
-        depositExecutor.setCampaignInputTokens(bridgeResult.marketHash, depositTokens);
-
         depositExecutor.setCampaignReceiptToken(bridgeResult.marketHash, ERC20(aUSDC_POLYGON));
 
         DepositExecutor.Recipe memory DEPOSIT_RECIPE =
@@ -122,7 +117,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         // Check that all weiroll wallets were created and executed as expected
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        WeirollWallet weirollWalletCreatedForBridge = WeirollWallet(payable(abi.decode(logs[0].data, (address))));
+        WeirollWallet weirollWalletCreatedForBridge = WeirollWallet(payable(abi.decode(logs[1].data, (address))));
 
         // Check wallet state is correct
         assertEq(weirollWalletCreatedForBridge.owner(), address(0));
@@ -202,10 +197,6 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         ERC20[] memory depositTokens = new ERC20[](1);
         depositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
 
-        vm.startPrank(IP_ADDRESS);
-        depositExecutor.setCampaignInputTokens(bridgeResult.marketHash, depositTokens);
-        vm.stopPrank();
-
         vm.startPrank(CAMPAIGN_VERIFIER_ADDRESS);
         depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getCampaignVerificationHash(bridgeResult.marketHash));
         vm.stopPrank();
@@ -231,7 +222,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         // Check that all weiroll wallets were created and executed as expected
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        WeirollWallet weirollWalletCreatedForBridge = WeirollWallet(payable(abi.decode(logs[0].data, (address))));
+        WeirollWallet weirollWalletCreatedForBridge = WeirollWallet(payable(abi.decode(logs[1].data, (address))));
 
         // Check wallet state is correct
         assertEq(weirollWalletCreatedForBridge.owner(), address(0));

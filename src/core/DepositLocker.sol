@@ -31,8 +31,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
     uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
 
-    // Code hash of the Uniswap V2 Pair contract.
-    bytes32 public constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;
+    /// @notice The code hash of the Uniswap V2 Pair contract.
+    bytes32 internal constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;
+
+    /// @notice The number of tokens bridged for a single token CCDM bridge transaction
+    uint8 internal constant NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE = 1;
+
+    /// @notice The number of tokens bridged for an LP token CCDM bridge transaction
+    uint8 internal constant NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE = 2;
 
     /*//////////////////////////////////////////////////////////////
                                 Structures
@@ -444,7 +450,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
         // Initialize compose message - first 33 bytes are BRIDGE_TYPE and market hash
-        bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
+        bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE);
 
         // Array to store the actual depositors bridged
         address[] memory depositorsBridged = new address[](_depositors.length);
@@ -553,8 +559,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 token0_DecimalConversionRate = 10 ** (token0.decimals() - tokenToLzV2OFT[token0].sharedDecimals());
         uint256 token1_DecimalConversionRate = 10 ** (token1.decimals() - tokenToLzV2OFT[token1].sharedDecimals());
 
-        bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
-        bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
+        bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE);
+        bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE);
 
         // Array to store the actual depositors bridged
         address[] memory depositorsBridged = new address[](_depositors.length);
