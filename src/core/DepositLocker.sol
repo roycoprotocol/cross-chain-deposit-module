@@ -58,7 +58,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Struct to hold parameters for processing LP token depositors.
     struct LpTokenDepositorParams {
-        bytes32 marketHash;
         uint256 numDepositorsIncluded;
         address depositor;
         uint256 lpToken_DepositAmount;
@@ -336,6 +335,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         RECIPE_MARKET_HUB = _recipeMarketHub;
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
         UNISWAP_V2_ROUTER = _uniswap_v2_router;
+        ccdmNonce = 1; // The first CCDM bridge transaction will have have a nonce of 1
 
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
             _setLzV2OFTForToken(_depositTokens[i], _lzV2OFTs[i]);
@@ -383,7 +383,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Account for deposit
         marketHashToDepositorToDepositorInfo[targetMarketHash][depositor].amountDeposited += amountDeposited;
-        depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender].amountDeposited = amountDeposited;
+        WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
+        walletInfo.ccdmNonceOnDeposit = ccdmNonce;
+        walletInfo.amountDeposited = amountDeposited;
 
         // Emit deposit event
         emit UserDeposited(targetMarketHash, depositor, amountDeposited);
@@ -405,7 +407,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get amount to withdraw for this Weiroll Wallet
         uint256 amountToWithdraw = walletInfo.amountDeposited;
         // Ensure that this Weiroll Wallet's deposit hasn't been bridged and this Weiroll Wallet hasn't withdrawn.
-        require(walletInfo.ccdmNonceOnDeposit >= depositorInfo.latestCcdmNonce && amountToWithdraw > 0, NothingToWithdraw());
+        require(walletInfo.ccdmNonceOnDeposit > depositorInfo.latestCcdmNonce && amountToWithdraw > 0, NothingToWithdraw());
 
         // Account for the withdrawal
         depositorInfo.amountDeposited -= amountToWithdraw;
@@ -516,15 +518,19 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
+
         // Initialize compose messages for both tokens
         // Get deposit amount for each depositor and total deposit amount for this batch
         uint256 lp_TotalDepositsInBatch = 0;
         uint256[] memory lp_DepositAmounts = new uint256[](_depositors.length);
         for (uint256 i = 0; i < _depositors.length; ++i) {
-            lp_DepositAmounts[i] = marketHashToDepositorToDepositorInfo[_marketHash][_depositors[i]].amountDeposited;
-            // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
-            marketHashToDepositorToDepositorInfo[_marketHash][_depositors[i]].latestCcdmNonce = nonce;
+            DepositorInfo storage depositorInfo = marketHashToDepositorToDepositorInfo[_marketHash][_depositors[i]];
+            lp_DepositAmounts[i] = depositorInfo.amountDeposited;
             lp_TotalDepositsInBatch += lp_DepositAmounts[i];
+            // Set the total amount deposited by this depositor (AP) for this market to zero
+            delete depositorInfo.amountDeposited;
+            // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
+            depositorInfo.latestCcdmNonce = nonce;
         }
 
         // Get the market's input token
@@ -558,7 +564,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Create params struct
         LpTokenDepositorParams memory params;
-        params.marketHash = _marketHash;
         params.lp_TotalAmountToBridge = lp_TotalDepositsInBatch;
         params.token0_TotalAmountReceivedOnBurn = token0_AmountReceivedOnBurn;
         params.token1_TotalAmountReceivedOnBurn = token1_AmountReceivedOnBurn;
@@ -695,9 +700,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Calculate the depositor's share of each underlying token
         uint256 token0_DepositAmount = (params.token0_TotalAmountReceivedOnBurn * params.lpToken_DepositAmount) / params.lp_TotalAmountToBridge;
         uint256 token1_DepositAmount = (params.token1_TotalAmountReceivedOnBurn * params.lpToken_DepositAmount) / params.lp_TotalAmountToBridge;
-
-        // Set the total amount deposited by this depositor (AP) for this market to zero
-        delete marketHashToDepositorToDepositorInfo[params.marketHash][params.depositor].amountDeposited;
 
         if (token0_DepositAmount > type(uint96).max || token1_DepositAmount > type(uint96).max) {
             // If can't bridge this depositor, refund their redeemed tokens + fees accrued from LPing
