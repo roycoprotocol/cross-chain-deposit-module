@@ -70,7 +70,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Struct to hold the info about a depositor.
     struct DepositorInfo {
-        uint256 amountDeposited; // Total amount deposited by this depositor for this market.
+        uint256 totalAmountDeposited; // Total amount deposited by this depositor for this market.
         uint256 latestCcdmNonce; // Most recent CCDM nonce of the bridge txn that this depositor was included in for this market.
     }
 
@@ -382,7 +382,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
 
         // Account for deposit
-        marketHashToDepositorToDepositorInfo[targetMarketHash][depositor].amountDeposited += amountDeposited;
+        marketHashToDepositorToDepositorInfo[targetMarketHash][depositor].totalAmountDeposited += amountDeposited;
         WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
         walletInfo.ccdmNonceOnDeposit = ccdmNonce;
         walletInfo.amountDeposited = amountDeposited;
@@ -410,7 +410,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         require(walletInfo.ccdmNonceOnDeposit > depositorInfo.latestCcdmNonce && amountToWithdraw > 0, NothingToWithdraw());
 
         // Account for the withdrawal
-        depositorInfo.amountDeposited -= amountToWithdraw;
+        depositorInfo.totalAmountDeposited -= amountToWithdraw;
         delete walletInfo.amountDeposited;
 
         // Transfer back the amount deposited directly to the AP
@@ -525,10 +525,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256[] memory lp_DepositAmounts = new uint256[](_depositors.length);
         for (uint256 i = 0; i < _depositors.length; ++i) {
             DepositorInfo storage depositorInfo = marketHashToDepositorToDepositorInfo[_marketHash][_depositors[i]];
-            lp_DepositAmounts[i] = depositorInfo.amountDeposited;
+            lp_DepositAmounts[i] = depositorInfo.totalAmountDeposited;
             lp_TotalDepositsInBatch += lp_DepositAmounts[i];
             // Set the total amount deposited by this depositor (AP) for this market to zero
-            delete depositorInfo.amountDeposited;
+            delete depositorInfo.totalAmountDeposited;
             // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
             depositorInfo.latestCcdmNonce = nonce;
         }
@@ -622,7 +622,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @return amountDeposited The total amount deposited by the depositor in the specified market.
      */
     function getAmountDepositedByDepositor(bytes32 _marketHash, address _depositor) external view returns (uint256 amountDeposited) {
-        amountDeposited = marketHashToDepositorToDepositorInfo[_marketHash][_depositor].amountDeposited;
+        amountDeposited = marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
     }
 
     /**
@@ -659,7 +659,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         returns (uint256 depositAmount)
     {
         // Get amount deposited by the depositor (AP)
-        depositAmount = marketHashToDepositorToDepositorInfo[_marketHash][_depositor].amountDeposited;
+        depositAmount = marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
         // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
         marketHashToDepositorToDepositorInfo[_marketHash][_depositor].latestCcdmNonce = _ccdmNonce;
         if (depositAmount == 0 || depositAmount > type(uint96).max) {
@@ -667,7 +667,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Set the total amount deposited by this depositor (AP) for this market to zero
-        delete marketHashToDepositorToDepositorInfo[_marketHash][_depositor].amountDeposited;
+        delete marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
 
         // Add depositor to the compose message
         _composeMsg.writeDepositor(_depositorIndex, _depositor, uint96(depositAmount));
