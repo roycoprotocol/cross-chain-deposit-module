@@ -11,7 +11,7 @@ library CCDMPayloadLib {
                 Per Payload (first 65 bytes):
                     - Market Hash: bytes32 (32 bytes)
                     - CCDM Nonce: uint256 (32 bytes)
-                    - Number of Tokens Bridged: uint8
+                    - Number of Tokens Bridged: uint8 (1 byte)
                 Per Depositor (following 32 byte blocks):
                     - Depositor / AP address: address (20 bytes)
                     - Amount Deposited: uint96 (12 bytes)
@@ -94,7 +94,7 @@ library CCDMPayloadLib {
             sourceMarketHash := mload(ptr)
             // Read the next 32 bytes as ccdmNonce
             ccdmNonce := mload(add(ptr, 32))
-            // Read the next 1 byte as numTokens
+            // Read the next 1 byte as numTokensBridged
             numTokensBridged := shr(248, mload(add(ptr, 64)))
         }
     }
