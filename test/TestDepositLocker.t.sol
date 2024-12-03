@@ -146,8 +146,8 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
 
             withdrawnSoFar += fillAmount;
 
-            assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, aps[i]), 0);
-            assertEq(depositLocker.depositorToWeirollWalletToAmount(aps[i], depositorWallets[i]), 0);
+            assertEq(depositLocker.getAmountDepositedByDepositor(marketHash, aps[i]), 0);
+            assertEq(depositLocker.getWeirollWalletAmountForDepositor(aps[i], depositorWallets[i]), 0);
 
             assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(aps[i]), preWithdrawApTokenBalance + fillAmount);
             assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), filledSoFar - withdrawnSoFar);
@@ -204,12 +204,9 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
     }
 
     function assertDepositorState(address ap, address weirollWallet, uint256 fillAmount, uint256 filledSoFar) internal {
-        assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, ap), fillAmount);
-        assertEq(depositLocker.depositorToWeirollWalletToAmount(ap, weirollWallet), fillAmount);
+        assertEq(depositLocker.getAmountDepositedByDepositor(marketHash, ap), fillAmount);
+        assertEq(depositLocker.getWeirollWalletAmountForDepositor(ap, weirollWallet), fillAmount);
         assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), filledSoFar);
-
-        address depositorWeirollWallet = depositLocker.marketHashToDepositorToWeirollWallets(marketHash, ap, 0);
-        assertEq(depositorWeirollWallet, weirollWallet);
         assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(weirollWallet), 0);
     }
 }
