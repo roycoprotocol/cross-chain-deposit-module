@@ -293,7 +293,6 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
             recipeMarketHub,
             IWETH(WETH_MAINNET_ADDRESS),
             UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            depositTokens,
             lzV2OFTs
         );
 

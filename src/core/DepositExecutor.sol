@@ -376,6 +376,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Check that a valid number of input tokens have been set for this campaign
         require(campaign.numInputTokens != 0 && (campaign.inputTokens.length == campaign.numInputTokens), CampaignTokensNotSet());
 
+        // Set once the first deposit recipe has been executed for this market
+        // After this is set, the receipt token cannot be modified
+        if (!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash]) {
+            sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash] = true;
+        }
+
         ERC20 receiptToken = campaign.receiptToken;
         Recipe memory depositRecipe = campaign.depositRecipe;
         // Execute deposit recipes for specified wallets
@@ -400,14 +406,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
                 // Check that the executor has the proper allowance for the Weiroll Wallet's receipt tokens
                 require(receiptToken.allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
-
-                // Set once the first deposit recipe has been executed for this market
-                // After this is set, the receipt token cannot be modified
-                if (!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash]) {
-                    sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash] = true;
-                }
             }
         }
+
         emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
     }
 

@@ -56,7 +56,6 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             recipeMarketHub,
             IWETH(WETH_MAINNET_ADDRESS),
             UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            depositTokens,
             lzV2OFTs
         );
 
@@ -145,7 +144,6 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             recipeMarketHub,
             IWETH(WETH_MAINNET_ADDRESS),
             UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            depositTokens,
             lzV2OFTs
         );
 
@@ -237,7 +235,6 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             recipeMarketHub,
             IWETH(WETH_MAINNET_ADDRESS),
             UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            depositTokens,
             lzV2OFTs
         );
 
@@ -325,7 +322,6 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             recipeMarketHub,
             IWETH(WETH_MAINNET_ADDRESS),
             UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            depositTokens,
             lzV2OFTs
         );
 

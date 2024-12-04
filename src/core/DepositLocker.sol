@@ -210,10 +210,16 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /**
      * @notice Emitted when the LayerZero V2 OFT for a token is set.
-     * @param token The address of the token.
+     * @param token The address of the underlying token.
      * @param lzV2OFT The LayerZero V2 OFT contract address for the token.
      */
     event LzV2OFTForTokenSet(address indexed token, address lzV2OFT);
+
+    /**
+     * @notice Emitted when the LayerZero V2 OFT for a token is removed.
+     * @param token The address of the underlying token.
+     */
+    event LzV2OFTForTokenRemoved(address indexed token);
 
     /**
      * @notice Emitted when the green lighter address is set.
@@ -234,17 +240,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     event GreenLightTurnedOff(bytes32 indexed marketHash);
 
-    /// @notice Error emitted when setting a lzV2OFT for a token that doesn't match the OApp's underlying token
-    error InvalidLzV2OFTForToken();
-
     /// @notice Error emitted when trying to deposit into the locker for a Royco market that is either not created or has an undeployed input token.
     error RoycoMarketNotInitialized();
 
     /// @notice Error emitted when calling withdraw with nothing deposited
     error NothingToWithdraw();
-
-    /// @notice Error emitted when array lengths mismatch.
-    error ArrayLengthMismatch();
 
     /// @notice Error emitted when green light is not given for bridging.
     error GreenLightNotGiven();
@@ -318,8 +318,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _recipeMarketHub The address of the recipe market hub used to create markets on the source chain.
      * @param _wrapped_native_asset_token The address of the wrapped native asset token on the source chain.
      * @param _uniswap_v2_router The address of the Uniswap V2 router on the source chain.
-     * @param _depositTokens The tokens to bridge to the destination chain from the source chain.
-     * @param _lzV2OFTs The corresponding LayerZero OApp instances for each deposit token on the source chain.
+     * @param _lzV2OFTs The LayerZero V2 OFT instances for each acceptable deposit token on the source chain.
      */
     constructor(
         address _owner,
@@ -329,22 +328,18 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         RecipeMarketHubBase _recipeMarketHub,
         IWETH _wrapped_native_asset_token,
         IUniswapV2Router01 _uniswap_v2_router,
-        ERC20[] memory _depositTokens,
         IOFT[] memory _lzV2OFTs
     )
         Ownable(_owner)
     {
-        // Check that each token that will be bridged has a corresponding LZOApp instance
-        require(_depositTokens.length == _lzV2OFTs.length, ArrayLengthMismatch());
-
         // Initialize the contract state
         RECIPE_MARKET_HUB = _recipeMarketHub;
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
         UNISWAP_V2_ROUTER = _uniswap_v2_router;
         ccdmNonce = 1; // The first CCDM bridge transaction will have a nonce of 1
 
-        for (uint256 i = 0; i < _depositTokens.length; ++i) {
-            _setLzV2OFTForToken(_depositTokens[i], _lzV2OFTs[i]);
+        for (uint256 i = 0; i < _lzV2OFTs.length; ++i) {
+            _setLzV2OFTForToken(_lzV2OFTs[i]);
         }
 
         greenLighter = _greenLighter;
@@ -859,19 +854,15 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /**
      * @notice Sets the LayerZero V2 OFT for a given token.
      * @dev NOTE: _lzV2OFT must implement IOFT.
-     * @param _token Token to set the LayerZero Omnichain App for.
      * @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
      */
-    function _setLzV2OFTForToken(ERC20 _token, IOFT _lzV2OFT) internal {
+    function _setLzV2OFTForToken(IOFT _lzV2OFT) internal {
+        address underlyingTokenAddress = _lzV2OFT.token();
         // Get the underlying token for this OFT
-        address underlyingToken = _lzV2OFT.token();
-        // Check that the underlying token is the specified token or the chain's native asset
-        require(
-            underlyingToken == address(_token) || (underlyingToken == address(0) && (address(_token) == address(WRAPPED_NATIVE_ASSET_TOKEN))),
-            InvalidLzV2OFTForToken()
-        );
-        tokenToLzV2OFT[_token] = _lzV2OFT;
-        emit LzV2OFTForTokenSet(address(_token), address(_lzV2OFT));
+        ERC20 underlyingToken = underlyingTokenAddress == address(0) ? ERC20(address(WRAPPED_NATIVE_ASSET_TOKEN)) : ERC20(underlyingTokenAddress);
+        // Set the LZ V2 OFT for the underlying token
+        tokenToLzV2OFT[underlyingToken] = _lzV2OFT;
+        emit LzV2OFTForTokenSet(underlyingTokenAddress, address(_lzV2OFT));
     }
 
     /**
@@ -932,14 +923,24 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Sets the LayerZero V2 OFT for a given token.
+     * @notice Sets the LayerZero V2 OFT for the underlying token.
      * @notice _lzV2OFT must implement IOFT.
      * @dev Only callable by the contract owner.
-     * @param _token Token to set the LayerZero Omnichain App for.
      * @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
      */
-    function setLzV2OFTForToken(ERC20 _token, IOFT _lzV2OFT) external onlyOwner {
-        _setLzV2OFTForToken(_token, _lzV2OFT);
+    function setLzOFT(IOFT _lzV2OFT) external onlyOwner {
+        _setLzV2OFTForToken(_lzV2OFT);
+    }
+
+    /**
+     * @notice Removes the LayerZero V2 OFT for the underlying token.
+     * @dev Only callable by the contract owner.
+     * @param _underlyingToken The underlying token of the LZ V2 OFT to remove.
+     */
+    function removeLzOFT(ERC20 _underlyingToken) external onlyOwner {
+        // Remove the LZ V2 OFT for the underlying token
+        delete tokenToLzV2OFT[_underlyingToken];
+        emit LzV2OFTForTokenRemoved(address(_underlyingToken));
     }
 
     /**
