@@ -26,7 +26,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The limit for how many depositors can be bridged in a single transaction
-    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 1;
+    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 300;
 
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
     uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
@@ -341,7 +341,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         RECIPE_MARKET_HUB = _recipeMarketHub;
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
         UNISWAP_V2_ROUTER = _uniswap_v2_router;
-        ccdmNonce = 1; // The first CCDM bridge transaction will have have a nonce of 1
+        ccdmNonce = 1; // The first CCDM bridge transaction will have a nonce of 1
 
         for (uint256 i = 0; i < _depositTokens.length; ++i) {
             _setLzV2OFTForToken(_depositTokens[i], _lzV2OFTs[i]);
@@ -651,11 +651,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             return 0; // Skip if no deposit or deposit amount exceeds limit
         }
 
-        // Set the total amount deposited by this depositor (AP) for this market to zero
-        delete marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
-
         // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
         marketHashToDepositorToDepositorInfo[_marketHash][_depositor].latestCcdmNonce = _ccdmNonce;
+
+        // Set the total amount deposited by this depositor (AP) for this market to zero
+        delete marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
 
         // Add depositor to the compose message
         _composeMsg.writeDepositor(_depositorIndex, _depositor, uint96(depositAmount));
