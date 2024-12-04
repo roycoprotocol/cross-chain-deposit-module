@@ -75,7 +75,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         validLzOFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS;
 
         DepositExecutor depositExecutor =
-            new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0), bridgeResult.depositLocker, 30_101, validLzOFTs);
+            new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0), 30_101, bridgeResult.depositLocker, validLzOFTs);
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
@@ -184,7 +184,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         validLzOFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS;
 
         DepositExecutor depositExecutor =
-            new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0), bridgeResult.depositLocker, 30_101, validLzOFTs);
+            new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0), 30_101, bridgeResult.depositLocker, validLzOFTs);
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
@@ -335,7 +335,8 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
             recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
 
-            result.depositAmounts[i] = depositLocker.getAmountDepositedByDepositor(result.marketHash, ap);
+            (uint256 totalAmountDeposited,) = depositLocker.marketHashToDepositorToDepositorInfo(result.marketHash, ap);
+            result.depositAmounts[i] = totalAmountDeposited;
         }
 
         vm.startPrank(GREEN_LIGHTER_ADDRESS);

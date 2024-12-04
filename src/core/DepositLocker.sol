@@ -26,7 +26,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The limit for how many depositors can be bridged in a single transaction
-    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 300;
+    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 1;
 
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
     uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
@@ -105,12 +105,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The LayerZero endpoint ID for the destination chain.
     uint32 public dstChainLzEid;
 
+    /// @notice The address of the DepositExecutor on the destination chain.
+    address public depositExecutor;
+
     /// @notice Mapping of an ERC20 token to its corresponding LayerZero OFT.
     /// @dev NOTE: Must implement the IOFT interface.
     mapping(ERC20 => IOFT) public tokenToLzV2OFT;
-
-    /// @notice The address of the DepositExecutor on the destination chain.
-    address public depositExecutor;
 
     /// @notice Mapping from market hash to the time the green light will turn on for bridging.
     mapping(bytes32 => uint256) public marketHashToBridgingAllowedTimestamp;
@@ -621,26 +621,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     receive() external payable { }
 
-    /**
-     * @notice Returns the total amount deposited by a depositor in a specific market.
-     * @param _marketHash The unique hash identifier of the market.
-     * @param _depositor The address of the depositor.
-     * @return amountDeposited The total amount deposited by the depositor in the specified market.
-     */
-    function getAmountDepositedByDepositor(bytes32 _marketHash, address _depositor) external view returns (uint256 amountDeposited) {
-        amountDeposited = marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
-    }
-
-    /**
-     * @notice Returns the amount deposited by a depositor's Weiroll Wallet.
-     * @param _depositor The address of the depositor.
-     * @param _weirollWallet The address of the Weiroll Wallet.
-     * @return amountDeposited The amount deposited by the specified Weiroll Wallet.
-     */
-    function getWeirollWalletAmountForDepositor(address _depositor, address _weirollWallet) external view returns (uint256 amountDeposited) {
-        amountDeposited = depositorToWeirollWalletToWeirollWalletInfo[_depositor][_weirollWallet].amountDeposited;
-    }
-
     /*//////////////////////////////////////////////////////////////
                             Internal Functions
     //////////////////////////////////////////////////////////////*/
@@ -666,14 +646,16 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     {
         // Get amount deposited by the depositor (AP)
         depositAmount = marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
-        // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
-        marketHashToDepositorToDepositorInfo[_marketHash][_depositor].latestCcdmNonce = _ccdmNonce;
+
         if (depositAmount == 0 || depositAmount > type(uint96).max) {
             return 0; // Skip if no deposit or deposit amount exceeds limit
         }
 
         // Set the total amount deposited by this depositor (AP) for this market to zero
         delete marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
+
+        // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
+        marketHashToDepositorToDepositorInfo[_marketHash][_depositor].latestCcdmNonce = _ccdmNonce;
 
         // Add depositor to the compose message
         _composeMsg.writeDepositor(_depositorIndex, _depositor, uint96(depositAmount));
@@ -884,7 +866,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the underlying token for this OFT
         address underlyingToken = _lzV2OFT.token();
         // Check that the underlying token is the specified token or the chain's native asset
-        require(underlyingToken == address(_token) || underlyingToken == address(0), InvalidLzV2OFTForToken());
+        require(
+            underlyingToken == address(_token) || (underlyingToken == address(0) && (address(_token) == address(WRAPPED_NATIVE_ASSET_TOKEN))),
+            InvalidLzV2OFTForToken()
+        );
         tokenToLzV2OFT[_token] = _lzV2OFT;
         emit LzV2OFTForTokenSet(address(_token), address(_lzV2OFT));
     }

@@ -84,14 +84,14 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice The wrapped native asset token on the destination chain.
     address public immutable WRAPPED_NATIVE_ASSET_TOKEN;
 
-    /// @notice The address of the verifier responsible for verifying campaign input tokens, receipt tokens, and deposit scripts before execution.
-    address public campaignVerifier;
-
     /// @notice The LayerZero endpoint ID for the source chain.
-    uint32 public srcChainLzEid;
+    uint32 public immutable SOURCE_CHAIN_LZ_EID;
 
     /// @notice The address of the Deposit Locker on the source chain.
-    address public depositLocker;
+    address public immutable DEPOSIT_LOCKER;
+
+    /// @notice The address of the verifier responsible for verifying campaign input tokens, receipt tokens, and deposit scripts before execution.
+    address public campaignVerifier;
 
     /// @dev Mapping from a LZ V2 OFT/OApp to a flag representing whether it is valid or not.
     mapping(address => bool) public isValidLzV2OFT;
@@ -133,18 +133,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param campaignVerifier The address of the new campaign verifier.
      */
     event CampaignVerifierSet(address campaignVerifier);
-
-    /**
-     * @notice Emitted when the source chain LayerZero endpoint ID is set.
-     * @param srcChainLzEid The new LayerZero endpoint ID for the source chain.
-     */
-    event SourceChainLzEidSet(uint32 srcChainLzEid);
-
-    /**
-     * @notice Emitted when the Deposit Locker address is set.
-     * @param depositLocker The new address of the Deposit Locker on the source chain.
-     */
-    event DepositLockerSet(address depositLocker);
 
     /**
      * @notice Emitted when an LZ V2 OFT is added as a valid invoker of the lzCompose function.
@@ -229,7 +217,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /// @notice Error emitted when trying to execute the deposit recipe when all input tokens have not been set.
     /// @dev These are set by CCDM bridges in the lzCompose.
-    error CampaignInputTokensNotSet();
+    error CampaignTokensNotSet();
 
     /// @notice Error emitted when trying to execute the deposit recipe when an input token has not been received by the target wallet.
     error InputTokenNotReceivedByThisWallet(ERC20 inputToken);
@@ -242,6 +230,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /// @notice Error emitted when trying to withdraw from a locked wallet.
     error CannotWithdrawBeforeUnlockTimestamp();
+
+    /// @notice Error emitted when trying to withdraw before a wallet has received all input tokens in the case when the deposit recipe hasn't executed.
+    error WaitingToReceiveAllTokens();
 
     /// @notice Error emitted when the caller of the composeMsg instructs the executor to deploy more funds into Weiroll Wallets than were bridged.
     error CannotAccountForMoreDepositsThanBridged();
@@ -278,8 +269,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _lzV2Endpoint The address of the LayerZero V2 Endpoint on the destination chain.
      * @param _campaignVerifier The address of the campaign verifier.
      * @param _wrapped_native_asset_token The address of the wrapped native asset token on the destination chain.
-     * @param _depositLocker The address of the Deposit Locker on the source chain.
      * @param _srcChainLzEid The LayerZero endpoint ID for the source chain.
+     * @param _depositLocker The address of the Deposit Locker on the source chain.
      * @param _validLzV2OFTs An array of valid LZ V2 OFTs/OApps (Stargate, OFT Adapters, etc.) that can invoke the lzCompose function.
      */
     constructor(
@@ -287,8 +278,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         address _lzV2Endpoint,
         address _campaignVerifier,
         address _wrapped_native_asset_token,
-        address _depositLocker,
         uint32 _srcChainLzEid,
+        address _depositLocker,
         address[] memory _validLzV2OFTs
     )
         Ownable(_owner)
@@ -299,15 +290,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Initialize the DepositExecutor's state
         LAYER_ZERO_V2_ENDPOINT = _lzV2Endpoint;
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
+        SOURCE_CHAIN_LZ_EID = _srcChainLzEid;
+        DEPOSIT_LOCKER = _depositLocker;
 
         campaignVerifier = _campaignVerifier;
         emit CampaignVerifierSet(_campaignVerifier);
-
-        depositLocker = _depositLocker;
-        emit DepositLockerSet(_depositLocker);
-
-        srcChainLzEid = _srcChainLzEid;
-        emit SourceChainLzEidSet(_srcChainLzEid);
 
         // Flag all valid LZ OFTs as such
         for (uint256 i = 0; i < _validLzV2OFTs.length; ++i) {
@@ -334,7 +321,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         require(isValidLzV2OFT[_from], NotFromValidLzV2OFT());
         // Ensure that the deposits were bridged from the Deposit Locker on the source chain
         require(
-            _message.srcEid() == srcChainLzEid && OFTComposeMsgCodec.bytes32ToAddress(_message.composeFrom()) == depositLocker,
+            _message.srcEid() == SOURCE_CHAIN_LZ_EID && OFTComposeMsgCodec.bytes32ToAddress(_message.composeFrom()) == DEPOSIT_LOCKER,
             NotFromDepositLockerOnSourceChain()
         );
 
@@ -387,7 +374,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Check that the campaign's deposit recipe has been verified
         require(campaign.verified, CampaignIsUnverified());
         // Check that a valid number of input tokens have been set for this campaign
-        require(campaign.numInputTokens != 0 && (campaign.inputTokens.length == campaign.numInputTokens), CampaignInputTokensNotSet());
+        require(campaign.numInputTokens != 0 && (campaign.inputTokens.length == campaign.numInputTokens), CampaignTokensNotSet());
 
         ERC20 receiptToken = campaign.receiptToken;
         Recipe memory depositRecipe = campaign.depositRecipe;
@@ -453,11 +440,17 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             // Remit the receipt tokens to the depositor
             receiptToken.safeTransferFrom(_weirollWallet, msg.sender, receiptTokensOwed);
         } else {
+            // Check that a valid number of input tokens have been set for this campaign
+            require(campaign.numInputTokens != 0 && (campaign.inputTokens.length == campaign.numInputTokens), CampaignTokensNotSet());
+
             // If deposit recipe hasn't been executed, return the depositor's share of the input tokens
             for (uint256 i = 0; i < campaign.inputTokens.length; ++i) {
                 // Get the amount of this input token deposited by the depositor
                 ERC20 inputToken = campaign.inputTokens[i];
                 uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+
+                // Make sure that the depositor can withdraw all campaign's input tokens atomically to avoid race conditions with recipe execution
+                require(amountDeposited > 0, WaitingToReceiveAllTokens());
 
                 // Update the accounting to reflect the withdrawal
                 delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
@@ -549,7 +542,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             WEIROLL_WALLET_IMPLEMENTATION.clone(
                 abi.encodePacked(
                     address(0), // Wallet owner will be zero address so that no single party can siphon depositor funds after lock timestamp has passed.
-                    address(this), // DepositExecutor will be the entrypoint for recipe execution (in addition to the owner after the unlock timestamp).
+                    address(this), // DepositExecutor will be the entrypoint for recipe execution.
                     uint256(0), // Amount will always be 0 since a Weiroll Wallet may hold multiple tokens.
                     _unlockTimestamp, // The ABSOLUTE unlock timestamp for wallets created for this campaign.
                     false, // Weiroll Wallet is non-forfeitable since the deposits have reached the destination chain.
@@ -663,7 +656,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _lzV2OFT LayerZero V2 OFT to flag as valid.
      */
     function _setValidLzOFT(address _lzV2OFT) internal {
-        // Sanity check to make sure that this contract implements IOFT.
+        // Sanity check to make sure that _lzV2OFT implements IOFT.
         IOFT(_lzV2OFT).token();
         // Mark the OFT contract as valid
         isValidLzV2OFT[_lzV2OFT] = true;
@@ -682,26 +675,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     function setCampaignVerifier(address _campaignVerifier) external onlyOwner {
         campaignVerifier = _campaignVerifier;
         emit CampaignVerifierSet(_campaignVerifier);
-    }
-
-    /**
-     * @notice Sets the LayerZero endpoint ID for the source chain.
-     * @dev Only callable by the contract owner.
-     * @param _srcChainLzEid LayerZero endpoint ID for the source chain.
-     */
-    function setSourceChainEid(uint32 _srcChainLzEid) external onlyOwner {
-        srcChainLzEid = _srcChainLzEid;
-        emit SourceChainLzEidSet(_srcChainLzEid);
-    }
-
-    /**
-     * @notice Sets the source chain's corresponding Deposit Locker address.
-     * @dev Only callable by the contract owner.
-     * @param _depositLocker The address of the Deposit Locker on the source chain.
-     */
-    function setDepositLocker(address _depositLocker) external onlyOwner {
-        depositLocker = _depositLocker;
-        emit DepositLockerSet(_depositLocker);
     }
 
     /**
