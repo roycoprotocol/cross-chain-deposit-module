@@ -235,6 +235,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @dev These are set by CCDM bridges in the lzCompose.
     error CampaignTokensNotSet();
 
+    /// @notice Error emitted when trying to execute the deposit recipe for a wallet that doesn't belong to the caller's campaign.
+    error WeirollWalletNotFromCampaign(address weirollWallet);
+
     /// @notice Error emitted when trying to execute the deposit recipe when an input token has not been received by the target wallet.
     error InputTokenNotReceivedByThisWallet(ERC20 inputToken);
 
@@ -404,25 +407,25 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallets[i]));
             // Only execute deposit recipe if the wallet belongs to this market and hasn't been executed already
-            if (weirollWallet.marketHash() == _sourceMarketHash && !weirollWallet.executed()) {
-                // Get this wallet's deposit accouting ledger
-                WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallets[i]];
+            require(weirollWallet.marketHash() == _sourceMarketHash && !weirollWallet.executed(), WeirollWalletNotFromCampaign(_weirollWallets[i]));
 
-                // Transfer input tokens from the executor into the Weiroll Wallet for use in the deposit recipe execution.
-                _transferInputTokensToWeirollWallet(campaign.inputTokens, walletAccounting, _weirollWallets[i]);
+            // Get this wallet's deposit accouting ledger
+            WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallets[i]];
 
-                // Get initial receipt token balance of the Weiroll Wallet to ensure that the post-deposit balance is greater.
-                uint256 initialReceiptTokenBalance = receiptToken.balanceOf(_weirollWallets[i]);
+            // Transfer input tokens from the executor into the Weiroll Wallet for use in the deposit recipe execution.
+            _transferInputTokensToWeirollWallet(campaign.inputTokens, walletAccounting, _weirollWallets[i]);
 
-                // Execute the deposit recipe on the Weiroll wallet
-                weirollWallet.executeWeiroll(depositRecipe.weirollCommands, depositRecipe.weirollState);
+            // Get initial receipt token balance of the Weiroll Wallet to ensure that the post-deposit balance is greater.
+            uint256 initialReceiptTokenBalance = receiptToken.balanceOf(_weirollWallets[i]);
 
-                // Check that receipt tokens were received on deposit
-                require(receiptToken.balanceOf(_weirollWallets[i]) - initialReceiptTokenBalance > 0, MustReturnReceiptTokensOnDeposit());
+            // Execute the deposit recipe on the Weiroll wallet
+            weirollWallet.executeWeiroll(depositRecipe.weirollCommands, depositRecipe.weirollState);
 
-                // Check that the executor has the proper allowance for the Weiroll Wallet's receipt tokens
-                require(receiptToken.allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
-            }
+            // Check that receipt tokens were received on deposit
+            require(receiptToken.balanceOf(_weirollWallets[i]) - initialReceiptTokenBalance > 0, MustReturnReceiptTokensOnDeposit());
+
+            // Check that the executor has the proper allowance for the Weiroll Wallet's receipt tokens
+            require(receiptToken.allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
         }
 
         emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
@@ -820,12 +823,14 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Check that the campaign has been initialized
         require(address(campaign.receiptToken) != address(0), CampaignIsUninitialized());
         // Receipt token can't be null address
-        require(address(_receiptToken) == address(0), InvalidReceiptToken());
+        require(address(_receiptToken) != address(0), InvalidReceiptToken());
         // Ensure that the first deposit recipe has not been executed
         require(!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash], ReceiptTokenIsImmutable());
 
-        // Set the campaign's receipt token
+        // Set the campaign's receipt token and mark the campaign as unverified
         campaign.receiptToken = _receiptToken;
+        delete campaign.verified;
+
         emit CampaignReceiptTokenSet(_sourceMarketHash, _receiptToken);
     }
 

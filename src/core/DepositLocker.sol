@@ -862,7 +862,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         ERC20 underlyingToken = underlyingTokenAddress == address(0) ? ERC20(address(WRAPPED_NATIVE_ASSET_TOKEN)) : ERC20(underlyingTokenAddress);
         // Set the LZ V2 OFT for the underlying token
         tokenToLzV2OFT[underlyingToken] = _lzV2OFT;
-        emit LzV2OFTForTokenSet(underlyingTokenAddress, address(_lzV2OFT));
+        emit LzV2OFTForTokenSet(address(underlyingToken), address(_lzV2OFT));
     }
 
     /**
