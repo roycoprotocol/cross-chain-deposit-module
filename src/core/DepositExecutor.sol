@@ -783,12 +783,13 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         // Check that the campaign is uninitialized
         require(address(campaign.receiptToken) == address(0), CampaignAlreadyInitialized());
-        // Unlock timestamp is immutable after deposits have been received for this campaign
-        require(campaign.numInputTokens == 0, UnlockTimestampIsImmutable());
-        // Check that the unlock timestamp is within the limit.
-        require(_unlockTimestamp <= block.timestamp + MAX_CAMPAIGN_LOCKUP_TIME, ExceedsMaxLockupTime());
         // Check that receipt token isn't the null address
         require(address(_receiptToken) != address(0), InvalidReceiptToken());
+        // Unlock timestamp is immutable after deposits have been received for this campaign
+        // However, you can still initialize the other params as long as you don't enforce a lock time
+        require(campaign.numInputTokens == 0 || _unlockTimestamp == 0, UnlockTimestampIsImmutable());
+        // Check that the unlock timestamp is within the limit.
+        require(_unlockTimestamp <= block.timestamp + MAX_CAMPAIGN_LOCKUP_TIME, ExceedsMaxLockupTime());
 
         // Set the campaign's unlock timestamp
         campaign.unlockTimestamp = _unlockTimestamp;
