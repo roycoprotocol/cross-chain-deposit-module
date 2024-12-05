@@ -47,15 +47,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[0] = IOFT(STARGATE_POOL_NATIVE_MAINNET_ADDRESS); // Stargate native pool on ETH Mainnet
 
         depositLocker = new DepositLocker(
-            OWNER_ADDRESS,
-            0,
-            address(0xbeef),
-            GREEN_LIGHTER_ADDRESS,
-            recipeMarketHub,
-            IWETH(WETH_MAINNET_ADDRESS),
-            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            depositTokens,
-            lzV2OFTs
+            OWNER_ADDRESS, 0, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, IWETH(WETH_MAINNET_ADDRESS), UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs
         );
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
@@ -146,8 +138,11 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
 
             withdrawnSoFar += fillAmount;
 
-            assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, aps[i]), 0);
-            assertEq(depositLocker.depositorToWeirollWalletToAmount(aps[i], depositorWallets[i]), 0);
+            (uint256 totalAmountDeposited,) = depositLocker.marketHashToDepositorToDepositorInfo(marketHash, aps[i]);
+            (uint256 amountDeposited,) = depositLocker.depositorToWeirollWalletToWeirollWalletInfo(aps[i], depositorWallets[i]);
+
+            assertEq(totalAmountDeposited, 0);
+            assertEq(amountDeposited, 0);
 
             assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(aps[i]), preWithdrawApTokenBalance + fillAmount);
             assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), filledSoFar - withdrawnSoFar);
@@ -204,12 +199,11 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
     }
 
     function assertDepositorState(address ap, address weirollWallet, uint256 fillAmount, uint256 filledSoFar) internal {
-        assertEq(depositLocker.marketHashToDepositorToAmountDeposited(marketHash, ap), fillAmount);
-        assertEq(depositLocker.depositorToWeirollWalletToAmount(ap, weirollWallet), fillAmount);
+        (uint256 totalAmountDeposited,) = depositLocker.marketHashToDepositorToDepositorInfo(marketHash, ap);
+        (uint256 amountDeposited,) = depositLocker.depositorToWeirollWalletToWeirollWalletInfo(ap, weirollWallet);
+        assertEq(totalAmountDeposited, fillAmount);
+        assertEq(amountDeposited, fillAmount);
         assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), filledSoFar);
-
-        address depositorWeirollWallet = depositLocker.marketHashToDepositorToWeirollWallets(marketHash, ap, 0);
-        assertEq(depositorWeirollWallet, weirollWallet);
         assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(weirollWallet), 0);
     }
 }

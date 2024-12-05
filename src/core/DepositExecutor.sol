@@ -18,6 +18,7 @@ import { CCDMPayloadLib } from "src/libraries/CCDMPayloadLib.sol";
 /// @notice This contract implements ILayerZeroComposer to execute logic based on the compose messages sent from the source chain.
 contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTransient {
     using CCDMPayloadLib for bytes;
+    using OFTComposeMsgCodec for bytes;
     using ClonesWithImmutableArgs for address;
     using SafeTransferLib for ERC20;
 
@@ -42,20 +43,22 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /// @dev Represents a Deposit Campaign on the destination chain.
     /// @custom:field owner The address of the owner of this deposit campaign.
+    /// @custom:field verified A flag indicating whether this campaign's input tokens, receipt token, and deposit recipe are verified.
+    /// @custom:field numInputTokens The number of input tokens for the deposit campaign.
     /// @custom:field inputTokens The input tokens that will be deposited by the campaign's deposit recipe.
     /// @custom:field receiptToken The receipt token returned to the Weiroll Wallet upon executing the deposit recipe.
     /// @custom:field unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign.
     /// @custom:field depositRecipe The Weiroll Recipe executed on deposit (specified by the owner of the campaign).
-    /// @custom:field verified A flag indicating whether this campaign's input tokens, receipt token, and deposit recipe are verified.
     /// @custom:field ccdmNonceToWeirollWallet Mapping from a CCDM Nonce to its corresponding Weiroll Wallet.
     /// @custom:field weirollWalletToAccounting Mapping from a Weiroll Wallet to its corresponding depositor accounting data.
     struct DepositCampaign {
         address owner;
+        bool verified;
+        uint8 numInputTokens;
         ERC20[] inputTokens;
         ERC20 receiptToken;
         uint256 unlockTimestamp;
         Recipe depositRecipe;
-        bool verified;
         mapping(uint256 => address) ccdmNonceToWeirollWallet;
         mapping(address => WeirollWalletAccounting) weirollWalletToAccounting;
     }
@@ -81,8 +84,17 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice The wrapped native asset token on the destination chain.
     address public immutable WRAPPED_NATIVE_ASSET_TOKEN;
 
+    /// @notice The LayerZero endpoint ID for the source chain.
+    uint32 public immutable SOURCE_CHAIN_LZ_EID;
+
+    /// @notice The address of the Deposit Locker on the source chain.
+    address public immutable DEPOSIT_LOCKER;
+
     /// @notice The address of the verifier responsible for verifying campaign input tokens, receipt tokens, and deposit scripts before execution.
     address public campaignVerifier;
+
+    /// @dev Mapping from a LZ V2 OFT/OApp to a flag representing whether it is valid or not.
+    mapping(address => bool) public isValidLzV2OFT;
 
     /// @dev Mapping from a source market hash to its DepositCampaign struct.
     mapping(bytes32 => DepositCampaign) public sourceMarketHashToDepositCampaign;
@@ -123,11 +135,23 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     event CampaignVerifierSet(address campaignVerifier);
 
     /**
+     * @notice Emitted when an LZ V2 OFT is added as a valid invoker of the lzCompose function.
+     * @param lzV2OFT The LZ V2 OFT to flag as vaild.
+     */
+    event ValidLzOftSet(address lzV2OFT);
+
+    /**
+     * @notice Emitted when an LZ V2 OFT is removed as a valid invoker of the lzCompose function.
+     * @param lzV2OFT The LZ V2 OFT to flag as invaild.
+     */
+    event ValidLzOftRemoved(address lzV2OFT);
+
+    /**
      * @notice Emitted when a campaign's updates are verified.
      * @param sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param verificationStatus Boolean indicating whether the campaign verification was given or revoked.
      */
-    event CampaignVerificationStatusUpdated(bytes32 indexed sourceMarketHash, bool verificationStatus);
+    event CampaignVerificationStatusSet(bytes32 indexed sourceMarketHash, bool verificationStatus);
 
     /**
      * @notice Emitted when a new owner is set for a campaign.
@@ -175,14 +199,47 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice Error emitted when the caller is not the owner of the Weiroll wallet.
     error NotOwner();
 
-    /// @notice Error emitted when trying to set a campaign's unlock timestamp more than once.
-    error CampaignUnlockTimestampCanOnlyBeSetOnce();
+    /// @notice Error emitted when the verifier attempts to verify an outdated campaign.
+    error CampaignVerificationFailed();
+
+    /// @notice Error emitted when trying to set a campaign's unlock timestamp after it is immutable.
+    /// @dev The unlock timestamp is immutable after initialization or receiving the first batch of deposits for a campaign.
+    error UnlockTimestampIsImmutable();
+
+    /// @notice Error emitted when trying to set a campaign's receipt token after it is immutable.
+    /// @dev The receipt token is immutable after the first deposit recipe is executed for a campaign.
+    error ReceiptTokenIsImmutable();
+
+    /// @notice Error emitted when trying to initialize a campaign more than once.
+    error CampaignAlreadyInitialized();
+
+    /// @notice Error emitted when trying to set a campaign's receipt token to the null address.
+    error InvalidReceiptToken();
+
+    /// @notice Error emitted when trying to set a campaign's deposit recipe or receipt token before initializing it.
+    error CampaignIsUninitialized();
 
     /// @notice Error emitted when trying to set a campaign's unlock timestamp to more than the current timestamp plus the max allowed time.
     error ExceedsMaxLockupTime();
 
     /// @notice Error emitted when the caller of the lzCompose function isn't the LZ endpoint address for destination chain.
     error NotFromLzV2Endpoint();
+
+    /// @notice Error emitted when the invoker of the lzCompose function is not a valid LZ V2 OFT.
+    error NotFromValidLzV2OFT();
+
+    /// @notice Error emitted when the bridge was not initiated by the Deposit Locker on the source chain.
+    error NotFromDepositLockerOnSourceChain();
+
+    /// @notice Error emitted when trying to execute the deposit recipe when all input tokens have not been set.
+    /// @dev These are set by CCDM bridges in the lzCompose.
+    error CampaignTokensNotSet();
+
+    /// @notice Error emitted when trying to execute the deposit recipe for a wallet that doesn't belong to the caller's campaign.
+    error WeirollWalletNotFromCampaign(address weirollWallet);
+
+    /// @notice Error emitted when trying to execute the deposit recipe when an input token has not been received by the target wallet.
+    error InputTokenNotReceivedByThisWallet(ERC20 inputToken);
 
     /// @notice Error emitted when executing the deposit recipe doesn't return any receipt tokens to the Weiroll Wallet.
     error MustReturnReceiptTokensOnDeposit();
@@ -192,6 +249,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /// @notice Error emitted when trying to withdraw from a locked wallet.
     error CannotWithdrawBeforeUnlockTimestamp();
+
+    /// @notice Error emitted when trying to withdraw before a wallet has received all input tokens in the case when the deposit recipe hasn't executed.
+    error WaitingToReceiveAllTokens();
 
     /// @notice Error emitted when the caller of the composeMsg instructs the executor to deploy more funds into Weiroll Wallets than were bridged.
     error CannotAccountForMoreDepositsThanBridged();
@@ -228,15 +288,37 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _lzV2Endpoint The address of the LayerZero V2 Endpoint on the destination chain.
      * @param _campaignVerifier The address of the campaign verifier.
      * @param _wrapped_native_asset_token The address of the wrapped native asset token on the destination chain.
+     * @param _srcChainLzEid The LayerZero endpoint ID for the source chain.
+     * @param _depositLocker The address of the Deposit Locker on the source chain.
+     * @param _validLzV2OFTs An array of valid LZ V2 OFTs/OApps (Stargate, OFT Adapters, etc.) that can invoke the lzCompose function.
      */
-    constructor(address _owner, address _lzV2Endpoint, address _campaignVerifier, address _wrapped_native_asset_token) Ownable(_owner) {
+    constructor(
+        address _owner,
+        address _lzV2Endpoint,
+        address _campaignVerifier,
+        address _wrapped_native_asset_token,
+        uint32 _srcChainLzEid,
+        address _depositLocker,
+        address[] memory _validLzV2OFTs
+    )
+        Ownable(_owner)
+    {
         // Deploy the Weiroll Wallet implementation on the destination chain to use for cloning with immutable args
         WEIROLL_WALLET_IMPLEMENTATION = address(new WeirollWallet());
 
         // Initialize the DepositExecutor's state
         LAYER_ZERO_V2_ENDPOINT = _lzV2Endpoint;
-        campaignVerifier = _campaignVerifier;
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
+        SOURCE_CHAIN_LZ_EID = _srcChainLzEid;
+        DEPOSIT_LOCKER = _depositLocker;
+
+        campaignVerifier = _campaignVerifier;
+        emit CampaignVerifierSet(_campaignVerifier);
+
+        // Flag all valid LZ OFTs as such
+        for (uint256 i = 0; i < _validLzV2OFTs.length; ++i) {
+            _setValidLzOFT(_validLzV2OFTs[i]);
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -254,13 +336,20 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     function lzCompose(address _from, bytes32 _guid, bytes calldata _message, address, bytes calldata) external payable nonReentrant {
         // Ensure the caller is the LayerZero V2 Endpoint
         require(msg.sender == LAYER_ZERO_V2_ENDPOINT, NotFromLzV2Endpoint());
+        // Ensure the invoker is a valid LayerZero V2 OFT
+        require(isValidLzV2OFT[_from], NotFromValidLzV2OFT());
+        // Ensure that the deposits were bridged from the Deposit Locker on the source chain
+        require(
+            _message.srcEid() == SOURCE_CHAIN_LZ_EID && OFTComposeMsgCodec.bytes32ToAddress(_message.composeFrom()) == DEPOSIT_LOCKER,
+            NotFromDepositLockerOnSourceChain()
+        );
 
         // Extract the compose message from the _message
-        bytes memory composeMsg = OFTComposeMsgCodec.composeMsg(_message);
-        uint256 tokenAmountBridged = OFTComposeMsgCodec.amountLD(_message);
+        bytes memory composeMsg = _message.composeMsg();
+        uint256 tokenAmountBridged = _message.amountLD();
 
-        // Extract the source market's hash (first 32 bytes) and ccdmNonce (following 32 bytes).
-        (bytes32 sourceMarketHash, uint256 ccdmNonce) = composeMsg.readComposeMsgMetadata();
+        // Extract the source market's hash (first 32 bytes), ccdmNonce (following 32 bytes), and numTokensBridged (following 1 byte).
+        (bytes32 sourceMarketHash, uint256 ccdmNonce, uint8 numTokensBridged) = composeMsg.readComposeMsgMetadata();
 
         // Get the deposit token from the LZ V2 OApp that invoked the compose call
         ERC20 depositToken = ERC20(IOFT(_from).token());
@@ -272,6 +361,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         // Get the campaign corresponding to this source market hash
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[sourceMarketHash];
+
+        // Update the campaign's input token information if necessary
+        _updateCampaignInputTokens(sourceMarketHash, campaign, numTokensBridged, depositToken);
 
         // If there is no cached Weiroll Wallet for this CCDM Nonce in the market, create one
         address cachedWeirollWallet = campaign.ccdmNonceToWeirollWallet[ccdmNonce];
@@ -300,39 +392,42 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
         // Check that the campaign's deposit recipe has been verified
         require(campaign.verified, CampaignIsUnverified());
+        // Check that a valid number of input tokens have been set for this campaign
+        require(campaign.numInputTokens != 0 && (campaign.inputTokens.length == campaign.numInputTokens), CampaignTokensNotSet());
+
+        // Set once the first deposit recipe has been executed for this market
+        // After this is set, the receipt token cannot be modified
+        if (!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash]) {
+            sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash] = true;
+        }
 
         ERC20 receiptToken = campaign.receiptToken;
         Recipe memory depositRecipe = campaign.depositRecipe;
         // Execute deposit recipes for specified wallets
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallets[i]));
-            // Only execute deposit if the wallet belongs to this market and the recipe hasn't already been executed
-            if (weirollWallet.marketHash() == _sourceMarketHash && !weirollWallet.executed()) {
-                // Get this wallet's deposit accouting ledger
-                WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallets[i]];
+            // Only execute deposit recipe if the wallet belongs to this market and hasn't been executed already
+            require(weirollWallet.marketHash() == _sourceMarketHash && !weirollWallet.executed(), WeirollWalletNotFromCampaign(_weirollWallets[i]));
 
-                // Transfer input tokens from the executor into the Weiroll Wallet for use in the deposit recipe.
-                _transferInputTokensToWeirollWallet(campaign.inputTokens, walletAccounting, _weirollWallets[i]);
+            // Get this wallet's deposit accouting ledger
+            WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallets[i]];
 
-                // Get initial receipt token balance of the Weiroll Wallet to ensure that the post-deposit balance is greater.
-                uint256 initialReceiptTokenBalance = receiptToken.balanceOf(_weirollWallets[i]);
+            // Transfer input tokens from the executor into the Weiroll Wallet for use in the deposit recipe execution.
+            _transferInputTokensToWeirollWallet(campaign.inputTokens, walletAccounting, _weirollWallets[i]);
 
-                // Execute the deposit recipe on the Weiroll wallet
-                weirollWallet.executeWeiroll(depositRecipe.weirollCommands, depositRecipe.weirollState);
+            // Get initial receipt token balance of the Weiroll Wallet to ensure that the post-deposit balance is greater.
+            uint256 initialReceiptTokenBalance = receiptToken.balanceOf(_weirollWallets[i]);
 
-                // Check that receipt tokens were received on deposit
-                require(receiptToken.balanceOf(_weirollWallets[i]) - initialReceiptTokenBalance > 0, MustReturnReceiptTokensOnDeposit());
+            // Execute the deposit recipe on the Weiroll wallet
+            weirollWallet.executeWeiroll(depositRecipe.weirollCommands, depositRecipe.weirollState);
 
-                // Check that the executor has the proper allowance for the Weiroll Wallet's receipt tokens
-                require(receiptToken.allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
+            // Check that receipt tokens were received on deposit
+            require(receiptToken.balanceOf(_weirollWallets[i]) - initialReceiptTokenBalance > 0, MustReturnReceiptTokensOnDeposit());
 
-                // Set once the first deposit recipe has been executed for this market
-                // After this is set, campaign input tokens and the receipt token cannot be modified
-                if (!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash]) {
-                    sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash] = true;
-                }
-            }
+            // Check that the executor has the proper allowance for the Weiroll Wallet's receipt tokens
+            require(receiptToken.allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
         }
+
         emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
     }
 
@@ -365,11 +460,17 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             // Remit the receipt tokens to the depositor
             receiptToken.safeTransferFrom(_weirollWallet, msg.sender, receiptTokensOwed);
         } else {
+            // Check that a valid number of input tokens have been set for this campaign
+            require(campaign.numInputTokens != 0 && (campaign.inputTokens.length == campaign.numInputTokens), CampaignTokensNotSet());
+
             // If deposit recipe hasn't been executed, return the depositor's share of the input tokens
             for (uint256 i = 0; i < campaign.inputTokens.length; ++i) {
                 // Get the amount of this input token deposited by the depositor
                 ERC20 inputToken = campaign.inputTokens[i];
                 uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+
+                // Make sure that the depositor can withdraw all campaign's input tokens atomically to avoid race conditions with recipe execution
+                require(amountDeposited > 0, WaitingToReceiveAllTokens());
 
                 // Update the accounting to reflect the withdrawal
                 delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
@@ -461,7 +562,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             WEIROLL_WALLET_IMPLEMENTATION.clone(
                 abi.encodePacked(
                     address(0), // Wallet owner will be zero address so that no single party can siphon depositor funds after lock timestamp has passed.
-                    address(this), // DepositExecutor will be the entrypoint for recipe execution (in addition to the owner after the unlock timestamp).
+                    address(this), // DepositExecutor will be the entrypoint for recipe execution.
                     uint256(0), // Amount will always be 0 since a Weiroll Wallet may hold multiple tokens.
                     _unlockTimestamp, // The ABSOLUTE unlock timestamp for wallets created for this campaign.
                     false, // Weiroll Wallet is non-forfeitable since the deposits have reached the destination chain.
@@ -532,10 +633,54 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
             // Get total amount of this token deposited into the Weiroll Wallet
             uint256 amountOfTokenDepositedIntoWallet = _walletAccounting.tokenToTotalAmountDeposited[inputToken];
+            // Check that this input token was received through a CCDM bridge for this wallet.
+            require(amountOfTokenDepositedIntoWallet > 0, InputTokenNotReceivedByThisWallet(inputToken));
 
             // Transfer amount of the input token into the Weiroll Wallet
             inputToken.safeTransfer(_weirollWallet, amountOfTokenDepositedIntoWallet);
         }
+    }
+
+    /**
+     * @dev Updates the list of input tokens associated with a deposit campaign.
+     *       - On the first call (when `_campaign.numInputTokens` is zero), sets the total expected number of input tokens (`_numTokensBridged`).
+     *       - Adds the `_inputToken` to the campaign's `inputTokens` array if it hasn't been added yet and if the total number hasn't been reached.
+     *       - If the `_inputToken` is already present, the function exits without making changes.
+     * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
+     * @param _campaign The deposit campaign to be updated.
+     * @param _numTokensBridged The total number of input tokens expected for the campaign.
+     * @param _inputToken The input token to add to the campaign's list.
+     */
+    function _updateCampaignInputTokens(bytes32 _sourceMarketHash, DepositCampaign storage _campaign, uint8 _numTokensBridged, ERC20 _inputToken) internal {
+        // If this is the first CCDM bridge for this campaign, set the numInputTokens to the number of tokens to be bridged
+        if (_campaign.numInputTokens == 0) {
+            _campaign.numInputTokens = _numTokensBridged;
+        }
+
+        // If all campaign input tokens haven't been added to the campaign
+        if (_campaign.inputTokens.length != _numTokensBridged) {
+            // Check that this is not a duplicate input token
+            for (uint256 i = 0; i < _campaign.inputTokens.length; ++i) {
+                if (_campaign.inputTokens[i] == _inputToken) {
+                    return;
+                }
+            }
+            // Add this token to the input tokens for this campaign
+            _campaign.inputTokens.push(_inputToken);
+            emit CampaignInputTokensSet(_sourceMarketHash, _campaign.inputTokens);
+        }
+    }
+
+    /**
+     * @notice Flags the LayerZero V2 OFT as a valid invoker of the lzCompose function.
+     * @param _lzV2OFT LayerZero V2 OFT to flag as valid.
+     */
+    function _setValidLzOFT(address _lzV2OFT) internal {
+        // Sanity check to make sure that _lzV2OFT implements IOFT.
+        IOFT(_lzV2OFT).token();
+        // Mark the OFT contract as valid
+        isValidLzV2OFT[_lzV2OFT] = true;
+        emit ValidLzOftSet(_lzV2OFT);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -544,6 +689,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Sets the campaign verifier address.
+     * @dev Only callable by the contract owner.
      * @param _campaignVerifier The address of the campaign verifier.
      */
     function setCampaignVerifier(address _campaignVerifier) external onlyOwner {
@@ -552,7 +698,27 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /**
+     * @notice Flags the LayerZero V2 OFT as a valid invoker of the lzCompose function.
+     * @dev Only callable by the contract owner.
+     * @param _lzV2OFT LayerZero V2 OFT to flag as valid.
+     */
+    function setValidLzOFT(address _lzV2OFT) external onlyOwner {
+        _setValidLzOFT(_lzV2OFT);
+    }
+
+    /**
+     * @notice Flags the LayerZero V2 OFT as an invalid invoker of the lzCompose function.
+     * @dev Only callable by the contract owner.
+     * @param _lzV2OFT LayerZero V2 OFT to flag as invalid.
+     */
+    function removeValidLzOFT(address _lzV2OFT) external onlyOwner {
+        delete isValidLzV2OFT[_lzV2OFT];
+        emit ValidLzOftRemoved(_lzV2OFT);
+    }
+
+    /**
      * @notice Sets a new owner for the specified campaign.
+     * @dev Only callable by the contract owner or the current owner of the campaign.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _owner The address of the campaign owner.
      */
@@ -564,77 +730,129 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /**
      * @notice Verifies any updates to a campaign's input tokens, receipt token, and deposit recipe.
      * @notice Deposit Recipe can now be executed.
+     * @dev Only callable by the campaign verifier for initialized campaigns.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _scriptVerificationHash The hash of the campaign parameters to verify - prevents token/script setting frontrunning attacks by the campaign owner.
      */
     function verifyCampaign(bytes32 _sourceMarketHash, bytes32 _scriptVerificationHash) external onlyCampaignVerifier {
-        if (_scriptVerificationHash == getCampaignVerificationHash(_sourceMarketHash)) {
-            sourceMarketHashToDepositCampaign[_sourceMarketHash].verified = true;
-            emit CampaignVerificationStatusUpdated(_sourceMarketHash, true);
-        }
+        // Get the deposit campaign corresponding to this source market hash
+        DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
+
+        // Check that the campaign has been initialized
+        require(address(campaign.receiptToken) != address(0), CampaignIsUninitialized());
+        // Check that the campaign params have not been modified since the verifier reviewed them
+        require(_scriptVerificationHash == getCampaignVerificationHash(_sourceMarketHash), CampaignVerificationFailed());
+
+        campaign.verified = true;
+        emit CampaignVerificationStatusSet(_sourceMarketHash, true);
     }
 
     /**
      * @notice Sets the campaign verification status to false.
      * @notice Deposit Recipe cannot be executed and withdrawals are blocked until verified.
+     * @dev Only callable by the campaign verifier.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      */
     function unverifyCampaign(bytes32 _sourceMarketHash) external onlyCampaignVerifier {
         delete sourceMarketHashToDepositCampaign[_sourceMarketHash].verified;
-        emit CampaignVerificationStatusUpdated(_sourceMarketHash, false);
+        emit CampaignVerificationStatusSet(_sourceMarketHash, false);
     }
 
     /**
-     * @notice Sets the unlock timestamp for a Deposit Campaign.
-     * @notice The unlock timestamp can only be set once per campaign and must be less than the global relative limit.
+     * @notice Initializes a Deposit Campaign
+     * @notice A campaign must be initialized before the other campaign setters can be called.
+     * @notice The unlock timestamp can only be set once per campaign before the first batch of deposits is received by the Deposit Executor.
+     * @notice The unlock timestamp must be less than the relative global max lock time.
+     * @notice Once the first deposit recipe for a campaign has been executed, the receipt token is immutable.
+     * @notice The receipt token MUST be returned to the Weiroll Wallet upon executing the deposit recipe.
+     * @notice Executing the deposit recipe returns receipt tokens and gives the DepositExecutor max approval on the receipt tokens held by the Weiroll Wallet.
+     * @dev Only callable by the campaign owner once.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign.
+     * @param _receiptToken The receipt token to set for this deposit campaign.
+     * @param _depositRecipe The deposit recipe for this campaign on the destination chain.
      */
-    function setCampaignUnlockTimestamp(bytes32 _sourceMarketHash, uint256 _unlockTimestamp) external onlyCampaignOwner(_sourceMarketHash) {
-        require(sourceMarketHashToDepositCampaign[_sourceMarketHash].unlockTimestamp == 0, CampaignUnlockTimestampCanOnlyBeSetOnce());
+    function initializeCampaign(
+        bytes32 _sourceMarketHash,
+        uint256 _unlockTimestamp,
+        ERC20 _receiptToken,
+        Recipe calldata _depositRecipe
+    )
+        external
+        onlyCampaignOwner(_sourceMarketHash)
+    {
+        // Get the deposit campaign corresponding to this source market hash
+        DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
+
+        // Check that the campaign is uninitialized
+        require(address(campaign.receiptToken) == address(0), CampaignAlreadyInitialized());
+        // Check that receipt token isn't the null address
+        require(address(_receiptToken) != address(0), InvalidReceiptToken());
+        // Unlock timestamp is immutable after deposits have been received for this campaign
+        // However, you can still initialize the other params as long as you don't enforce a lock time
+        require(campaign.numInputTokens == 0 || _unlockTimestamp == 0, UnlockTimestampIsImmutable());
+        // Check that the unlock timestamp is within the limit.
         require(_unlockTimestamp <= block.timestamp + MAX_CAMPAIGN_LOCKUP_TIME, ExceedsMaxLockupTime());
 
-        sourceMarketHashToDepositCampaign[_sourceMarketHash].unlockTimestamp = _unlockTimestamp;
+        // Set the campaign's unlock timestamp
+        campaign.unlockTimestamp = _unlockTimestamp;
         emit CampaignUnlockTimestampSet(_sourceMarketHash, _unlockTimestamp);
+
+        // Set the campaign's receipt token
+        campaign.receiptToken = _receiptToken;
+        emit CampaignReceiptTokenSet(_sourceMarketHash, _receiptToken);
+
+        // Set the campaign's deposit recipe and mark the campaign as unverified
+        campaign.depositRecipe = _depositRecipe;
+        delete campaign.verified;
+        emit CampaignDepositRecipeSet(_sourceMarketHash);
     }
 
     /**
-     * @notice Sets the input tokens of a Deposit Campaign.
-     * @dev Once the first deposit recipe for a campaign has been executed, the input tokens are immutable.
-     * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
-     * @param _inputTokens The input tokens to set for this deposit campaign.
-     */
-    function setCampaignInputTokens(bytes32 _sourceMarketHash, ERC20[] calldata _inputTokens) external onlyCampaignOwner(_sourceMarketHash) {
-        if (!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash]) {
-            sourceMarketHashToDepositCampaign[_sourceMarketHash].inputTokens = _inputTokens;
-            emit CampaignInputTokensSet(_sourceMarketHash, _inputTokens);
-        }
-    }
-
-    /**
-     * @notice Sets the receipt token of a Deposit Campaign.
-     * @dev Once the first deposit recipe for a campaign has been executed, the receipt token is immutable.
-     * @dev The receipt token MUST be returned to the Weiroll Wallet upon executing the deposit recipe.
+     * @notice Sets the receipt token of a Deposit Campaign after it has been initialized.
+     * @notice Once the first deposit recipe for a campaign has been executed, the receipt token is immutable.
+     * @notice The receipt token MUST be returned to the Weiroll Wallet upon executing the deposit recipe.
+     * @dev Only callable by the campaign owner once the campaign has been initialized.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _receiptToken The receipt token to set for this deposit campaign.
      */
     function setCampaignReceiptToken(bytes32 _sourceMarketHash, ERC20 _receiptToken) external onlyCampaignOwner(_sourceMarketHash) {
-        if (!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash]) {
-            sourceMarketHashToDepositCampaign[_sourceMarketHash].receiptToken = _receiptToken;
-            emit CampaignReceiptTokenSet(_sourceMarketHash, _receiptToken);
-        }
+        // Get the deposit campaign corresponding to this source market hash
+        DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
+
+        // Check that the campaign has been initialized
+        require(address(campaign.receiptToken) != address(0), CampaignIsUninitialized());
+        // Receipt token can't be null address
+        require(address(_receiptToken) != address(0), InvalidReceiptToken());
+        // Ensure that the first deposit recipe has not been executed
+        require(!sourceMarketHashToFirstDepositRecipeExecuted[_sourceMarketHash], ReceiptTokenIsImmutable());
+
+        // Set the campaign's receipt token and mark the campaign as unverified
+        campaign.receiptToken = _receiptToken;
+        delete campaign.verified;
+
+        emit CampaignReceiptTokenSet(_sourceMarketHash, _receiptToken);
     }
 
     /**
-     * @notice Sets the deposit recipe of a Deposit Campaign.
-     * @dev Automatically unverifies a campaign. Must be reverified in order to execute the deposit recipe or process withdrawals.
-     * @dev The deposit recipe MUST give the DepositExecutor max approval on the campaign's receipt token for the Weiroll Wallet.
+     * @notice Sets the deposit recipe of a Deposit Campaign after it has been initialized.
+     * @notice Automatically unverifies a campaign. Must be reverified in order to execute the deposit recipe or process withdrawals.
+     * @notice Executing the deposit recipe MUST return receipt tokens and give the DepositExecutor max approval on the receipt token for the Weiroll Wallet.
+     * @dev Only callable by the campaign owner.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _depositRecipe The deposit recipe for the campaign on the destination chain.
      */
     function setCampaignDepositRecipe(bytes32 _sourceMarketHash, Recipe calldata _depositRecipe) external onlyCampaignOwner(_sourceMarketHash) {
-        sourceMarketHashToDepositCampaign[_sourceMarketHash].depositRecipe = _depositRecipe;
-        delete sourceMarketHashToDepositCampaign[_sourceMarketHash].verified;
+        // Get the deposit campaign corresponding to this source market hash
+        DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
+
+        // Check that the campaign has been initialized
+        require(address(campaign.receiptToken) != address(0), CampaignIsUninitialized());
+
+        // Set the campaign's deposit recipe and mark the campaign as unverified
+        campaign.depositRecipe = _depositRecipe;
+        delete campaign.verified;
+
         emit CampaignDepositRecipeSet(_sourceMarketHash);
     }
 }

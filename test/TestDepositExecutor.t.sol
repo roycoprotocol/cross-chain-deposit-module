@@ -9,10 +9,12 @@ import { IOFT } from "src/interfaces/IOFT.sol";
 import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
 import { Vm } from "lib/forge-std/src/Vm.sol";
 import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
+import { console2 } from "lib/forge-std/src/console2.sol";
 
 // Test deploying deposits via weiroll recipes post bridge
 contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
     using FixedPointMathLib for uint256;
+    using OFTComposeMsgCodec for bytes;
 
     address IP_ADDRESS;
     address AP_ADDRESS;
@@ -28,6 +30,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         bytes32 marketHash;
         address[] depositors;
         uint256[] depositAmounts;
+        address depositLocker;
         bytes encodedPayload;
         bytes32 guid;
         uint256 actualNumberOfDepositors;
@@ -65,29 +68,23 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         unlockTimestamp = bound(unlockTimestamp, block.timestamp + 1 hours, block.timestamp + 7 days);
 
-        weirollImplementation = new WeirollWallet();
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0));
+        address[] memory validLzOFTs = new address[](1);
+        validLzOFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS;
+
+        DepositExecutor depositExecutor =
+            new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0), 30_101, bridgeResult.depositLocker, validLzOFTs);
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
         vm.stopPrank();
 
-        vm.startPrank(IP_ADDRESS);
-        depositExecutor.setCampaignUnlockTimestamp(bridgeResult.marketHash, unlockTimestamp);
-
-        ERC20[] memory depositTokens = new ERC20[](1);
-        depositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
-
-        depositExecutor.setCampaignInputTokens(bridgeResult.marketHash, depositTokens);
-
-        depositExecutor.setCampaignReceiptToken(bridgeResult.marketHash, ERC20(aUSDC_POLYGON));
-
         DepositExecutor.Recipe memory DEPOSIT_RECIPE =
             _buildAaveSupplyRecipe(address(walletHelper), USDC_POLYGON_ADDRESS, AAVE_POOL_V3_POLYGON, aUSDC_POLYGON, address(depositExecutor));
 
-        depositExecutor.setCampaignDepositRecipe(bridgeResult.marketHash, DEPOSIT_RECIPE);
+        vm.startPrank(IP_ADDRESS);
+        depositExecutor.initializeCampaign(bridgeResult.marketHash, unlockTimestamp, ERC20(aUSDC_POLYGON), DEPOSIT_RECIPE);
         vm.stopPrank();
 
         vm.startPrank(CAMPAIGN_VERIFIER_ADDRESS);
@@ -102,7 +99,12 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         depositExecutor.lzCompose(
             STARGATE_USDC_POOL_POLYGON_ADDRESS,
             bridgeResult.guid,
-            OFTComposeMsgCodec.encode(uint64(0), uint32(0), offerAmount, abi.encodePacked(bytes32(0), getSlice(188, bridgeResult.encodedPayload))),
+            OFTComposeMsgCodec.encode(
+                uint64(0),
+                uint32(30_101),
+                offerAmount,
+                abi.encodePacked(bytes32(uint256(uint160(bridgeResult.depositLocker))), getSlice(188, bridgeResult.encodedPayload))
+            ),
             address(0),
             bytes(abi.encode(0))
         );
@@ -110,7 +112,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         // Check that all weiroll wallets were created and executed as expected
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        WeirollWallet weirollWalletCreatedForBridge = WeirollWallet(payable(abi.decode(logs[0].data, (address))));
+        WeirollWallet weirollWalletCreatedForBridge = WeirollWallet(payable(abi.decode(logs[1].data, (address))));
 
         // Check wallet state is correct
         assertEq(weirollWalletCreatedForBridge.owner(), address(0));
@@ -173,21 +175,23 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         weirollImplementation = new WeirollWallet();
 
-        DepositExecutor depositExecutor = new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0));
+        address[] memory validLzOFTs = new address[](1);
+        validLzOFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS;
+
+        DepositExecutor depositExecutor =
+            new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0), 30_101, bridgeResult.depositLocker, validLzOFTs);
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
         vm.stopPrank();
 
-        vm.startPrank(IP_ADDRESS);
-        depositExecutor.setCampaignUnlockTimestamp(bridgeResult.marketHash, unlockTimestamp);
-        vm.stopPrank();
+        WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        ERC20[] memory depositTokens = new ERC20[](1);
-        depositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
+        DepositExecutor.Recipe memory DEPOSIT_RECIPE =
+            _buildAaveSupplyRecipe(address(walletHelper), USDC_POLYGON_ADDRESS, AAVE_POOL_V3_POLYGON, aUSDC_POLYGON, address(depositExecutor));
 
         vm.startPrank(IP_ADDRESS);
-        depositExecutor.setCampaignInputTokens(bridgeResult.marketHash, depositTokens);
+        depositExecutor.initializeCampaign(bridgeResult.marketHash, unlockTimestamp, ERC20(aUSDC_POLYGON), DEPOSIT_RECIPE);
         vm.stopPrank();
 
         vm.startPrank(CAMPAIGN_VERIFIER_ADDRESS);
@@ -202,7 +206,12 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         depositExecutor.lzCompose(
             STARGATE_USDC_POOL_POLYGON_ADDRESS,
             bridgeResult.guid,
-            OFTComposeMsgCodec.encode(uint64(0), uint32(0), offerAmount, abi.encodePacked(bytes32(0), getSlice(188, bridgeResult.encodedPayload))),
+            OFTComposeMsgCodec.encode(
+                uint64(0),
+                uint32(30_101),
+                offerAmount,
+                abi.encodePacked(bytes32(uint256(uint160(bridgeResult.depositLocker))), getSlice(188, bridgeResult.encodedPayload))
+            ),
             address(0),
             bytes(abi.encode(0))
         );
@@ -210,7 +219,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         // Check that all weiroll wallets were created and executed as expected
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        WeirollWallet weirollWalletCreatedForBridge = WeirollWallet(payable(abi.decode(logs[0].data, (address))));
+        WeirollWallet weirollWalletCreatedForBridge = WeirollWallet(payable(abi.decode(logs[1].data, (address))));
 
         // Check wallet state is correct
         assertEq(weirollWalletCreatedForBridge.owner(), address(0));
@@ -281,9 +290,10 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
             recipeMarketHub,
             IWETH(WETH_MAINNET_ADDRESS),
             UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            depositTokens,
             lzV2OFTs
         );
+
+        result.depositLocker = address(depositLocker);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
         result.actualNumberOfDepositors = numDepositors;
@@ -321,7 +331,8 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
             recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
 
-            result.depositAmounts[i] = depositLocker.marketHashToDepositorToAmountDeposited(result.marketHash, ap);
+            (uint256 totalAmountDeposited,) = depositLocker.marketHashToDepositorToDepositorInfo(result.marketHash, ap);
+            result.depositAmounts[i] = totalAmountDeposited;
         }
 
         vm.startPrank(GREEN_LIGHTER_ADDRESS);

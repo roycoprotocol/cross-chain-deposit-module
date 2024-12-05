@@ -26,13 +26,19 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The limit for how many depositors can be bridged in a single transaction
-    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 100;
+    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 300;
 
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
     uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
 
-    // Code hash of the Uniswap V2 Pair contract.
-    bytes32 public constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;
+    /// @notice The code hash of the Uniswap V2 Pair contract.
+    bytes32 internal constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;
+
+    /// @notice The number of tokens bridged for a single token CCDM bridge transaction
+    uint8 internal constant NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE = 1;
+
+    /// @notice The number of tokens bridged for an LP token CCDM bridge transaction
+    uint8 internal constant NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE = 2;
 
     /*//////////////////////////////////////////////////////////////
                                 Structures
@@ -58,7 +64,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Struct to hold parameters for processing LP token depositors.
     struct LpTokenDepositorParams {
-        bytes32 marketHash;
         uint256 numDepositorsIncluded;
         address depositor;
         uint256 lpToken_DepositAmount;
@@ -67,6 +72,18 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 token1_TotalAmountReceivedOnBurn;
         uint256 token0_DecimalConversionRate;
         uint256 token1_DecimalConversionRate;
+    }
+
+    /// @notice Struct to hold the info about a depositor.
+    struct DepositorInfo {
+        uint256 totalAmountDeposited; // Total amount deposited by this depositor for this market.
+        uint256 latestCcdmNonce; // Most recent CCDM nonce of the bridge txn that this depositor was included in for this market.
+    }
+
+    /// @notice Struct to hold the info about a Weiroll Wallet.
+    struct WeirollWalletInfo {
+        uint256 amountDeposited; // The amount deposited by this specific Weiroll Wallet.
+        uint256 ccdmNonceOnDeposit; // The global CCDM nonce when this Weiroll Wallet deposited into the Deposit Locker.
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -82,18 +99,18 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The Uniswap V2 router on the source chain.
     IUniswapV2Router01 public immutable UNISWAP_V2_ROUTER;
 
-    /// @notice The party that green lights bridging
-    address public GREEN_LIGHTER;
+    /// @notice The party that green lights bridging on a per market basis
+    address public greenLighter;
 
     /// @notice The LayerZero endpoint ID for the destination chain.
     uint32 public dstChainLzEid;
 
+    /// @notice The address of the DepositExecutor on the destination chain.
+    address public depositExecutor;
+
     /// @notice Mapping of an ERC20 token to its corresponding LayerZero OFT.
     /// @dev NOTE: Must implement the IOFT interface.
     mapping(ERC20 => IOFT) public tokenToLzV2OFT;
-
-    /// @notice Address of the DepositExecutor on the destination chain.
-    address public depositExecutor;
 
     /// @notice Mapping from market hash to the time the green light will turn on for bridging.
     mapping(bytes32 => uint256) public marketHashToBridgingAllowedTimestamp;
@@ -101,14 +118,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Mapping from market hash to the owner of the LP market.
     mapping(bytes32 => address) public marketHashToLpMarketOwner;
 
-    /// @notice Mapping from market hash to depositor's address to the total amount they deposited.
-    mapping(bytes32 => mapping(address => uint256)) public marketHashToDepositorToAmountDeposited;
+    /// @notice Mapping from market hash to depositor's address to the DepositorInfo struct.
+    mapping(bytes32 => mapping(address => DepositorInfo)) public marketHashToDepositorToDepositorInfo;
 
-    /// @notice Mapping from market hash to depositor's address to their Weiroll Wallets.
-    mapping(bytes32 => mapping(address => address[])) public marketHashToDepositorToWeirollWallets;
-
-    /// @notice Mapping from depositor's address to Weiroll Wallet to amount deposited by that Weiroll Wallet.
-    mapping(address => mapping(address => uint256)) public depositorToWeirollWalletToAmount;
+    /// @notice Mapping from depositor's address to Weiroll Wallet to the WeirollWalletInfo struct.
+    mapping(address => mapping(address => WeirollWalletInfo)) public depositorToWeirollWalletToWeirollWalletInfo;
 
     /// @notice Used to keep track of CCDM bridge transactions.
     /// @notice A CCDM bridge transaction that results in multiple OFTs being bridged (LP bridge) will have the same nonce.
@@ -176,36 +190,42 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     );
 
     /**
-     * @notice Emitted when the destination chain LayerZero endpoint ID is updated.
+     * @notice Emitted when the destination chain LayerZero endpoint ID is set.
      * @param dstChainLzEid The new LayerZero endpoint ID for the destination chain.
      */
-    event DestinationChainEidUpdated(uint32 dstChainLzEid);
+    event DestinationChainLzEidSet(uint32 dstChainLzEid);
 
     /**
-     * @notice Emitted when the DepositExecutor address is updated.
-     * @param depositExecutor The new address of the DepositExecutor on the destination chain.
+     * @notice Emitted when the Deposit Executor address is set.
+     * @param depositExecutor The new address of the Deposit Executor on the destination chain.
      */
-    event DepositExecutorUpdated(address depositExecutor);
+    event DepositExecutorSet(address depositExecutor);
 
     /**
-     * @notice Emitted when the LP token market owner is updated.
-     * @param marketHash The hash of the market for which the LP token owner was updated.
+     * @notice Emitted when the LP token market owner is set.
+     * @param marketHash The hash of the market for which the LP token owner was set.
      * @param lpMarketOwner The address of the LP token market owner.
      */
-    event LpMarketOwnerUpdated(bytes32 indexed marketHash, address lpMarketOwner);
+    event LpMarketOwnerSet(bytes32 indexed marketHash, address lpMarketOwner);
 
     /**
-     * @notice Emitted when the LayerZero V2 OFT for a token is updated.
-     * @param token The address of the token.
+     * @notice Emitted when the LayerZero V2 OFT for a token is set.
+     * @param token The address of the underlying token.
      * @param lzV2OFT The LayerZero V2 OFT contract address for the token.
      */
-    event LzV2OFTForTokenUpdated(address indexed token, address lzV2OFT);
+    event LzV2OFTForTokenSet(address indexed token, address lzV2OFT);
 
     /**
-     * @notice Emitted when the green lighter address is updated.
+     * @notice Emitted when the LayerZero V2 OFT for a token is removed.
+     * @param token The address of the underlying token.
+     */
+    event LzV2OFTForTokenRemoved(address indexed token);
+
+    /**
+     * @notice Emitted when the green lighter address is set.
      * @param greenLighter The new address of the green lighter.
      */
-    event GreenLighterUpdated(address greenLighter);
+    event GreenLighterSet(address greenLighter);
 
     /**
      * @notice Emitted when the green light is turned on for a market.
@@ -220,14 +240,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     event GreenLightTurnedOff(bytes32 indexed marketHash);
 
-    /// @notice Error emitted when setting a lzV2OFT for a token that doesn't match the OApp's underlying token
-    error InvalidLzV2OFTForToken();
+    /// @notice Error emitted when trying to deposit into the locker for a Royco market that is either not created or has an undeployed input token.
+    error RoycoMarketNotInitialized();
 
     /// @notice Error emitted when calling withdraw with nothing deposited
     error NothingToWithdraw();
-
-    /// @notice Error emitted when array lengths mismatch.
-    error ArrayLengthMismatch();
 
     /// @notice Error emitted when green light is not given for bridging.
     error GreenLightNotGiven();
@@ -241,7 +258,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when trying to bridge funds to an uninitialized deposit executor.
     error DepositExecutorNotSet();
 
-    /// @notice Error emitted when the caller is not the global GREEN_LIGHTER.
+    /// @notice Error emitted when the caller is not the global greenLighter.
     error OnlyGreenLighter();
 
     /// @notice Error emitted when the caller is not the LP token market's owner.
@@ -268,7 +285,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @dev Modifier to ensure the caller is the authorized multisig for the market.
     modifier onlyGreenLighter() {
-        require(msg.sender == GREEN_LIGHTER, OnlyGreenLighter());
+        require(msg.sender == greenLighter, OnlyGreenLighter());
         _;
     }
 
@@ -301,8 +318,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _recipeMarketHub The address of the recipe market hub used to create markets on the source chain.
      * @param _wrapped_native_asset_token The address of the wrapped native asset token on the source chain.
      * @param _uniswap_v2_router The address of the Uniswap V2 router on the source chain.
-     * @param _depositTokens The tokens to bridge to the destination chain from the source chain.
-     * @param _lzV2OFTs The corresponding LayerZero OApp instances for each deposit token on the source chain.
+     * @param _lzV2OFTs The LayerZero V2 OFT instances for each acceptable deposit token on the source chain.
      */
     constructor(
         address _owner,
@@ -312,25 +328,28 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         RecipeMarketHubBase _recipeMarketHub,
         IWETH _wrapped_native_asset_token,
         IUniswapV2Router01 _uniswap_v2_router,
-        ERC20[] memory _depositTokens,
         IOFT[] memory _lzV2OFTs
     )
         Ownable(_owner)
     {
-        // Check that each token that will be bridged has a corresponding LZOApp instance
-        require(_depositTokens.length == _lzV2OFTs.length, ArrayLengthMismatch());
-
         // Initialize the contract state
-        for (uint256 i = 0; i < _depositTokens.length; ++i) {
-            _setLzV2OFTForToken(_depositTokens[i], _lzV2OFTs[i]);
-        }
-
         RECIPE_MARKET_HUB = _recipeMarketHub;
         WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
         UNISWAP_V2_ROUTER = _uniswap_v2_router;
-        GREEN_LIGHTER = _greenLighter;
+        ccdmNonce = 1; // The first CCDM bridge transaction will have a nonce of 1
+
+        for (uint256 i = 0; i < _lzV2OFTs.length; ++i) {
+            _setLzV2OFTForToken(_lzV2OFTs[i]);
+        }
+
+        greenLighter = _greenLighter;
+        emit GreenLighterSet(_greenLighter);
+
         dstChainLzEid = _dstChainLzEid;
+        emit DestinationChainLzEidSet(_dstChainLzEid);
+
         depositExecutor = _depositExecutor;
+        emit DepositExecutorSet(_depositExecutor);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -357,13 +376,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
         }
 
+        // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
+        if (address(marketInputToken).code.length == 0) revert RoycoMarketNotInitialized();
+
         // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
 
         // Account for deposit
-        marketHashToDepositorToAmountDeposited[targetMarketHash][depositor] += amountDeposited;
-        marketHashToDepositorToWeirollWallets[targetMarketHash][depositor].push(msg.sender);
-        depositorToWeirollWalletToAmount[depositor][msg.sender] = amountDeposited;
+        marketHashToDepositorToDepositorInfo[targetMarketHash][depositor].totalAmountDeposited += amountDeposited;
+        WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
+        walletInfo.ccdmNonceOnDeposit = ccdmNonce;
+        walletInfo.amountDeposited = amountDeposited;
 
         // Emit deposit event
         emit UserDeposited(targetMarketHash, depositor, amountDeposited);
@@ -378,12 +401,18 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         bytes32 targetMarketHash = wallet.marketHash();
         address depositor = wallet.owner();
 
+        // Get the necessary depositor and Weiroll Wallet info to process the withdrawal
+        DepositorInfo storage depositorInfo = marketHashToDepositorToDepositorInfo[targetMarketHash][depositor];
+        WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
+
         // Get amount to withdraw for this Weiroll Wallet
-        uint256 amountToWithdraw = depositorToWeirollWalletToAmount[depositor][msg.sender];
-        require(amountToWithdraw > 0, NothingToWithdraw());
+        uint256 amountToWithdraw = walletInfo.amountDeposited;
+        // Ensure that this Weiroll Wallet's deposit hasn't been bridged and this Weiroll Wallet hasn't withdrawn.
+        require(walletInfo.ccdmNonceOnDeposit > depositorInfo.latestCcdmNonce && amountToWithdraw > 0, NothingToWithdraw());
+
         // Account for the withdrawal
-        marketHashToDepositorToAmountDeposited[targetMarketHash][depositor] -= amountToWithdraw;
-        delete depositorToWeirollWalletToAmount[depositor][msg.sender];
+        depositorInfo.totalAmountDeposited -= amountToWithdraw;
+        delete walletInfo.amountDeposited;
 
         // Transfer back the amount deposited directly to the AP
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
@@ -413,8 +442,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     {
         require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
 
+        // The CCDM nonce for this CCDM bridge transaction
+        uint256 nonce = ccdmNonce;
         // Initialize compose message - first 33 bytes are BRIDGE_TYPE and market hash
-        bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, ccdmNonce);
+        bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE);
 
         // Array to store the actual depositors bridged
         address[] memory depositorsBridged = new address[](_depositors.length);
@@ -425,7 +456,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         for (uint256 i = 0; i < _depositors.length; ++i) {
             // Process depositor and update the compose message
-            uint256 depositAmount = _processSingleTokenDepositor(_marketHash, numDepositorsIncluded, _depositors[i], composeMsg);
+            uint256 depositAmount = _processSingleTokenDepositor(_marketHash, numDepositorsIncluded, _depositors[i], nonce, composeMsg);
             if (depositAmount == 0) {
                 // If this depositor was omitted, continue.
                 continue;
@@ -486,12 +517,21 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     {
         require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
 
+        // The CCDM nonce for this CCDM bridge transaction
+        uint256 nonce = ccdmNonce;
+
+        // Initialize compose messages for both tokens
         // Get deposit amount for each depositor and total deposit amount for this batch
         uint256 lp_TotalDepositsInBatch = 0;
         uint256[] memory lp_DepositAmounts = new uint256[](_depositors.length);
         for (uint256 i = 0; i < _depositors.length; ++i) {
-            lp_DepositAmounts[i] = marketHashToDepositorToAmountDeposited[_marketHash][_depositors[i]];
+            DepositorInfo storage depositorInfo = marketHashToDepositorToDepositorInfo[_marketHash][_depositors[i]];
+            lp_DepositAmounts[i] = depositorInfo.totalAmountDeposited;
             lp_TotalDepositsInBatch += lp_DepositAmounts[i];
+            // Set the total amount deposited by this depositor (AP) for this market to zero
+            delete depositorInfo.totalAmountDeposited;
+            // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
+            depositorInfo.latestCcdmNonce = nonce;
         }
 
         // Get the market's input token
@@ -514,10 +554,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 token0_DecimalConversionRate = 10 ** (token0.decimals() - tokenToLzV2OFT[token0].sharedDecimals());
         uint256 token1_DecimalConversionRate = 10 ** (token1.decimals() - tokenToLzV2OFT[token1].sharedDecimals());
 
-        // Initialize compose messages for both tokens
-        uint256 nonce = ccdmNonce;
-        bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
-        bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce);
+        bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE);
+        bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE);
 
         // Array to store the actual depositors bridged
         address[] memory depositorsBridged = new address[](_depositors.length);
@@ -527,7 +565,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Create params struct
         LpTokenDepositorParams memory params;
-        params.marketHash = _marketHash;
         params.lp_TotalAmountToBridge = lp_TotalDepositsInBatch;
         params.token0_TotalAmountReceivedOnBurn = token0_AmountReceivedOnBurn;
         params.token1_TotalAmountReceivedOnBurn = token1_AmountReceivedOnBurn;
@@ -579,36 +616,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     receive() external payable { }
 
-    /**
-     * @notice Returns the total amount deposited by a depositor in a specific market.
-     * @param _marketHash The unique hash identifier of the market.
-     * @param _depositor The address of the depositor.
-     * @return amountDeposited The total amount deposited by the depositor in the specified market.
-     */
-    function getAmountDepositedByDepositor(bytes32 _marketHash, address _depositor) external view returns (uint256 amountDeposited) {
-        amountDeposited = marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
-    }
-
-    /**
-     * @notice Returns the list of Weiroll Wallets associated with a depositor in a specific market.
-     * @param _marketHash The unique hash identifier of the market.
-     * @param _depositor The address of the depositor.
-     * @return weirollWallets An array of Weiroll Wallet addresses associated with the depositor in the specified market.
-     */
-    function getWeirollWalletsForDepositor(bytes32 _marketHash, address _depositor) external view returns (address[] memory weirollWallets) {
-        weirollWallets = marketHashToDepositorToWeirollWallets[_marketHash][_depositor];
-    }
-
-    /**
-     * @notice Returns the amount deposited by a depositor's Weiroll Wallet.
-     * @param _depositor The address of the depositor.
-     * @param _weirollWallet The address of the Weiroll Wallet.
-     * @return amountDeposited The amount deposited by the specified Weiroll Wallet.
-     */
-    function getWeirollWalletAmountForDepositor(address _depositor, address _weirollWallet) external view returns (uint256 amountDeposited) {
-        amountDeposited = depositorToWeirollWalletToAmount[_depositor][_weirollWallet];
-    }
-
     /*//////////////////////////////////////////////////////////////
                             Internal Functions
     //////////////////////////////////////////////////////////////*/
@@ -619,25 +626,31 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _marketHash The hash of the market to process.
      * @param _depositorIndex The index of the depositor in the batch of depositors.
      * @param _depositor The address of the depositor.
+     * @param _ccdmNonce The CCDM nonce for this bridge transaction.
      * @param _composeMsg The current compose message to be updated.
      */
     function _processSingleTokenDepositor(
         bytes32 _marketHash,
         uint256 _depositorIndex,
         address _depositor,
+        uint256 _ccdmNonce,
         bytes memory _composeMsg
     )
         internal
         returns (uint256 depositAmount)
     {
         // Get amount deposited by the depositor (AP)
-        depositAmount = marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
+        depositAmount = marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
+
         if (depositAmount == 0 || depositAmount > type(uint96).max) {
             return 0; // Skip if no deposit or deposit amount exceeds limit
         }
 
-        // Delete all Weiroll Wallet state and deposit amounts associated with this depositor
-        _clearDepositorData(_marketHash, _depositor);
+        // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
+        marketHashToDepositorToDepositorInfo[_marketHash][_depositor].latestCcdmNonce = _ccdmNonce;
+
+        // Set the total amount deposited by this depositor (AP) for this market to zero
+        delete marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
 
         // Add depositor to the compose message
         _composeMsg.writeDepositor(_depositorIndex, _depositor, uint96(depositAmount));
@@ -670,9 +683,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Calculate the depositor's share of each underlying token
         uint256 token0_DepositAmount = (params.token0_TotalAmountReceivedOnBurn * params.lpToken_DepositAmount) / params.lp_TotalAmountToBridge;
         uint256 token1_DepositAmount = (params.token1_TotalAmountReceivedOnBurn * params.lpToken_DepositAmount) / params.lp_TotalAmountToBridge;
-
-        // Delete all Weiroll Wallet state and deposit amounts associated with this depositor
-        _clearDepositorData(params.marketHash, params.depositor);
 
         if (token0_DepositAmount > type(uint96).max || token1_DepositAmount > type(uint96).max) {
             // If can't bridge this depositor, refund their redeemed tokens + fees accrued from LPing
@@ -842,38 +852,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Deletes all deposit and Weiroll Wallet specific accounting associated with this depositor for the specified market.
-     * @param _marketHash The market hash to clear the depositor data for.
-     * @param _depositor The depositor to clear the depositor data for.
-     */
-    function _clearDepositorData(bytes32 _marketHash, address _depositor) internal {
-        // Mark all currently deposited Weiroll Wallets from this depositor as bridged
-        address[] storage depositorWeirollWallets = marketHashToDepositorToWeirollWallets[_marketHash][_depositor];
-        for (uint256 i = 0; i < depositorWeirollWallets.length; ++i) {
-            // Set the amount deposited by the Weiroll Wallet to zero
-            delete depositorToWeirollWalletToAmount[_depositor][
-                depositorWeirollWallets[i]
-            ];
-        }
-        // Set length of currently deposited wallets list to zero
-        delete marketHashToDepositorToWeirollWallets[_marketHash][_depositor];
-        // Set the total deposit amount from this depositor (AP) to zero
-        delete marketHashToDepositorToAmountDeposited[_marketHash][_depositor];
-    }
-
-    /**
-     * @notice Sets the LayerZero V2 OFT for a given token.
+     * @notice Sets the LayerZero V2 OFT for its underlying token.
      * @dev NOTE: _lzV2OFT must implement IOFT.
-     * @param _token Token to set the LayerZero Omnichain App for.
-     * @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
+     * @param _lzV2OFT LayerZero OFT to use to bridge the underlying token.
      */
-    function _setLzV2OFTForToken(ERC20 _token, IOFT _lzV2OFT) internal {
+    function _setLzV2OFTForToken(IOFT _lzV2OFT) internal {
+        address underlyingTokenAddress = _lzV2OFT.token();
         // Get the underlying token for this OFT
-        address underlyingToken = _lzV2OFT.token();
-        // Check that the underlying token is the specified token or the chain's native asset
-        require(underlyingToken == address(_token) || underlyingToken == address(0), InvalidLzV2OFTForToken());
-        tokenToLzV2OFT[_token] = _lzV2OFT;
-        emit LzV2OFTForTokenUpdated(address(_token), address(_lzV2OFT));
+        ERC20 underlyingToken = underlyingTokenAddress == address(0) ? ERC20(address(WRAPPED_NATIVE_ASSET_TOKEN)) : ERC20(underlyingTokenAddress);
+        // Set the LZ V2 OFT for the underlying token
+        tokenToLzV2OFT[underlyingToken] = _lzV2OFT;
+        emit LzV2OFTForTokenSet(address(underlyingToken), address(_lzV2OFT));
     }
 
     /**
@@ -905,12 +894,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /**
      * @notice Sets the LayerZero endpoint ID for the destination chain.
      * @dev Only callable by the contract owner.
-     * Emits a {DestinationChainEidUpdated} event.
      * @param _dstChainLzEid LayerZero endpoint ID for the destination chain.
      */
     function setDestinationChainEid(uint32 _dstChainLzEid) external onlyOwner {
         dstChainLzEid = _dstChainLzEid;
-        emit DestinationChainEidUpdated(_dstChainLzEid);
+        emit DestinationChainLzEidSet(_dstChainLzEid);
     }
 
     /**
@@ -920,7 +908,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     function setDepositExecutor(address _depositExecutor) external onlyOwner {
         depositExecutor = _depositExecutor;
-        emit DepositExecutorUpdated(_depositExecutor);
+        emit DepositExecutorSet(_depositExecutor);
     }
 
     /**
@@ -931,18 +919,28 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     function setLpMarketOwner(bytes32 _marketHash, address _lpMarketOwner) external onlyOwner {
         marketHashToLpMarketOwner[_marketHash] = _lpMarketOwner;
-        emit LpMarketOwnerUpdated(_marketHash, _lpMarketOwner);
+        emit LpMarketOwnerSet(_marketHash, _lpMarketOwner);
     }
 
     /**
-     * @notice Sets the LayerZero V2 OFT for a given token.
+     * @notice Sets the LayerZero V2 OFT for the underlying token.
      * @notice _lzV2OFT must implement IOFT.
      * @dev Only callable by the contract owner.
-     * @param _token Token to set the LayerZero Omnichain App for.
      * @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
      */
-    function setLzV2OFTForToken(ERC20 _token, IOFT _lzV2OFT) external onlyOwner {
-        _setLzV2OFTForToken(_token, _lzV2OFT);
+    function setLzOFT(IOFT _lzV2OFT) external onlyOwner {
+        _setLzV2OFTForToken(_lzV2OFT);
+    }
+
+    /**
+     * @notice Removes the LayerZero V2 OFT for the underlying token.
+     * @dev Only callable by the contract owner.
+     * @param _underlyingToken The underlying token of the LZ V2 OFT to remove.
+     */
+    function removeLzOFT(ERC20 _underlyingToken) external onlyOwner {
+        // Remove the LZ V2 OFT for the underlying token
+        delete tokenToLzV2OFT[_underlyingToken];
+        emit LzV2OFTForTokenRemoved(address(_underlyingToken));
     }
 
     /**
@@ -951,8 +949,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _greenLighter The address of the green lighter responsible for marking deposits as bridgeable for specific markets.
      */
     function setGreenLighter(address _greenLighter) external onlyOwner {
-        GREEN_LIGHTER = _greenLighter;
-        emit GreenLighterUpdated(_greenLighter);
+        greenLighter = _greenLighter;
+        emit GreenLighterSet(_greenLighter);
     }
 
     /**
