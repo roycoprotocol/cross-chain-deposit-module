@@ -4,7 +4,7 @@ The **Cross-Chain Deposit Module (CCDM)** is a sophisticated system built on **[
 
 CCDM consists of two core components: the **Deposit Locker** on the source chain and the **Deposit Executor** on the destination chain. All incentive negotiation and liquidity provision is powered by **Royco Recipe IAMs** that live on the source chain. Visit the following documentation for a comprehensive explanation of how each CCDM component operates:
 
-* **[CCDM Enabled Recipe](https://docs.royco.org/ccdm/ccdm-overview/ccdm-recipe-iams)** IAMs - *Source Chain*
+* **[CCDM Enabled Recipe IAMs](https://docs.royco.org/ccdm/ccdm-overview/ccdm-recipe-iams)** - *Source Chain*
 * **[Deposit Locker](https://docs.royco.org/ccdm/ccdm-overview/deposit-locker)** - *Source Chain*
 * **[Deposit Executor](https://docs.royco.org/ccdm/ccdm-overview/deposit-executor)** - *Destination Chain*
 
