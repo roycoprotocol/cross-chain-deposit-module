@@ -1,8 +1,8 @@
 # Cross-Chain Deposit Module (CCDM) [![Tests](https://github.com/roycoprotocol/cross-chain-deposit-module/actions/workflows/test.yml/badge.svg)](https://github.com/roycoprotocol/cross-chain-deposit-module/actions/workflows/test.yml)
 
-The **Cross-Chain Deposit Module (CCDM)** is a sophisticated system built on **[Royco](https://github.com/roycoprotocol/royco)** designed to facilitate cross-chain deposit campaigns. IPs can incentivize APs to commit liquidity on a source chain towards agreed-upon actions (supplying, LPing, swapping, etc.) on a destination chain. **Royco** provides efficient price discovery for protocols trying to acquire liquidity for a desired timeframe. CCDM handles safely transporting this liquidity to the intended protocol in a cost-effective manner. A single CCDM instance can facilitate cross-chain deposit campaigns from a single source chain to a single destination chain.
+The **Cross-Chain Deposit Module (CCDM)** is a sophisticated system built on **[Royco](https://github.com/roycoprotocol/royco)**, designed to facilitate cross-chain deposit campaigns. IPs can incentivize APs to commit liquidity on a source chain towards agreed-upon actions (supplying, LPing, swapping, etc.) on a destination chain. **Royco** provides efficient price discovery for protocols trying to acquire liquidity for a desired timeframe. CCDM handles safely transporting this liquidity to the intended protocol in a cost-effective manner. A single **CCDM** instance can facilitate cross-chain deposit campaigns from a single source chain to a single destination chain.
 
-CCDM consists of two core components: the **Deposit Locker** on the source chain and the **Deposit Executor** on the destination chain. All incentive negotiation and liquidity provision is powered by **Royco Recipe IAMs** that live on the source chain. Visit the following sections for a comprehensive explanation of how each CCDM component operates:
+CCDM consists of two core components: the **Deposit Locker** on the source chain and the **Deposit Executor** on the destination chain. All incentive negotiation and liquidity provision is powered by **Royco Recipe IAMs** that live on the source chain. Visit the following documentation for a comprehensive explanation of how each CCDM component operates:
 
 * **[CCDM Enabled Recipe](https://docs.royco.org/ccdm/ccdm-overview/ccdm-recipe-iams)** IAMs - *Source Chain*
 * **[Deposit Locker](https://docs.royco.org/ccdm/ccdm-overview/deposit-locker)** - *Source Chain*
@@ -16,9 +16,9 @@ CCDM consists of two core components: the **Deposit Locker** on the source chain
    - Atomic Weiroll Wallet creation and execution of deposit recipes upon an offer being filled.
    - Allows APs to execute withdrawal recipes to reclaim their funds.
 
-1. **[WeirollWallet](https://github.com/roycoprotocol/royco/blob/main/src/WeirollWallet.sol)**: Smart contract wallets (owned by depositors) used to execute recipes
+1. **[WeirollWallet](https://github.com/roycoprotocol/royco/blob/main/src/WeirollWallet.sol)**: Smart contract wallets (owned by depositors) used to execute [Weiroll Scripts/Recipes](https://github.com/weiroll/weiroll)
    - Used on the source chain to deposit funds for liquidity provision on the destination chain and to withdraw funds (rage quit) from the ```DepositLocker``` prior to bridge.
-   - Used on the destination chain to hold multiple depositors' positions from the same market, execute the destination campaign's deposit recipes, and hold the receipt tokens for withdrawal after an unlock timestamp.
+   - Used on the destination chain to hold multiple depositors' positions from the same market, execute the destination campaign's deposit recipes, and hold the receipt tokens for depositors to withdraw after an unlock timestamp.
 
 2. **[DepositLocker](https://github.com/roycoprotocol/cross-chain-deposit-module/blob/main/src/core/DepositLocker.sol)**: Deployed on the source chain
    - Integrates with Royco's RecipeMarketHub to facilitate deposits and withdrawals.
