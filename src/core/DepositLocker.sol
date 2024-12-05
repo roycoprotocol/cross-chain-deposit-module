@@ -852,9 +852,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Sets the LayerZero V2 OFT for a given token.
+     * @notice Sets the LayerZero V2 OFT for its underlying token.
      * @dev NOTE: _lzV2OFT must implement IOFT.
-     * @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
+     * @param _lzV2OFT LayerZero OFT to use to bridge the underlying token.
      */
     function _setLzV2OFTForToken(IOFT _lzV2OFT) internal {
         address underlyingTokenAddress = _lzV2OFT.token();

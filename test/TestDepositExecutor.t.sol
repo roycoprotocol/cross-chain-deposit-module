@@ -68,7 +68,6 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         unlockTimestamp = bound(unlockTimestamp, block.timestamp + 1 hours, block.timestamp + 7 days);
 
-        weirollImplementation = new WeirollWallet();
         WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
         address[] memory validLzOFTs = new address[](1);
@@ -81,15 +80,11 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
         vm.stopPrank();
 
-        vm.startPrank(IP_ADDRESS);
-        depositExecutor.setCampaignUnlockTimestamp(bridgeResult.marketHash, unlockTimestamp);
-
-        depositExecutor.setCampaignReceiptToken(bridgeResult.marketHash, ERC20(aUSDC_POLYGON));
-
         DepositExecutor.Recipe memory DEPOSIT_RECIPE =
             _buildAaveSupplyRecipe(address(walletHelper), USDC_POLYGON_ADDRESS, AAVE_POOL_V3_POLYGON, aUSDC_POLYGON, address(depositExecutor));
 
-        depositExecutor.setCampaignDepositRecipe(bridgeResult.marketHash, DEPOSIT_RECIPE);
+        vm.startPrank(IP_ADDRESS);
+        depositExecutor.initializeCampaign(bridgeResult.marketHash, unlockTimestamp, ERC20(aUSDC_POLYGON), DEPOSIT_RECIPE);
         vm.stopPrank();
 
         vm.startPrank(CAMPAIGN_VERIFIER_ADDRESS);
@@ -190,12 +185,14 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
         vm.stopPrank();
 
-        vm.startPrank(IP_ADDRESS);
-        depositExecutor.setCampaignUnlockTimestamp(bridgeResult.marketHash, unlockTimestamp);
-        vm.stopPrank();
+        WeirollWalletHelper walletHelper = new WeirollWalletHelper();
 
-        ERC20[] memory depositTokens = new ERC20[](1);
-        depositTokens[0] = ERC20(USDC_POLYGON_ADDRESS); // USDC on Polygon Mainnet
+        DepositExecutor.Recipe memory DEPOSIT_RECIPE =
+            _buildAaveSupplyRecipe(address(walletHelper), USDC_POLYGON_ADDRESS, AAVE_POOL_V3_POLYGON, aUSDC_POLYGON, address(depositExecutor));
+
+        vm.startPrank(IP_ADDRESS);
+        depositExecutor.initializeCampaign(bridgeResult.marketHash, unlockTimestamp, ERC20(aUSDC_POLYGON), DEPOSIT_RECIPE);
+        vm.stopPrank();
 
         vm.startPrank(CAMPAIGN_VERIFIER_ADDRESS);
         depositExecutor.verifyCampaign(bridgeResult.marketHash, depositExecutor.getCampaignVerificationHash(bridgeResult.marketHash));
