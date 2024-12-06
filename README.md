@@ -45,7 +45,7 @@ CCDM consists of two core components: the **Deposit Locker** on the source chain
 ## CCDM Flow
 1. IP creates a Royco Recipe Market on the source chain.
    - The market's deposit recipe will approve the ```DepositLocker``` to spend the amount of tokens deposited (fill amount) and then call the ```deposit()``` functions on the ```DepositLocker```.
-   -  The market's withdrawal recipe will call ```withdraw()``` on the ```DepositLocker```.
+   - The market's withdrawal recipe will call ```withdraw()``` on the ```DepositLocker```.
 2. IP initializes their Deposit Campaign corresponding to their Royco Recipe market on the destination chain by setting the following parameters:
    - Unlock Timestamp
       - The ABSOLUTE timestamp that all deposits in your campaign will be locked until.
@@ -67,4 +67,4 @@ CCDM consists of two core components: the **Deposit Locker** on the source chain
    - The ```DepositExecutor``` holds the deposits until the owner executes the deposit recipe for the Weiroll Wallet.
 8. The destination deposit recipe is executed (if verified) by the campaign's owner for the Weiroll Wallets associated with their campaign on the destination chain.
 9. Steps 6,7, and 8 are repeated until all depositors have been bridged and deposited into the protocol/DApp on the destination chain.
-10. Users can withdraw funds through the ```DepositExecutor``` after the campaign's unlock timestamp has passed.
+10. Depositors can withdraw funds through the ```DepositExecutor``` after the campaign's unlock timestamp has passed.
