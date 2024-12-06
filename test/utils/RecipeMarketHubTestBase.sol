@@ -373,7 +373,7 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         pure
         returns (DepositExecutor.Recipe memory)
     {
-        bytes32[] memory commands = new bytes32[](5);
+        bytes32[] memory commands = new bytes32[](6);
         bytes[] memory state = new bytes[](7);
 
         state[0] = abi.encode(_tokenAddress);
@@ -456,6 +456,21 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
 
         // Encode args and add command to DepositExecutor.Recipe
         commands[4] = (bytes32(abi.encodePacked(ERC20.approve.selector, f, inputData, o, _receiptToken)));
+
+        // Max approve deposit executor to spend the input tokens
+
+        // CALL
+        f = uint8(0x01);
+
+        // Input list: address of deposit executor, amount to approve
+        inputData = hex"0403ffffffff";
+
+        // Output specifier (fixed length return value stored at index 0 of the output array)
+        // 0xff ignores the output if any
+        o = 0xff;
+
+        // Encode args and add command to DepositExecutor.Recipe
+        commands[5] = (bytes32(abi.encodePacked(ERC20.approve.selector, f, inputData, o, _tokenAddress)));
 
         return DepositExecutor.Recipe(commands, state);
     }
