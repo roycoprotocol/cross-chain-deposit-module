@@ -11,12 +11,12 @@ CCDM consists of two core components: the **Deposit Locker** on the source chain
 
 ### Technical Components
 
-1. **[RecipeMarketHub](https://github.com/roycoprotocol/royco/blob/main/src/RecipeMarketHub.sol)**: A hub for all recipe market interactions between APs and IPs on Royco
+1. **[RecipeMarketHub](https://github.com/roycoprotocol/royco/blob/main/src/RecipeMarketHub.sol)**: A hub for all recipe market interactions between APs and IPs on Royco. Deployed on the source chain.
    - Permissionless market creation and offer creation, negotiation, and filling
    - Atomic Weiroll Wallet creation and execution of deposit recipes upon an offer being filled.
    - Allows APs to execute withdrawal recipes to reclaim their funds.
 
-1. **[WeirollWallet](https://github.com/roycoprotocol/royco/blob/main/src/WeirollWallet.sol)**: Smart contract wallets (owned by depositors) used to execute [Weiroll Scripts/Recipes](https://github.com/weiroll/weiroll)
+1. **[WeirollWallet](https://github.com/roycoprotocol/royco/blob/main/src/WeirollWallet.sol)**: Smart contract wallets used to execute [Weiroll Scripts/Recipes](https://github.com/weiroll/weiroll)
    - Used on the source chain to deposit funds for liquidity provision on the destination chain and to withdraw funds (rage quit) from the ```DepositLocker``` prior to bridge.
    - Used on the destination chain to hold multiple depositors' positions from the same market, execute the destination campaign's deposit recipes, and hold the receipt tokens for depositors to withdraw after an unlock timestamp.
 
