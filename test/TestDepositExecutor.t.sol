@@ -82,8 +82,17 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         address[] memory validLzOFTs = new address[](1);
         validLzOFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS;
 
-        DepositExecutor depositExecutor =
-            new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0), 30_101, bridgeResult.depositLocker, validLzOFTs);
+        DepositExecutor depositExecutor = new DepositExecutor(
+            OWNER_ADDRESS,
+            POLYGON_LZ_ENDPOINT,
+            CAMPAIGN_VERIFIER_ADDRESS,
+            address(0),
+            30_101,
+            bridgeResult.depositLocker,
+            validLzOFTs,
+            new bytes32[](0),
+            new address[](0)
+        );
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
@@ -198,8 +207,17 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         address[] memory validLzOFTs = new address[](1);
         validLzOFTs[0] = STARGATE_USDC_POOL_POLYGON_ADDRESS;
 
-        DepositExecutor depositExecutor =
-            new DepositExecutor(OWNER_ADDRESS, POLYGON_LZ_ENDPOINT, CAMPAIGN_VERIFIER_ADDRESS, address(0), 30_101, bridgeResult.depositLocker, validLzOFTs);
+        DepositExecutor depositExecutor = new DepositExecutor(
+            OWNER_ADDRESS,
+            POLYGON_LZ_ENDPOINT,
+            CAMPAIGN_VERIFIER_ADDRESS,
+            address(0),
+            30_101,
+            bridgeResult.depositLocker,
+            validLzOFTs,
+            new bytes32[](0),
+            new address[](0)
+        );
 
         vm.startPrank(OWNER_ADDRESS);
         depositExecutor.setNewCampaignOwner(bridgeResult.marketHash, IP_ADDRESS);
