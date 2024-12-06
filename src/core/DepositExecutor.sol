@@ -235,8 +235,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @dev These are set by CCDM bridges in the lzCompose.
     error CampaignTokensNotSet();
 
-    /// @notice Error emitted when trying to execute the deposit recipe for a wallet that doesn't belong to the caller's campaign.
-    error WeirollWalletNotFromCampaign(address weirollWallet);
+    /// @notice Error emitted when trying to execute the deposit recipe for a wallet that doesn't belong to the caller's campaign or has already been executed.
+    error InvalidWeirollWallet(address weirollWallet);
 
     /// @notice Error emitted when trying to execute the deposit recipe when an input token has not been received by the target wallet.
     error InputTokenNotReceivedByThisWallet(ERC20 inputToken);
@@ -406,8 +406,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Execute deposit recipes for specified wallets
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallets[i]));
+
             // Only execute deposit recipe if the wallet belongs to this market and hasn't been executed already
-            require(weirollWallet.marketHash() == _sourceMarketHash && !weirollWallet.executed(), WeirollWalletNotFromCampaign(_weirollWallets[i]));
+            require(weirollWallet.marketHash() == _sourceMarketHash && !weirollWallet.executed(), InvalidWeirollWallet(_weirollWallets[i]));
 
             // Get this wallet's deposit accouting ledger
             WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallets[i]];
