@@ -55,8 +55,17 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
      * @param numDepositors The number of depositors participating.
      * @param unlockTimestamp The timestamp when deposits can be unlocked.
      */
-    function test_ExecutorOnBridge_WithDepositRecipeExecution(uint256 offerAmount, uint256 numDepositors, uint256 unlockTimestamp) external {
+    function test_ExecutorOnBridge_WithDepositRecipeExecution(
+        uint256 offerAmount,
+        uint256 numDepositors,
+        uint256 unlockTimestamp,
+        uint256 dustAmount
+    )
+        external
+    {
         offerAmount = bound(offerAmount, 10e6, 1_000_000e6);
+        dustAmount = bound(dustAmount, 0, 1_000_000e6);
+
         // Simulate bridge
         BridgeDepositsResult memory bridgeResult = _bridgeDeposits(offerAmount, numDepositors);
 
@@ -136,6 +145,9 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(weirollWalletCreatedForBridge)), 0);
 
+        // Simulate a dust amount left in the wallet
+        deal(USDC_POLYGON_ADDRESS, address(weirollWalletCreatedForBridge), dustAmount);
+
         uint256 initialReceiptTokenBalance = ERC20(aUSDC_POLYGON).balanceOf(address(weirollWalletCreatedForBridge));
 
         vm.warp(unlockTimestamp);
@@ -150,8 +162,10 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
             // Assert that depositor got their receipt tokens and any interest.
             assertGe(ERC20(aUSDC_POLYGON).balanceOf(bridgeResult.depositors[i]), ((initialReceiptTokenBalance * bridgeResult.depositAmounts[i]) / offerAmount));
+            assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(bridgeResult.depositors[i]), ((dustAmount * bridgeResult.depositAmounts[i]) / offerAmount));
         }
         assertEq(ERC20(aUSDC_POLYGON).balanceOf(address(weirollWalletCreatedForBridge)), 0);
+        assertEq(ERC20(USDC_POLYGON_ADDRESS).balanceOf(address(weirollWalletCreatedForBridge)), 0);
     }
 
     /**

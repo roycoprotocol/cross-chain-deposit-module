@@ -424,8 +424,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             // Check that receipt tokens were received on deposit
             require(receiptToken.balanceOf(_weirollWallets[i]) - initialReceiptTokenBalance > 0, MustReturnReceiptTokensOnDeposit());
 
-            // Check that the executor has the proper allowance for the Weiroll Wallet's receipt tokens
+            // Check that the executor has the proper allowance for the Weiroll Wallet's input and receipt tokens
             require(receiptToken.allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
+            for (uint256 j = 0; j < campaign.inputTokens.length; ++j) {
+                require(campaign.inputTokens[j].allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
+            }
         }
 
         emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
@@ -444,21 +447,36 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallet];
 
         if (weirollWallet.executed()) {
-            // If deposit recipe has been executed, return the depositor's share of the receipt tokens
+            // If deposit recipe has been executed, return the depositor's share of the receipt tokens and their share of
             ERC20 receiptToken = campaign.receiptToken;
 
-            // Calculate the receipt tokens owed to the depositor
-            ERC20 firstInputToken = campaign.inputTokens[0];
-            uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
-            uint256 totalAmountDeposited = walletAccounting.tokenToTotalAmountDeposited[firstInputToken];
-            uint256 receiptTokensOwed = (receiptToken.balanceOf(_weirollWallet) * amountDeposited) / totalAmountDeposited;
+            for (uint256 i = 0; i < campaign.inputTokens.length; ++i) {
+                // Get the amount of this input token deposited by the depositor and the total deposit amount
+                ERC20 inputToken = campaign.inputTokens[i];
+                uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+                uint256 totalAmountDeposited = walletAccounting.tokenToTotalAmountDeposited[inputToken];
 
-            // Update the accounting to reflect the withdrawal
-            delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][firstInputToken];
-            walletAccounting.tokenToTotalAmountDeposited[firstInputToken] -= amountDeposited;
+                // Update the accounting to reflect the withdrawal
+                delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+                walletAccounting.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
 
-            // Remit the receipt tokens to the depositor
-            receiptToken.safeTransferFrom(_weirollWallet, msg.sender, receiptTokensOwed);
+                if (i == 0) {
+                    // Calculate the receipt tokens owed to the depositor
+                    uint256 receiptTokensOwed = (receiptToken.balanceOf(_weirollWallet) * amountDeposited) / totalAmountDeposited;
+                    // Remit the receipt tokens to the depositor
+                    receiptToken.safeTransferFrom(_weirollWallet, msg.sender, receiptTokensOwed);
+                }
+
+                // Don't allow for double withdrawals if receipt and input token are equivalent
+                if (address(receiptToken) != address(inputToken)) {
+                    // Calculate the dust tokens owed to the depositor
+                    uint256 dustTokensOwed = (inputToken.balanceOf(_weirollWallet) * amountDeposited) / totalAmountDeposited;
+                    if (dustTokensOwed > 0) {
+                        // Remit the dust tokens to the depositor
+                        inputToken.safeTransferFrom(_weirollWallet, msg.sender, dustTokensOwed);
+                    }
+                }
+            }
         } else {
             // Check that a valid number of input tokens have been set for this campaign
             require(campaign.numInputTokens != 0 && (campaign.inputTokens.length == campaign.numInputTokens), CampaignTokensNotSet());
