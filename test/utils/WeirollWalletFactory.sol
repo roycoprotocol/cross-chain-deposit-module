@@ -23,6 +23,7 @@ contract WeirollWalletFactory {
 
     /// @notice Creates a new WeirollWallet clone with the specified parameters.
     /// @dev This function encodes and passes immutable arguments to the Weiroll Wallet clone.
+    /// @dev The `owner` arg is hard-coded to the null address so no single party can siphon depositor funds after lock timestamp has passed.
     /// @dev The `amount` arg is hard-coded to zero because CCDM Weiroll Wallets created on the destination might hold multiple tokens.
     /// @dev The `forfeitable` arg is hard-coded to false because CCDM Weiroll Wallets created on the destination aren't forfeitable.
     /// @dev The `marketHash` arg is hard-coded to bytes(0) because this value isn't intended for use in recipe execution.
@@ -33,7 +34,7 @@ contract WeirollWalletFactory {
         weirollWallet = payable(
             WEIROLL_WALLET_IMPLEMENTATION.clone(
                 abi.encodePacked(
-                    address(0), // Wallet owner will be zero address so no single party can siphon depositor funds after lock timestamp has passed.
+                    address(0), // Hardcoded owner; always address(0).
                     _depositExecutor, // Entrypoint for recipe execution (mock CCDM Deposit Executor).
                     uint256(0), // Hardcoded amount; always 0.
                     _unlockTimestamp, // Absolute timestamp at which deposit are unlocked for withdrawals.
