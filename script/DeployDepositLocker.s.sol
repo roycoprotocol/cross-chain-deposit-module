@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 // Usage: source .env && forge script ./script/DeployDepositLocker.s.sol --rpc-url=$SEPOLIA_RPC_URL --broadcast --etherscan-api-key=$ETHERSCAN_API_KEY --verify
+// Verification
 
 import "forge-std/Script.sol";
 
@@ -19,9 +20,11 @@ RecipeMarketHubBase constant RECIPE_MARKET_HUB = RecipeMarketHubBase(0x783251f10
 IWETH constant WRAPPED_NATIVE_ASSET = IWETH(0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9);
 IUniswapV2Router01 constant UNISWAP_V2_ROUTER = IUniswapV2Router01(0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3);
 
+// Deployment salts
 string constant DEPOSIT_LOCKER_SALT = "CCDM_DEPOSIT_LOCKER_ab5c961a833d7d9e9314af142c08055bf24de74a";
 
-address constant EXPECTED_DEPOSIT_LOCKER_ADDRESS = address(0);
+// Expected deployment addresses after simulating deployment
+address constant EXPECTED_DEPOSIT_LOCKER_ADDRESS = 0xf78042232a148FC0de0cD8f64a152cB922d3E803;
 
 contract DeployDepositLocker is Script {
     error Create2DeployerNotDeployed();
@@ -95,11 +98,23 @@ contract DeployDepositLocker is Script {
         console2.log("Deploying with address: ", deployerAddress);
         console2.log("Deployer Balance: ", address(deployerAddress).balance);
 
-        IOFT[3] memory LZ_V2_OFTs = [
-            IOFT(0x9Cc7e185162Aa5D1425ee924D97a87A0a34A0706),
-            IOFT(0x4985b8fcEA3659FD801a5b857dA1D00e985863F0),
-            IOFT(0x9D819CcAE96d41d8F775bD1259311041248fF980)
-        ];
+        IOFT[] memory LZ_V2_OFTs = new IOFT[](3);
+        LZ_V2_OFTs[0] = IOFT(0x9Cc7e185162Aa5D1425ee924D97a87A0a34A0706);
+        LZ_V2_OFTs[1] = IOFT(0x4985b8fcEA3659FD801a5b857dA1D00e985863F0);
+        LZ_V2_OFTs[2] = IOFT(0x9D819CcAE96d41d8F775bD1259311041248fF980);
+
+        bytes memory constructorParams = abi.encode(
+            DEPOSIT_LOCKER_OWNER,
+            DESTINATION_CHAIN_LZ_EID,
+            DEPOSIT_EXECUTOR,
+            GREEN_LIGHTER,
+            RECIPE_MARKET_HUB,
+            WRAPPED_NATIVE_ASSET,
+            UNISWAP_V2_ROUTER,
+            LZ_V2_OFTs
+        );
+
+        console2.logBytes(constructorParams);
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -108,19 +123,7 @@ contract DeployDepositLocker is Script {
 
         // Deploy PointsFactory
         console2.log("Deploying DepositLocker");
-        bytes memory depositLockerCreationCode = abi.encodePacked(
-            vm.getCode("DepositLocker"),
-            abi.encode(
-                DEPOSIT_LOCKER_OWNER,
-                DESTINATION_CHAIN_LZ_EID,
-                DEPOSIT_EXECUTOR,
-                GREEN_LIGHTER,
-                RECIPE_MARKET_HUB,
-                WRAPPED_NATIVE_ASSET,
-                UNISWAP_V2_ROUTER,
-                LZ_V2_OFTs
-            )
-        );
+        bytes memory depositLockerCreationCode = abi.encodePacked(vm.getCode("DepositLocker"), constructorParams);
         DepositLocker depositLocker = DepositLocker(payable(_deployWithSanityChecks(DEPOSIT_LOCKER_SALT, depositLockerCreationCode)));
 
         console2.log("Verifying DepositLocker deployment");
