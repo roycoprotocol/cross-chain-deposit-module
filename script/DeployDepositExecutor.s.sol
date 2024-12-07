@@ -1,38 +1,36 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-// Usage: source .env && forge script ./script/DeployDepositLocker.s.sol --rpc-url=$SEPOLIA_RPC_URL --broadcast --etherscan-api-key=$ETHERSCAN_API_KEY --verify
-// Verification
+// Usage: source .env && forge script ./script/DeployDepositExecutor.s.sol --rpc-url=$CARTIO_RPC_URL --broadcast
 
 import "forge-std/Script.sol";
 
-import { DepositLocker, RecipeMarketHubBase, IWETH, IUniswapV2Router01, IOFT } from "src/core/DepositLocker.sol";
+import { DepositExecutor, IWETH } from "src/core/DepositExecutor.sol";
 
 // Deployer
 address constant CREATE2_FACTORY_ADDRESS = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
 // Deployment Configuration
-address constant DEPOSIT_LOCKER_OWNER = 0x77777Cc68b333a2256B436D675E8D257699Aa667;
-uint32 constant DESTINATION_CHAIN_LZ_EID = 40_346; // cArtio
-address constant DEPOSIT_EXECUTOR = address(0); // Will be set through setter once deployed
-address constant GREEN_LIGHTER = address(1);
-RecipeMarketHubBase constant RECIPE_MARKET_HUB = RecipeMarketHubBase(0x783251f103555068c1E9D755f69458f39eD937c0);
-IWETH constant WRAPPED_NATIVE_ASSET = IWETH(0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9);
-IUniswapV2Router01 constant UNISWAP_V2_ROUTER = IUniswapV2Router01(0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3);
+address constant DEPOSIT_EXECUTOR_OWNER = 0x77777Cc68b333a2256B436D675E8D257699Aa667;
+address constant LZ_V2_ENDPOINT = 0x6C7Ab2202C98C4227C5c46f1417D81144DA716Ff;
+uint32 constant SOURCE_CHAIN_LZ_EID = 40_161; // ETH SEPOLIA
+address constant DEPOSIT_LOCKER = address(0);
+address constant CAMPAIGN_VERIFIER = address(1);
+IWETH constant WRAPPED_NATIVE_ASSET = IWETH(0x6969696969696969696969696969696969696969);
 
 // Deployment salts
-string constant DEPOSIT_LOCKER_SALT = "CCDM_DEPOSIT_LOCKER_ab5c961a833d7d9e9314af142c08055bf24de74a";
+string constant DEPOSIT_EXECUTOR_SALT = "CCDM_DEPOSIT_EXECUTOR_02348b91cb3ab7939679deaa8b038ca74da64514";
 
 // Expected deployment addresses after simulating deployment
-address constant EXPECTED_DEPOSIT_LOCKER_ADDRESS = 0x59F485746bB494d8B80DC687639bDE77bc2D17cb;
+address constant EXPECTED_DEPOSIT_EXECUTOR_ADDRESS = 0xa1b5104117C8b967Eb0Da4C583F8CB8C40A67Ebe;
 
-contract DeployDepositLocker is Script {
+contract DeployDepositExecutor is Script {
     error Create2DeployerNotDeployed();
     error DeploymentFailed(bytes reason);
     error AddressDoesNotContainBytecode(address addr);
     error NotDeployedToExpectedAddress(address expected, address actual);
     error UnexpectedDeploymentAddress(address expected, address actual);
-    error DepositLockerOwnerIncorrect(address expected, address actual);
+    error DepositExecutorOwnerIncorrect(address expected, address actual);
 
     function _generateUint256SaltFromString(string memory _salt) internal pure returns (uint256) {
         return uint256(keccak256(abi.encodePacked(_salt)));
@@ -50,12 +48,12 @@ contract DeployDepositLocker is Script {
         }
     }
 
-    function _verifyDepositLockerDeployment(DepositLocker _depositLocker) internal view {
-        if (address(_depositLocker) != EXPECTED_DEPOSIT_LOCKER_ADDRESS) {
-            revert UnexpectedDeploymentAddress(EXPECTED_DEPOSIT_LOCKER_ADDRESS, address(_depositLocker));
+    function _verifyDepositExecutorDeployment(DepositExecutor _depositExecutor) internal view {
+        if (address(_depositExecutor) != EXPECTED_DEPOSIT_EXECUTOR_ADDRESS) {
+            revert UnexpectedDeploymentAddress(EXPECTED_DEPOSIT_EXECUTOR_ADDRESS, address(_depositExecutor));
         }
 
-        if (_depositLocker.owner() != DEPOSIT_LOCKER_OWNER) revert DepositLockerOwnerIncorrect(DEPOSIT_LOCKER_OWNER, _depositLocker.owner());
+        if (_depositExecutor.owner() != DEPOSIT_EXECUTOR_OWNER) revert DepositExecutorOwnerIncorrect(DEPOSIT_EXECUTOR_OWNER, _depositExecutor.owner());
     }
 
     function _deploy(string memory _salt, bytes memory _creationCode) internal returns (address deployedAddress) {
@@ -98,10 +96,13 @@ contract DeployDepositLocker is Script {
         console2.log("Deploying with address: ", deployerAddress);
         console2.log("Deployer Balance: ", address(deployerAddress).balance);
 
-        IOFT[] memory LZ_V2_OFTs = new IOFT[](3);
-        LZ_V2_OFTs[0] = IOFT(0x9Cc7e185162Aa5D1425ee924D97a87A0a34A0706);
-        LZ_V2_OFTs[1] = IOFT(0x4985b8fcEA3659FD801a5b857dA1D00e985863F0);
-        LZ_V2_OFTs[2] = IOFT(0x9D819CcAE96d41d8F775bD1259311041248fF980);
+        address[] memory LZ_V2_OFTs = new address[](3);
+        LZ_V2_OFTs[0] = 0x370DC69d5B49E6844C867efA752b419EaC49ABa8;
+        LZ_V2_OFTs[1] = 0x87C367a0522AEb8aD9F9660D2250f1eAC403C70F;
+        LZ_V2_OFTs[2] = 0x4F5F42799d1E01662B629Ede265baEa223e9f9C7;
+
+        bytes32[] memory SOURCE_MARKET_HASHES = new bytes32[](0);
+        address[] memory CAMPAIGN_OWNERS = new address[](0);
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -109,25 +110,26 @@ contract DeployDepositLocker is Script {
         console2.log("Deployer is ready\n");
 
         // Deploy PointsFactory
-        console2.log("Deploying DepositLocker");
-        bytes memory depositLockerCreationCode = abi.encodePacked(
-            vm.getCode("DepositLocker"),
+        console2.log("Deploying DepositExecutor");
+        bytes memory depositExecutorCreationCode = abi.encodePacked(
+            vm.getCode("DepositExecutor"),
             abi.encode(
-                DEPOSIT_LOCKER_OWNER,
-                DESTINATION_CHAIN_LZ_EID,
-                DEPOSIT_EXECUTOR,
-                GREEN_LIGHTER,
-                RECIPE_MARKET_HUB,
+                DEPOSIT_EXECUTOR_OWNER,
+                LZ_V2_ENDPOINT,
+                CAMPAIGN_VERIFIER,
                 WRAPPED_NATIVE_ASSET,
-                UNISWAP_V2_ROUTER,
-                LZ_V2_OFTs
+                SOURCE_CHAIN_LZ_EID,
+                DEPOSIT_LOCKER,
+                LZ_V2_OFTs,
+                SOURCE_MARKET_HASHES,
+                CAMPAIGN_OWNERS
             )
         );
-        DepositLocker depositLocker = DepositLocker(payable(_deployWithSanityChecks(DEPOSIT_LOCKER_SALT, depositLockerCreationCode)));
+        DepositExecutor depositExecutor = DepositExecutor(payable(_deployWithSanityChecks(DEPOSIT_EXECUTOR_SALT, depositExecutorCreationCode)));
 
-        console2.log("Verifying DepositLocker deployment");
-        _verifyDepositLockerDeployment(depositLocker);
-        console2.log("DepositLocker deployed at: ", address(depositLocker), "\n");
+        console2.log("Verifying DepositExecutor deployment");
+        _verifyDepositExecutorDeployment(depositExecutor);
+        console2.log("DepositExecutor deployed at: ", address(depositExecutor), "\n");
 
         vm.stopBroadcast();
     }
