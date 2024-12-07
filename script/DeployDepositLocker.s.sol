@@ -15,7 +15,7 @@ address constant CREATE2_FACTORY_ADDRESS = 0x4e59b44847b379578588920cA78FbF26c0B
 address constant DEPOSIT_LOCKER_OWNER = 0x77777Cc68b333a2256B436D675E8D257699Aa667;
 uint32 constant DESTINATION_CHAIN_LZ_EID = 40_346; // cArtio
 address constant DEPOSIT_EXECUTOR = address(0); // Will be set through setter once deployed
-address constant GREEN_LIGHTER = address(0);
+address constant GREEN_LIGHTER = address(1);
 RecipeMarketHubBase constant RECIPE_MARKET_HUB = RecipeMarketHubBase(0x783251f103555068c1E9D755f69458f39eD937c0);
 IWETH constant WRAPPED_NATIVE_ASSET = IWETH(0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9);
 IUniswapV2Router01 constant UNISWAP_V2_ROUTER = IUniswapV2Router01(0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3);
@@ -24,7 +24,7 @@ IUniswapV2Router01 constant UNISWAP_V2_ROUTER = IUniswapV2Router01(0xeE567Fe1712
 string constant DEPOSIT_LOCKER_SALT = "CCDM_DEPOSIT_LOCKER_ab5c961a833d7d9e9314af142c08055bf24de74a";
 
 // Expected deployment addresses after simulating deployment
-address constant EXPECTED_DEPOSIT_LOCKER_ADDRESS = 0xf78042232a148FC0de0cD8f64a152cB922d3E803;
+address constant EXPECTED_DEPOSIT_LOCKER_ADDRESS = 0x59F485746bB494d8B80DC687639bDE77bc2D17cb;
 
 contract DeployDepositLocker is Script {
     error Create2DeployerNotDeployed();
