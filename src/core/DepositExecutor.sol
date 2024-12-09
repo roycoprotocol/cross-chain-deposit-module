@@ -187,6 +187,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      */
     event CampaignDepositRecipeSet(bytes32 indexed sourceMarketHash);
 
+    /// @notice Error emitted when the lengths of the source market hashes and owners array don't match in the constructor.
+    error ArrayLengthMismatch();
+
     /// @notice Error emitted when the caller is not the campaignVerifier.
     error OnlyCampaignVerifier();
 
@@ -291,6 +294,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _srcChainLzEid The LayerZero endpoint ID for the source chain.
      * @param _depositLocker The address of the Deposit Locker on the source chain.
      * @param _validLzV2OFTs An array of valid LZ V2 OFTs/OApps (Stargate, OFT Adapters, etc.) that can invoke the lzCompose function.
+     * @param _sourceMarketHashes An array of source market hashes from the source chain's Recipe Market Hub to set campaign owners for.
+     * @param _campaignOwners An array of owners for the campaigns corresponding to their source market hashes.
      */
     constructor(
         address _owner,
@@ -299,10 +304,15 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         address _wrapped_native_asset_token,
         uint32 _srcChainLzEid,
         address _depositLocker,
-        address[] memory _validLzV2OFTs
+        address[] memory _validLzV2OFTs,
+        bytes32[] memory _sourceMarketHashes,
+        address[] memory _campaignOwners
     )
         Ownable(_owner)
     {
+        // Make sure the each campaign identified by its source market hash has a corresponding owner
+        require(_sourceMarketHashes.length == _campaignOwners.length, ArrayLengthMismatch());
+
         // Deploy the Weiroll Wallet implementation on the destination chain to use for cloning with immutable args
         WEIROLL_WALLET_IMPLEMENTATION = address(new WeirollWallet());
 
@@ -318,6 +328,10 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Flag all valid LZ OFTs as such
         for (uint256 i = 0; i < _validLzV2OFTs.length; ++i) {
             _setValidLzOFT(_validLzV2OFTs[i]);
+        }
+
+        for (uint256 i = 0; i < _sourceMarketHashes.length; ++i) {
+            _setCampaignOwner(_sourceMarketHashes[i], _campaignOwners[i]);
         }
     }
 
@@ -702,6 +716,16 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         emit ValidLzOftSet(_lzV2OFT);
     }
 
+    /**
+     * @notice Sets a new owner for the specified campaign.
+     * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
+     * @param _owner The address of the campaign owner.
+     */
+    function _setCampaignOwner(bytes32 _sourceMarketHash, address _owner) internal {
+        sourceMarketHashToDepositCampaign[_sourceMarketHash].owner = _owner;
+        emit CampaignOwnerSet(_sourceMarketHash, _owner);
+    }
+
     /*//////////////////////////////////////////////////////////////
                         Administrative Functions
     //////////////////////////////////////////////////////////////*/
@@ -742,8 +766,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _owner The address of the campaign owner.
      */
     function setNewCampaignOwner(bytes32 _sourceMarketHash, address _owner) external onlyCampaignOwnerOrDepositExecutorOwner(_sourceMarketHash) {
-        sourceMarketHashToDepositCampaign[_sourceMarketHash].owner = _owner;
-        emit CampaignOwnerSet(_sourceMarketHash, _owner);
+        _setCampaignOwner(_sourceMarketHash, _owner);
     }
 
     /**
