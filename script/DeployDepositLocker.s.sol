@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-// Usage: source .env && forge script ./script/DeployDepositLocker.s.sol --rpc-url=$SEPOLIA_RPC_URL --broadcast --etherscan-api-key=$ETHERSCAN_API_KEY --verify
-// Verification
-
 import "forge-std/Script.sol";
 
 import { DepositLocker, RecipeMarketHubBase, IWETH, IUniswapV2Router01, IOFT } from "src/core/DepositLocker.sol";
@@ -12,10 +9,10 @@ import { DepositLocker, RecipeMarketHubBase, IWETH, IUniswapV2Router01, IOFT } f
 address constant CREATE2_FACTORY_ADDRESS = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
 // Deployment Configuration
-address constant DEPOSIT_LOCKER_OWNER = 0x77777Cc68b333a2256B436D675E8D257699Aa667;
+address constant DEPOSIT_LOCKER_OWNER = 0xCe6EC1D4401A3CbaEF79942ff257de2dFbC7714f;
 uint32 constant DESTINATION_CHAIN_LZ_EID = 40_346; // cArtio
 address constant DEPOSIT_EXECUTOR = address(0); // Will be set through setter once deployed
-address constant GREEN_LIGHTER = address(1);
+address constant GREEN_LIGHTER = 0x5D1B9186Ac01B7c364734618172CD4487E68bC92;
 RecipeMarketHubBase constant RECIPE_MARKET_HUB = RecipeMarketHubBase(0x783251f103555068c1E9D755f69458f39eD937c0);
 IWETH constant WRAPPED_NATIVE_ASSET = IWETH(0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9);
 IUniswapV2Router01 constant UNISWAP_V2_ROUTER = IUniswapV2Router01(0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3);
@@ -24,7 +21,7 @@ IUniswapV2Router01 constant UNISWAP_V2_ROUTER = IUniswapV2Router01(0xeE567Fe1712
 string constant DEPOSIT_LOCKER_SALT = "CCDM_DEPOSIT_LOCKER_ab5c961a833d7d9e9314af142c08055bf24de74a";
 
 // Expected deployment addresses after simulating deployment
-address constant EXPECTED_DEPOSIT_LOCKER_ADDRESS = 0x59F485746bB494d8B80DC687639bDE77bc2D17cb;
+address constant EXPECTED_DEPOSIT_LOCKER_ADDRESS = 0x37e0A35512511aaf4233705B7eB5cf7b460854FE;
 
 contract DeployDepositLocker is Script {
     error Create2DeployerNotDeployed();
@@ -98,10 +95,11 @@ contract DeployDepositLocker is Script {
         console2.log("Deploying with address: ", deployerAddress);
         console2.log("Deployer Balance: ", address(deployerAddress).balance);
 
-        IOFT[] memory LZ_V2_OFTs = new IOFT[](3);
+        IOFT[] memory LZ_V2_OFTs = new IOFT[](4);
         LZ_V2_OFTs[0] = IOFT(0x9Cc7e185162Aa5D1425ee924D97a87A0a34A0706);
         LZ_V2_OFTs[1] = IOFT(0x4985b8fcEA3659FD801a5b857dA1D00e985863F0);
         LZ_V2_OFTs[2] = IOFT(0x9D819CcAE96d41d8F775bD1259311041248fF980);
+        LZ_V2_OFTs[3] = IOFT(0x552bAC4A13eC7c261903433F1E12e9Eff8dc4adc);
 
         vm.startBroadcast(deployerPrivateKey);
 

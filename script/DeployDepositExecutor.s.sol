@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-// Usage: source .env && forge script ./script/DeployDepositExecutor.s.sol --rpc-url=$CARTIO_RPC_URL --broadcast
-
 import "forge-std/Script.sol";
 
 import { DepositExecutor, IWETH } from "src/core/DepositExecutor.sol";
@@ -11,18 +9,18 @@ import { DepositExecutor, IWETH } from "src/core/DepositExecutor.sol";
 address constant CREATE2_FACTORY_ADDRESS = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
 // Deployment Configuration
-address constant DEPOSIT_EXECUTOR_OWNER = 0x77777Cc68b333a2256B436D675E8D257699Aa667;
+address constant DEPOSIT_EXECUTOR_OWNER = 0x39Fff7105606472AC14eA9A272054d728D5b1104;
 address constant LZ_V2_ENDPOINT = 0x6C7Ab2202C98C4227C5c46f1417D81144DA716Ff;
 uint32 constant SOURCE_CHAIN_LZ_EID = 40_161; // ETH SEPOLIA
-address constant DEPOSIT_LOCKER = address(0);
-address constant CAMPAIGN_VERIFIER = address(1);
+address constant DEPOSIT_LOCKER = 0x37e0A35512511aaf4233705B7eB5cf7b460854FE;
+address constant CAMPAIGN_VERIFIER = 0x7508A8b7887ef6ced89f1F0DCE09bb52707510F7;
 IWETH constant WRAPPED_NATIVE_ASSET = IWETH(0x6969696969696969696969696969696969696969);
 
 // Deployment salts
 string constant DEPOSIT_EXECUTOR_SALT = "CCDM_DEPOSIT_EXECUTOR_02348b91cb3ab7939679deaa8b038ca74da64514";
 
 // Expected deployment addresses after simulating deployment
-address constant EXPECTED_DEPOSIT_EXECUTOR_ADDRESS = 0xa1b5104117C8b967Eb0Da4C583F8CB8C40A67Ebe;
+address constant EXPECTED_DEPOSIT_EXECUTOR_ADDRESS = 0xB4cDac162905F79927D57647CE234202E4A54694;
 
 contract DeployDepositExecutor is Script {
     error Create2DeployerNotDeployed();
@@ -96,10 +94,11 @@ contract DeployDepositExecutor is Script {
         console2.log("Deploying with address: ", deployerAddress);
         console2.log("Deployer Balance: ", address(deployerAddress).balance);
 
-        address[] memory LZ_V2_OFTs = new address[](3);
+        address[] memory LZ_V2_OFTs = new address[](4);
         LZ_V2_OFTs[0] = 0x370DC69d5B49E6844C867efA752b419EaC49ABa8;
         LZ_V2_OFTs[1] = 0x87C367a0522AEb8aD9F9660D2250f1eAC403C70F;
         LZ_V2_OFTs[2] = 0x4F5F42799d1E01662B629Ede265baEa223e9f9C7;
+        LZ_V2_OFTs[3] = 0x49a49AB0A048bCADB8b4E51c5c970C46bF889CCD;
 
         bytes32[] memory SOURCE_MARKET_HASHES = new bytes32[](0);
         address[] memory CAMPAIGN_OWNERS = new address[](0);
