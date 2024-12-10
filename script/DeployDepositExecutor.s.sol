@@ -22,7 +22,7 @@ IWETH constant WRAPPED_NATIVE_ASSET = IWETH(0x6969696969696969696969696969696969
 string constant DEPOSIT_EXECUTOR_SALT = "CCDM_DEPOSIT_EXECUTOR_02348b91cb3ab7939679deaa8b038ca74da64514";
 
 // Expected deployment addresses after simulating deployment
-address constant EXPECTED_DEPOSIT_EXECUTOR_ADDRESS = 0xa1b5104117C8b967Eb0Da4C583F8CB8C40A67Ebe;
+address constant EXPECTED_DEPOSIT_EXECUTOR_ADDRESS = 0x907a876A54776Cb56BFC7b3e6580D7DFA774C16A;
 
 contract DeployDepositExecutor is Script {
     error Create2DeployerNotDeployed();
