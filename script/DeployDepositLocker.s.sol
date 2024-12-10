@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-// Usage: source .env && forge script ./script/DeployDepositLocker.s.sol --rpc-url=$SEPOLIA_RPC_URL --broadcast --etherscan-api-key=$ETHERSCAN_API_KEY --verify
-// Verification
-
 import "forge-std/Script.sol";
 
 import { DepositLocker, RecipeMarketHubBase, IWETH, IUniswapV2Router01, IOFT } from "src/core/DepositLocker.sol";

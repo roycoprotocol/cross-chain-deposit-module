@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-// Usage: source .env && forge script ./script/DeployDepositExecutor.s.sol --rpc-url=$CARTIO_RPC_URL --broadcast
-
 import "forge-std/Script.sol";
 
 import { DepositExecutor, IWETH } from "src/core/DepositExecutor.sol";

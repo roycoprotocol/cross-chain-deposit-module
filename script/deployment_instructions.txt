@@ -11,7 +11,7 @@ Deploying and Verifying the DepositLocker:
   --via-ir
 
 Deploying and Verifying the DepositExecutor: 
-1. source .env && npx catapulta script ./script/DeployDepositExecutor.s.sol --rpc-url=$CARTIO_RPC_URL --broadcast 
+1. source .env && forge script ./script/DeployDepositExecutor.s.sol --rpc-url=$CARTIO_RPC_URL --broadcast
 2. forge verify-contract \
   0xB4cDac162905F79927D57647CE234202E4A54694 \
   DepositExecutor \
