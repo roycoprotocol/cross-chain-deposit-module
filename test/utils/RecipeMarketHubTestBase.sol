@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import "@royco/test/mocks/MockRecipeMarketHub.sol";
+import "../../lib/royco/src/RecipeMarketHub.sol";
 
-import { MockERC20 } from "@royco/test/mocks/MockERC20.sol";
-import { MockERC4626 } from "@royco/test/mocks/MockERC4626.sol";
-import { DepositExecutor, ERC20 } from "src/core/DepositExecutor.sol";
+import { DepositExecutor } from "src/core/DepositExecutor.sol";
 
 import { RoycoTestBase } from "./RoycoTestBase.sol";
-import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
+import { WeirollWalletHelper } from "./WeirollWalletHelper.sol";
 
 contract RecipeMarketHubTestBase is RoycoTestBase {
     using FixedPointMathLib for uint256;
@@ -23,7 +21,7 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
         initialProtocolFee = _initialProtocolFee;
         initialMinimumFrontendFee = _initialMinimumFrontendFee;
 
-        recipeMarketHub = new MockRecipeMarketHub(
+        recipeMarketHub = new RecipeMarketHub(
             address(weirollImplementation),
             initialProtocolFee,
             initialMinimumFrontendFee,
@@ -239,40 +237,6 @@ contract RecipeMarketHubTestBase is RoycoTestBase {
             tokensOffered, // Incentive tokens offered
             incentiveAmountsOffered // Incentive amounts offered
         );
-    }
-
-    function calculateIPOfferExpectedIncentiveAndFrontendFee(
-        bytes32 offerHash,
-        uint256 offerAmount,
-        uint256 fillAmount,
-        address tokenOffered
-    )
-        internal
-        view
-        returns (uint256 fillPercentage, uint256 protocolFeeAmount, uint256 frontendFeeAmount, uint256 incentiveAmount)
-    {
-        fillPercentage = fillAmount.divWadDown(offerAmount);
-        // Fees are taken as a percentage of the promised amounts
-        protocolFeeAmount = recipeMarketHub.getIncentiveToProtocolFeeAmountForIPOffer(offerHash, tokenOffered).mulWadDown(fillPercentage);
-        frontendFeeAmount = recipeMarketHub.getIncentiveToFrontendFeeAmountForIPOffer(offerHash, tokenOffered).mulWadDown(fillPercentage);
-        incentiveAmount = recipeMarketHub.getIncentiveAmountsOfferedForIPOffer(offerHash, tokenOffered).mulWadDown(fillPercentage);
-    }
-
-    function calculateAPOfferExpectedIncentiveAndFrontendFee(
-        uint256 protocolFee,
-        uint256 frontendFee,
-        uint256 offerAmount,
-        uint256 fillAmount,
-        uint256 tokenAmountRequested
-    )
-        internal
-        pure
-        returns (uint256 fillPercentage, uint256 frontendFeeAmount, uint256 protocolFeeAmount, uint256 incentiveAmount)
-    {
-        fillPercentage = fillAmount.divWadDown(offerAmount);
-        incentiveAmount = tokenAmountRequested.mulWadDown(fillPercentage);
-        protocolFeeAmount = incentiveAmount.mulWadDown(protocolFee);
-        frontendFeeAmount = incentiveAmount.mulWadDown(frontendFee);
     }
 
     // Get fill amount using Weiroll Helper -> Approve fill amount -> Call Deposit

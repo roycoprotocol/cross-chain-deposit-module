@@ -2,17 +2,14 @@
 pragma solidity ^0.8.0;
 
 // Import the DepositLocker contract and its dependencies
-import { DepositLocker, RecipeMarketHubBase, ERC20, IWETH } from "src/core/DepositLocker.sol";
-import { RecipeMarketHubTestBase, RecipeMarketHubBase, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
-import { IOFT } from "src/interfaces/IOFT.sol";
-import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
-import { WeirollWalletHelper } from "test/utils/WeirollWalletHelper.sol";
+import { DepositLocker, RecipeMarketHubBase, ERC20, IWETH } from "../src/core/DepositLocker.sol";
+import { RecipeMarketHubTestBase, RecipeMarketHubBase, RewardStyle, Points } from "./utils/RecipeMarketHubTestBase.sol";
+import { IOFT } from "../src/interfaces/IOFT.sol";
+import { WeirollWalletHelper } from "./utils/WeirollWalletHelper.sol";
 
 // Test depositing and withdrawing to/from the DepositLocker through a Royco Market
 // This will simulate the expected behaviour on the source chain of a Deposit Campaign
 contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
-    using FixedPointMathLib for uint256;
-
     address IP_ADDRESS;
     address FRONTEND_FEE_RECIPIENT;
 
@@ -186,7 +183,13 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
 
         // Record the logs to capture Transfer events
         vm.recordLogs();
-        recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
+        bytes32[] memory ipOfferHashes = new bytes32[](1);
+        ipOfferHashes[0] = offerHash;
+        uint256[] memory fillAmounts = new uint256[](1);
+        fillAmounts[0] = fillAmount;
+
+        // AP Fills the offer (no funding vault)
+        recipeMarketHub.fillIPOffers(ipOfferHashes, fillAmounts, address(0), FRONTEND_FEE_RECIPIENT);
         vm.stopPrank();
 
         // Extract the Weiroll wallet address

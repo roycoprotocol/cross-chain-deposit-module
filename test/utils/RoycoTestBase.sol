@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
-import "@royco/test/mocks/MockRecipeMarketHub.sol";
+import "../../lib/royco/src/RecipeMarketHub.sol";
 
-import { MockERC20 } from "@royco/test/mocks/MockERC20.sol";
-import { IUniswapV2Router01 } from "@uniswap-v2/periphery/contracts/interfaces/IUniswapV2Router01.sol";
+import { MockERC20 } from "./MockERC20.sol";
+import { IUniswapV2Router01 } from "../../lib/v2-periphery/contracts/interfaces/IUniswapV2Router01.sol";
 
 import "lib/forge-std/src/Test.sol";
 import "lib/forge-std/src/Vm.sol";
@@ -70,7 +70,7 @@ contract RoycoTestBase is Test {
     // Royco Contracts
     // -----------------------------------------
     WeirollWallet public weirollImplementation;
-    MockRecipeMarketHub public recipeMarketHub;
+    RecipeMarketHub public recipeMarketHub;
     MockERC20 public mockLiquidityToken;
     MockERC20 public mockIncentiveToken;
     PointsFactory public pointsFactory;

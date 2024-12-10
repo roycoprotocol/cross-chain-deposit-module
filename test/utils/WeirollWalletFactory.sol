@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
-import { ClonesWithImmutableArgs } from "@clones-with-immutable-args/ClonesWithImmutableArgs.sol";
+import { WeirollWallet } from "../../lib/royco/src/WeirollWallet.sol";
+import { ClonesWithImmutableArgs } from "../../lib/clones-with-immutable-args/src/ClonesWithImmutableArgs.sol";
 
 /// @title WeirollWalletFactory
 /// @notice This factory creates mock Weiroll Wallet instances created by the CCDM Deposit Executor.

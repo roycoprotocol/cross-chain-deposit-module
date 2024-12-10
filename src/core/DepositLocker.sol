@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import { Ownable2Step, Ownable } from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import { RecipeMarketHubBase, ERC20, SafeTransferLib } from "@royco/src/RecipeMarketHub.sol";
-import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
-import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src/interfaces/IOFT.sol";
-import { IWETH } from "src/interfaces/IWETH.sol";
-import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
-import { CCDMPayloadLib } from "src/libraries/CCDMPayloadLib.sol";
-import { IUniswapV2Router01 } from "@uniswap-v2/periphery/contracts/interfaces/IUniswapV2Router01.sol";
-import { IUniswapV2Pair } from "@uniswap-v2/core/contracts/interfaces/IUniswapV2Pair.sol";
+import { Ownable2Step, Ownable } from "../../lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import { ReentrancyGuardTransient } from "../../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuardTransient.sol";
+import { RecipeMarketHubBase, ERC20, SafeTransferLib } from "../../lib/royco/src/RecipeMarketHub.sol";
+import { WeirollWallet } from "../../lib/royco/src/WeirollWallet.sol";
+import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "../interfaces/IOFT.sol";
+import { IWETH } from "../interfaces/IWETH.sol";
+import { OptionsBuilder } from "../libraries/OptionsBuilder.sol";
+import { CCDMPayloadLib } from "../libraries/CCDMPayloadLib.sol";
+import { IUniswapV2Router01 } from "../../lib/v2-periphery/contracts/interfaces/IUniswapV2Router01.sol";
+import { IUniswapV2Pair } from "../../lib/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 
 /// @title DepositLocker
 /// @author Shivaansh Kapoor, Jack Corddry
