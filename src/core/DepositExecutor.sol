@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import { Ownable2Step, Ownable } from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import { ILayerZeroComposer } from "src/interfaces/ILayerZeroComposer.sol";
-import { IWETH } from "src/interfaces/IWETH.sol";
-import { ERC20, SafeTransferLib } from "@royco/src/RecipeMarketHub.sol";
-import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
-import { ClonesWithImmutableArgs } from "@clones-with-immutable-args/ClonesWithImmutableArgs.sol";
-import { IOFT } from "src/interfaces/IOFT.sol";
-import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
-import { CCDMPayloadLib } from "src/libraries/CCDMPayloadLib.sol";
+import { Ownable2Step, Ownable } from "../../lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import { ReentrancyGuardTransient } from "../../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuardTransient.sol";
+import { ILayerZeroComposer } from "../interfaces/ILayerZeroComposer.sol";
+import { IWETH } from "../interfaces/IWETH.sol";
+import { ERC20, SafeTransferLib } from "../../lib/royco/src/RecipeMarketHub.sol";
+import { WeirollWallet } from "../../lib/royco/src/WeirollWallet.sol";
+import { ClonesWithImmutableArgs } from "../../lib/clones-with-immutable-args/src/ClonesWithImmutableArgs.sol";
+import { IOFT } from "../interfaces/IOFT.sol";
+import { OFTComposeMsgCodec } from "../libraries/OFTComposeMsgCodec.sol";
+import { CCDMPayloadLib } from "../libraries/CCDMPayloadLib.sol";
 
 /// @title DepositExecutor
 /// @author Shivaansh Kapoor, Jack Corddry

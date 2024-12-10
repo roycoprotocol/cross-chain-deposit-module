@@ -2,17 +2,12 @@
 pragma solidity ^0.8.0;
 
 // Import the DepositLocker contract and its dependencies
-import { DepositLocker, RecipeMarketHubBase, ERC20, IWETH } from "src/core/DepositLocker.sol";
-import { RecipeMarketHubTestBase, RecipeMarketHubBase, WeirollWalletHelper, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
-import { IOFT } from "src/interfaces/IOFT.sol";
-import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { DepositLocker, RecipeMarketHubBase, ERC20, IWETH } from "../src/core/DepositLocker.sol";
+import { RecipeMarketHubTestBase, RecipeMarketHubBase, WeirollWalletHelper, RewardStyle, Points } from "./utils/RecipeMarketHubTestBase.sol";
+import { IOFT } from "../src/interfaces/IOFT.sol";
 
 // Test Bridging Deposits on ETH Mainnet fork
 contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
-    using FixedPointMathLib for uint256;
-
     address IP_ADDRESS;
     address FRONTEND_FEE_RECIPIENT;
 
@@ -89,9 +84,13 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             if (i == (numDepositors - 1)) {
                 fillAmount = type(uint256).max;
             }
+            bytes32[] memory ipOfferHashes = new bytes32[](1);
+            ipOfferHashes[0] = offerHash;
+            uint256[] memory fillAmounts = new uint256[](1);
+            fillAmounts[0] = fillAmount;
 
             // AP Fills the offer (no funding vault)
-            recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
+            recipeMarketHub.fillIPOffers(ipOfferHashes, fillAmounts, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
         }
 
@@ -186,7 +185,13 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             filledSoFar += fillAmount;
 
             // AP Fills the offer (no funding vault)
-            recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
+            bytes32[] memory ipOfferHashes = new bytes32[](1);
+            ipOfferHashes[0] = offerHash;
+            uint256[] memory fillAmounts = new uint256[](1);
+            fillAmounts[0] = fillAmount;
+
+            // AP Fills the offer (no funding vault)
+            recipeMarketHub.fillIPOffers(ipOfferHashes, fillAmounts, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
         }
 
@@ -270,7 +275,13 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             }
 
             // AP Fills the offer (no funding vault)
-            recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
+            bytes32[] memory ipOfferHashes = new bytes32[](1);
+            ipOfferHashes[0] = offerHash;
+            uint256[] memory fillAmounts = new uint256[](1);
+            fillAmounts[0] = fillAmount;
+
+            // AP Fills the offer (no funding vault)
+            recipeMarketHub.fillIPOffers(ipOfferHashes, fillAmounts, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
         }
 
@@ -371,7 +382,13 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
             vm.startPrank(depositorWallets[i]);
 
             // AP Fills the offer (no funding vault)
-            recipeMarketHub.fillIPOffers(offerHash, totalLiquidity / numDepositors, address(0), FRONTEND_FEE_RECIPIENT);
+            bytes32[] memory ipOfferHashes = new bytes32[](1);
+            ipOfferHashes[0] = offerHash;
+            uint256[] memory fillAmounts = new uint256[](1);
+            fillAmounts[0] = totalLiquidity / numDepositors;
+
+            // AP Fills the offer (no funding vault)
+            recipeMarketHub.fillIPOffers(ipOfferHashes, fillAmounts, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
         }
 

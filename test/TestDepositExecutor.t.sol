@@ -2,18 +2,15 @@
 pragma solidity ^0.8.0;
 
 // Import the DepositLocker contract and its dependencies
-import { DepositLocker, RecipeMarketHubBase, ERC20, IWETH } from "src/core/DepositLocker.sol";
-import { RecipeMarketHubTestBase, RecipeMarketHubBase, WeirollWalletHelper, WeirollWallet, RewardStyle, Points } from "test/utils/RecipeMarketHubTestBase.sol";
-import { DepositExecutor } from "src/core/DepositExecutor.sol";
-import { IOFT } from "src/interfaces/IOFT.sol";
-import { FixedPointMathLib } from "@solmate/utils/FixedPointMathLib.sol";
-import { Vm } from "lib/forge-std/src/Vm.sol";
-import { OFTComposeMsgCodec } from "src/libraries/OFTComposeMsgCodec.sol";
-import { console2 } from "lib/forge-std/src/console2.sol";
+import { DepositLocker, RecipeMarketHubBase, ERC20, IWETH } from "../src/core/DepositLocker.sol";
+import { RecipeMarketHubTestBase, RecipeMarketHubBase, WeirollWalletHelper, WeirollWallet, RewardStyle, Points } from "./utils/RecipeMarketHubTestBase.sol";
+import { DepositExecutor } from "../src/core/DepositExecutor.sol";
+import { IOFT } from "../src/interfaces/IOFT.sol";
+import { Vm } from "../lib/forge-std/src/Vm.sol";
+import { OFTComposeMsgCodec } from "../src/libraries/OFTComposeMsgCodec.sol";
 
 // Test deploying deposits via weiroll recipes post bridge
 contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
-    using FixedPointMathLib for uint256;
     using OFTComposeMsgCodec for bytes;
 
     address IP_ADDRESS;
@@ -366,7 +363,13 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
             }
 
             // AP Fills the offer (no funding vault)
-            recipeMarketHub.fillIPOffers(offerHash, fillAmount, address(0), FRONTEND_FEE_RECIPIENT);
+            bytes32[] memory ipOfferHashes = new bytes32[](1);
+            ipOfferHashes[0] = offerHash;
+            uint256[] memory fillAmounts = new uint256[](1);
+            fillAmounts[0] = fillAmount;
+
+            // AP Fills the offer (no funding vault)
+            recipeMarketHub.fillIPOffers(ipOfferHashes, fillAmounts, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
 
             (uint256 totalAmountDeposited,) = depositLocker.marketHashToDepositorToDepositorInfo(result.marketHash, ap);

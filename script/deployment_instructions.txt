@@ -1,0 +1,25 @@
+Deploying and Verifying the DepositLocker: 
+1. source .env && forge script ./script/DeployDepositLocker.s.sol --rpc-url=$SEPOLIA_RPC_URL --broadcast --etherscan-api-key=$ETHERSCAN_API_KEY --verify 
+
+Deploying and Verifying the DepositExecutor: 
+1. source .env && forge script ./script/DeployDepositExecutor.s.sol --rpc-url=$CARTIO_RPC_URL --broadcast 
+2. forge verify-contract \
+  0x17732ca5c16989Df97b203009081B9ec1DB80607 \
+  DepositExecutor \
+  --verifier-url "https://api.routescan.io/v2/network/testnet/evm/80000/etherscan" \
+  --etherscan-api-key "verifyContract" \
+  --num-of-optimizations 5000 \
+  --compiler-version "0.8.27" \
+  --constructor-args $(cast abi-encode \
+    "constructor(address,address,address,address,uint32,address,address[],bytes32[],address[])" \
+    0x39Fff7105606472AC14eA9A272054d728D5b1104 \
+    0x6C7Ab2202C98C4227C5c46f1417D81144DA716Ff \
+    0x0000000000000000000000000000000000000003 \
+    0x6969696969696969696969696969696969696969 \
+    40161 \
+    0x0000000000000000000000000000000000000000 \
+    '[0x370DC69d5B49E6844C867efA752b419EaC49ABa8,0x87C367a0522AEb8aD9F9660D2250f1eAC403C70F,0x4F5F42799d1E01662B629Ede265baEa223e9f9C7]' \
+    '[]' \
+    '[]') \
+  --watch \
+  --via-ir

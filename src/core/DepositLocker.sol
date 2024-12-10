@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import { Ownable2Step, Ownable } from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import { RecipeMarketHubBase, ERC20, SafeTransferLib } from "@royco/src/RecipeMarketHub.sol";
-import { WeirollWallet } from "@royco/src/WeirollWallet.sol";
-import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "src/interfaces/IOFT.sol";
-import { IWETH } from "src/interfaces/IWETH.sol";
-import { OptionsBuilder } from "src/libraries/OptionsBuilder.sol";
-import { CCDMPayloadLib } from "src/libraries/CCDMPayloadLib.sol";
-import { IUniswapV2Router01 } from "@uniswap-v2/periphery/contracts/interfaces/IUniswapV2Router01.sol";
-import { IUniswapV2Pair } from "@uniswap-v2/core/contracts/interfaces/IUniswapV2Pair.sol";
+import { Ownable2Step, Ownable } from "../../lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import { ReentrancyGuardTransient } from "../../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuardTransient.sol";
+import { RecipeMarketHubBase, ERC20, SafeTransferLib } from "../../lib/royco/src/RecipeMarketHub.sol";
+import { WeirollWallet } from "../../lib/royco/src/WeirollWallet.sol";
+import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "../interfaces/IOFT.sol";
+import { IWETH } from "../interfaces/IWETH.sol";
+import { OptionsBuilder } from "../libraries/OptionsBuilder.sol";
+import { CCDMPayloadLib } from "../libraries/CCDMPayloadLib.sol";
+import { IUniswapV2Router01 } from "../../lib/v2-periphery/contracts/interfaces/IUniswapV2Router01.sol";
+import { IUniswapV2Pair } from "../../lib/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 
 /// @title DepositLocker
 /// @author Shivaansh Kapoor, Jack Corddry
@@ -29,7 +29,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 300;
 
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
-    uint256 public constant RAGE_QUIT_PERIOD_DURATION = 5 minutes;
+    uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
 
     /// @notice The code hash of the Uniswap V2 Pair contract.
     bytes32 internal constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;

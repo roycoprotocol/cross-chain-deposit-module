@@ -1,9 +1,0 @@
-@clones-with-immutable-args/=lib/royco/lib/clones-with-immutable-args/src/
-@clones-with-immutable-args/=lib/royco/lib/clones-with-immutable-args/src/
-@openzeppelin/contracts/=lib/royco/lib/openzeppelin-contracts/contracts/
-@erc4626-tests/=lib/royco/lib/openzeppelin-contracts/lib/erc4626-tests/
-@forge-std/=lib/forge-std/src/
-@royco/=lib/royco/
-@solmate/=lib/royco/lib/solmate/src/
-@uniswap-v2/core/contracts/=lib/v2-core/contracts/
-@uniswap-v2/periphery/contracts/=lib/v2-periphery/contracts/
