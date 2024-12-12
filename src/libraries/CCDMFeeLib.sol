@@ -14,11 +14,9 @@ library CCDMFeeLib {
     uint256 internal constant GAS_PER_ADDITIONAL_DEPOSITOR = 24_000;
 
     /// @notice Calculates the total gas required for the destination's lzCompose call for a given number of bridged depositors.
-    /// @dev The total gas is composed of a base amount (for a single depositor) plus the marginal cost per additional depositor.
     /// @param _numDepositors The number of depositors for that will be bridged in the CCDM transaction.
-    /// @return gasAmount The total gas amount needed for the destination's lzCompose call.
-    function estimateDestinationGasLimit(uint256 _numDepositors) internal pure returns (uint256 gasAmount) {
+    function estimateDestinationGasLimit(uint256 _numDepositors) internal pure returns (uint128) {
         // The total gas cost grows linearly from the base gas with the number of additional depositors.
-        return BASE_GAS + (GAS_PER_ADDITIONAL_DEPOSITOR * (_numDepositors - 1));
+        return uint128(BASE_GAS + (GAS_PER_ADDITIONAL_DEPOSITOR * (_numDepositors - 1)));
     }
 }

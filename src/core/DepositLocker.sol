@@ -27,7 +27,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The limit for how many depositors can be bridged in a single transaction
-    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 4;
+    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 300;
 
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
     uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
@@ -54,7 +54,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Struct to hold parameters for bridging LP tokens.
     struct LpBridgeParams {
         bytes32 marketHash;
-        uint128 executorGasLimit;
         ERC20 token0;
         ERC20 token1;
         TotalAmountsToBridge totals;
@@ -428,19 +427,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @dev NOTE: Be generous with the _executorGasLimit to prevent reversion on the destination chain.
      * @dev Green light must be given before calling.
      * @param _marketHash The hash of the market to bridge tokens for.
-     * @param _executorGasLimit The gas limit of the executor on the destination chain.
      * @param _depositors The addresses of the depositors (APs) to bridge
      */
-    function bridgeSingleTokens(
-        bytes32 _marketHash,
-        uint128 _executorGasLimit,
-        address[] calldata _depositors
-    )
-        external
-        payable
-        readyToBridge(_marketHash)
-        nonReentrant
-    {
+    function bridgeSingleTokens(bytes32 _marketHash, address[] calldata _depositors) external payable readyToBridge(_marketHash) nonReentrant {
         require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
 
         // The CCDM nonce for this CCDM bridge transaction
@@ -480,8 +469,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the market's input token
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
 
+        // Estimate gas used by the lzCompose call for this bridge transaction
+        uint128 destinationGasLimit = CCDMFeeLib.estimateDestinationGasLimit(numDepositorsIncluded);
+
         // Execute the bridge
-        MessagingReceipt memory messageReceipt = _executeBridge(marketInputToken, totalAmountToBridge, composeMsg, 0, _executorGasLimit);
+        MessagingReceipt memory messageReceipt = _executeBridge(marketInputToken, totalAmountToBridge, composeMsg, 0, destinationGasLimit);
         uint256 bridgingFee = messageReceipt.fee.nativeFee;
 
         // Refund any excess value sent with the transaction
@@ -498,14 +490,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @dev Handles bridge precision by adjusting amounts to acceptable precision and refunding any dust to depositors.
      * @dev Green light must be given before calling.
      * @param _marketHash The hash of the market to bridge tokens for.
-     * @param _executorGasLimit The gas limit of the executor on the destination chain.
      * @param _minAmountOfToken0ToBridge The minimum amount of Token A to receive from removing liquidity.
      * @param _minAmountOfToken1ToBridge The minimum amount of Token B to receive from removing liquidity.
      * @param _depositors The addresses of the depositors (APs) to bridge.
      */
     function bridgeLpTokens(
         bytes32 _marketHash,
-        uint128 _executorGasLimit,
         uint96 _minAmountOfToken0ToBridge,
         uint96 _minAmountOfToken1ToBridge,
         address[] calldata _depositors
@@ -598,7 +588,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Create bridge parameters
         LpBridgeParams memory bridgeParams = LpBridgeParams({
             marketHash: _marketHash,
-            executorGasLimit: _executorGasLimit,
             token0: token0,
             token1: token1,
             totals: totals,
@@ -761,15 +750,16 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     function _executeConsecutiveBridges(LpBridgeParams memory _params) internal {
         uint256 totalBridgingFee = 0;
+        uint128 destinationGasLimit = CCDMFeeLib.estimateDestinationGasLimit(_params.depositorsBridged.length);
 
         // Bridge Token A
         MessagingReceipt memory token0_MessageReceipt =
-            _executeBridge(_params.token0, _params.totals.token0_TotalAmountToBridge, _params.token0_ComposeMsg, totalBridgingFee, _params.executorGasLimit);
+            _executeBridge(_params.token0, _params.totals.token0_TotalAmountToBridge, _params.token0_ComposeMsg, totalBridgingFee, destinationGasLimit);
         totalBridgingFee += token0_MessageReceipt.fee.nativeFee;
 
         // Bridge Token B
         MessagingReceipt memory token1_MessageReceipt =
-            _executeBridge(_params.token1, _params.totals.token1_TotalAmountToBridge, _params.token1_ComposeMsg, totalBridgingFee, _params.executorGasLimit);
+            _executeBridge(_params.token1, _params.totals.token1_TotalAmountToBridge, _params.token1_ComposeMsg, totalBridgingFee, destinationGasLimit);
         totalBridgingFee += token1_MessageReceipt.fee.nativeFee;
 
         // Refund excess value sent with the transaction
