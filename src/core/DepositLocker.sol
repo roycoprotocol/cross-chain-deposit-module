@@ -9,6 +9,7 @@ import { IOFT, SendParam, MessagingFee, MessagingReceipt, OFTReceipt } from "../
 import { IWETH } from "../interfaces/IWETH.sol";
 import { OptionsBuilder } from "../libraries/OptionsBuilder.sol";
 import { CCDMPayloadLib } from "../libraries/CCDMPayloadLib.sol";
+import { CCDMFeeLib } from "../libraries/CCDMFeeLib.sol";
 import { IUniswapV2Router01 } from "../../lib/v2-periphery/contracts/interfaces/IUniswapV2Router01.sol";
 import { IUniswapV2Pair } from "../../lib/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 
@@ -26,7 +27,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The limit for how many depositors can be bridged in a single transaction
-    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 300;
+    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 4;
 
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
     uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
