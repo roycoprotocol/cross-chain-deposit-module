@@ -11,7 +11,7 @@ library CCDMFeeLib {
 
     /// @notice Gas used by lzCompose in the Deposit Executor for each marginal depositor after the first.
     /// @dev Padded by a small amount to ensure that lzCompose does not revert.
-    uint256 internal constant GAS_PER_ADDITIONAL_DEPOSITOR = 24_000;
+    uint256 internal constant GAS_PER_ADDITIONAL_DEPOSITOR = 23_700;
 
     /// @notice Calculates the total gas required for the destination's lzCompose call for a given number of bridged depositors.
     /// @param _numDepositors The number of depositors for that will be bridged in the CCDM transaction.

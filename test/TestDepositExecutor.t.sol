@@ -8,6 +8,7 @@ import { DepositExecutor } from "../src/core/DepositExecutor.sol";
 import { IOFT } from "../src/interfaces/IOFT.sol";
 import { Vm } from "../lib/forge-std/src/Vm.sol";
 import { OFTComposeMsgCodec } from "../src/libraries/OFTComposeMsgCodec.sol";
+import { CCDMFeeLib } from "../src/libraries/CCDMFeeLib.sol";
 
 // Test deploying deposits via weiroll recipes post bridge
 contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
@@ -111,7 +112,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         vm.recordLogs();
         vm.startPrank(POLYGON_LZ_ENDPOINT);
-        depositExecutor.lzCompose(
+        depositExecutor.lzCompose{ gas: CCDMFeeLib.estimateDestinationGasLimit(numDepositors) }(
             STARGATE_USDC_POOL_POLYGON_ADDRESS,
             bridgeResult.guid,
             OFTComposeMsgCodec.encode(
@@ -238,7 +239,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         vm.recordLogs();
         vm.startPrank(POLYGON_LZ_ENDPOINT);
-        depositExecutor.lzCompose(
+        depositExecutor.lzCompose{ gas: CCDMFeeLib.estimateDestinationGasLimit(numDepositors) }(
             STARGATE_USDC_POOL_POLYGON_ADDRESS,
             bridgeResult.guid,
             OFTComposeMsgCodec.encode(
