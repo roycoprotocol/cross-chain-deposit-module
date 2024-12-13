@@ -8,6 +8,7 @@ import { DepositExecutor } from "../src/core/DepositExecutor.sol";
 import { IOFT } from "../src/interfaces/IOFT.sol";
 import { Vm } from "../lib/forge-std/src/Vm.sol";
 import { OFTComposeMsgCodec } from "../src/libraries/OFTComposeMsgCodec.sol";
+import { CCDMFeeLib } from "../src/libraries/CCDMFeeLib.sol";
 
 // Test deploying deposits via weiroll recipes post bridge
 contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
@@ -111,7 +112,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         vm.recordLogs();
         vm.startPrank(POLYGON_LZ_ENDPOINT);
-        depositExecutor.lzCompose(
+        depositExecutor.lzCompose{ gas: CCDMFeeLib.estimateDestinationGasLimit(numDepositors) }(
             STARGATE_USDC_POOL_POLYGON_ADDRESS,
             bridgeResult.guid,
             OFTComposeMsgCodec.encode(
@@ -238,7 +239,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         vm.recordLogs();
         vm.startPrank(POLYGON_LZ_ENDPOINT);
-        depositExecutor.lzCompose(
+        depositExecutor.lzCompose{ gas: CCDMFeeLib.estimateDestinationGasLimit(numDepositors) }(
             STARGATE_USDC_POOL_POLYGON_ADDRESS,
             bridgeResult.guid,
             OFTComposeMsgCodec.encode(
@@ -385,7 +386,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         vm.recordLogs();
         // Record the logs to capture Transfer events to get Weiroll wallet address
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeSingleTokens{ value: 5 ether }(result.marketHash, 1_000_000, result.depositors);
+        depositLocker.bridgeSingleTokens{ value: 5 ether }(result.marketHash, result.depositors);
         vm.stopPrank();
 
         // Get the encoded payload which will be passed in compose call on the destination chain

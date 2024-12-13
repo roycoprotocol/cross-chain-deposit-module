@@ -107,7 +107,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, depositorWallets);
         vm.stopPrank();
     }
 
@@ -204,7 +204,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, depositorWallets);
         vm.stopPrank();
     }
 
@@ -297,7 +297,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, 1_000_000, depositorWallets);
+        depositLocker.bridgeSingleTokens{ value: 5 ether }(marketHash, depositorWallets);
         vm.stopPrank();
     }
 
@@ -412,7 +412,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
         vm.startPrank(IP_ADDRESS);
-        depositLocker.bridgeLpTokens{ value: 5 ether }(marketHash, 1_000_000, 0, 0, depositorWallets);
+        depositLocker.bridgeLpTokens{ value: 5 ether }(marketHash, 0, 0, depositorWallets);
         vm.stopPrank();
 
         // Ensure that the nonce was incremented
