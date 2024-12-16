@@ -21,7 +21,7 @@ IUniswapV2Router01 constant UNISWAP_V2_ROUTER = IUniswapV2Router01(0xeE567Fe1712
 string constant DEPOSIT_LOCKER_SALT = "CCDM_DEPOSIT_LOCKER_ab5c961a833d7d9e9314af142c08055bf24de74a";
 
 // Expected deployment addresses after simulating deployment
-address constant EXPECTED_DEPOSIT_LOCKER_ADDRESS = 0x37e0A35512511aaf4233705B7eB5cf7b460854FE;
+address constant EXPECTED_DEPOSIT_LOCKER_ADDRESS = 0x49C9C1C39A24D3a8924FC4d3Bb056315506b6f37;
 
 contract DeployDepositLocker is Script {
     error Create2DeployerNotDeployed();

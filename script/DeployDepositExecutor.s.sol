@@ -12,7 +12,7 @@ address constant CREATE2_FACTORY_ADDRESS = 0x4e59b44847b379578588920cA78FbF26c0B
 address constant DEPOSIT_EXECUTOR_OWNER = 0x39Fff7105606472AC14eA9A272054d728D5b1104;
 address constant LZ_V2_ENDPOINT = 0x6C7Ab2202C98C4227C5c46f1417D81144DA716Ff;
 uint32 constant SOURCE_CHAIN_LZ_EID = 40_161; // ETH SEPOLIA
-address constant DEPOSIT_LOCKER = 0x37e0A35512511aaf4233705B7eB5cf7b460854FE;
+address constant DEPOSIT_LOCKER = 0x49C9C1C39A24D3a8924FC4d3Bb056315506b6f37;
 address constant CAMPAIGN_VERIFIER = 0x7508A8b7887ef6ced89f1F0DCE09bb52707510F7;
 IWETH constant WRAPPED_NATIVE_ASSET = IWETH(0x6969696969696969696969696969696969696969);
 
@@ -20,7 +20,7 @@ IWETH constant WRAPPED_NATIVE_ASSET = IWETH(0x6969696969696969696969696969696969
 string constant DEPOSIT_EXECUTOR_SALT = "CCDM_DEPOSIT_EXECUTOR_02348b91cb3ab7939679deaa8b038ca74da64514";
 
 // Expected deployment addresses after simulating deployment
-address constant EXPECTED_DEPOSIT_EXECUTOR_ADDRESS = 0xB4cDac162905F79927D57647CE234202E4A54694;
+address constant EXPECTED_DEPOSIT_EXECUTOR_ADDRESS = 0xfA72467e6C1a6b8A5F79180583243E5DD9345C71;
 
 contract DeployDepositExecutor is Script {
     error Create2DeployerNotDeployed();
@@ -125,6 +125,18 @@ contract DeployDepositExecutor is Script {
             )
         );
         DepositExecutor depositExecutor = DepositExecutor(payable(_deployWithSanityChecks(DEPOSIT_EXECUTOR_SALT, depositExecutorCreationCode)));
+
+        console2.log("constructor args: ", abi.encode(
+                DEPOSIT_EXECUTOR_OWNER,
+                LZ_V2_ENDPOINT,
+                CAMPAIGN_VERIFIER,
+                WRAPPED_NATIVE_ASSET,
+                SOURCE_CHAIN_LZ_EID,
+                DEPOSIT_LOCKER,
+                LZ_V2_OFTs,
+                SOURCE_MARKET_HASHES,
+                CAMPAIGN_OWNERS
+            ), "\n");
 
         console2.log("Verifying DepositExecutor deployment");
         _verifyDepositExecutorDeployment(depositExecutor);
