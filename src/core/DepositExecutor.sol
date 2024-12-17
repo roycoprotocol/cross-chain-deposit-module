@@ -449,72 +449,84 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
     }
 
-    function withdraw(address _weirollWallet) external nonReentrant {
-        // Instantiate Weiroll Wallet from the stored address
-        WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallet));
-        // Get the campaign details for the source market
-        DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[weirollWallet.marketHash()];
+    /**
+     * @notice Withdraws input tokens and/or receipt tokens for each specified Weiroll wallet to the caller (depositor).
+     * @dev This function allows depositors to withdraw their proportional shares of tokens and/or receipt tokens from the specified Weiroll wallets after they
+     * are unlocked.
+     * @dev If the deposit recipe was executed for a Weiroll wallet, the depositor receives a proportional share of both the receipt tokens and any residual
+     * ("dust") input tokens.
+     * @dev If the deposit recipe was not executed for a Weiroll wallet, the depositor simply withdraws their originally deposited input tokens.
+     * @dev Withdrawals are only possible after the Weiroll wallet's unlock timestamp has passed.
+     * @param _weirollWallets An array of Weiroll Wallet addresses from which the msg.sender (depositor) wants to withdraw from.
+     */
+    function withdraw(address[] calldata _weirollWallets) external nonReentrant {
+        // Execute withdrawals for the specified wallets
+        for (uint256 i = 0; i < _weirollWallets.length; ++i) {
+            // Instantiate Weiroll Wallet from the address
+            WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallets[i]));
+            // Get the campaign details for the source market
+            DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[weirollWallet.marketHash()];
 
-        // Checks to ensure that the withdrawal is after the lock timestamp
-        require(weirollWallet.lockedUntil() <= block.timestamp, CannotWithdrawBeforeUnlockTimestamp());
+            // Checks to ensure that the withdrawal is after the lock timestamp
+            require(weirollWallet.lockedUntil() <= block.timestamp, CannotWithdrawBeforeUnlockTimestamp());
 
-        // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM Nonce on destination)
-        WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallet];
+            // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM Nonce on destination)
+            WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallets[i]];
 
-        if (weirollWallet.executed()) {
-            // If deposit recipe has been executed, return the depositor's share of the receipt tokens and their share of
-            ERC20 receiptToken = campaign.receiptToken;
+            if (weirollWallet.executed()) {
+                // If deposit recipe has been executed, return the depositor's share of the receipt tokens and their share of
+                ERC20 receiptToken = campaign.receiptToken;
 
-            for (uint256 i = 0; i < campaign.inputTokens.length; ++i) {
-                // Get the amount of this input token deposited by the depositor and the total deposit amount
-                ERC20 inputToken = campaign.inputTokens[i];
-                uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
-                uint256 totalAmountDeposited = walletAccounting.tokenToTotalAmountDeposited[inputToken];
+                for (uint256 j = 0; j < campaign.inputTokens.length; ++j) {
+                    // Get the amount of this input token deposited by the depositor and the total deposit amount
+                    ERC20 inputToken = campaign.inputTokens[i];
+                    uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+                    uint256 totalAmountDeposited = walletAccounting.tokenToTotalAmountDeposited[inputToken];
 
-                // Update the accounting to reflect the withdrawal
-                delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
-                walletAccounting.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
+                    // Update the accounting to reflect the withdrawal
+                    delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+                    walletAccounting.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
 
-                if (i == 0) {
-                    // Calculate the receipt tokens owed to the depositor
-                    uint256 receiptTokensOwed = (receiptToken.balanceOf(_weirollWallet) * amountDeposited) / totalAmountDeposited;
-                    // Remit the receipt tokens to the depositor
-                    receiptToken.safeTransferFrom(_weirollWallet, msg.sender, receiptTokensOwed);
-                }
+                    if (i == 0) {
+                        // Calculate the receipt tokens owed to the depositor
+                        uint256 receiptTokensOwed = (receiptToken.balanceOf(_weirollWallets[i]) * amountDeposited) / totalAmountDeposited;
+                        // Remit the receipt tokens to the depositor
+                        receiptToken.safeTransferFrom(_weirollWallets[i], msg.sender, receiptTokensOwed);
+                    }
 
-                // Don't allow for double withdrawals if receipt and input token are equivalent
-                if (address(receiptToken) != address(inputToken)) {
-                    // Calculate the dust tokens owed to the depositor
-                    uint256 dustTokensOwed = (inputToken.balanceOf(_weirollWallet) * amountDeposited) / totalAmountDeposited;
-                    if (dustTokensOwed > 0) {
-                        // Remit the dust tokens to the depositor
-                        inputToken.safeTransferFrom(_weirollWallet, msg.sender, dustTokensOwed);
+                    // Don't allow for double withdrawals if receipt and input token are equivalent
+                    if (address(receiptToken) != address(inputToken)) {
+                        // Calculate the dust tokens owed to the depositor
+                        uint256 dustTokensOwed = (inputToken.balanceOf(_weirollWallets[i]) * amountDeposited) / totalAmountDeposited;
+                        if (dustTokensOwed > 0) {
+                            // Remit the dust tokens to the depositor
+                            inputToken.safeTransferFrom(_weirollWallets[i], msg.sender, dustTokensOwed);
+                        }
                     }
                 }
+            } else {
+                // Check that a valid number of input tokens have been set for this campaign
+                require(campaign.numInputTokens != 0 && (campaign.inputTokens.length == campaign.numInputTokens), CampaignTokensNotSet());
+
+                // If deposit recipe hasn't been executed, return the depositor's share of the input tokens
+                for (uint256 j = 0; j < campaign.inputTokens.length; ++j) {
+                    // Get the amount of this input token deposited by the depositor
+                    ERC20 inputToken = campaign.inputTokens[i];
+                    uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+
+                    // Make sure that the depositor can withdraw all campaign's input tokens atomically to avoid race conditions with recipe execution
+                    require(amountDeposited > 0, WaitingToReceiveAllTokens());
+
+                    // Update the accounting to reflect the withdrawal
+                    delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+                    walletAccounting.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
+
+                    // Transfer the amount deposited back to the depositor
+                    inputToken.safeTransfer(msg.sender, amountDeposited);
+                }
             }
-        } else {
-            // Check that a valid number of input tokens have been set for this campaign
-            require(campaign.numInputTokens != 0 && (campaign.inputTokens.length == campaign.numInputTokens), CampaignTokensNotSet());
-
-            // If deposit recipe hasn't been executed, return the depositor's share of the input tokens
-            for (uint256 i = 0; i < campaign.inputTokens.length; ++i) {
-                // Get the amount of this input token deposited by the depositor
-                ERC20 inputToken = campaign.inputTokens[i];
-                uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
-
-                // Make sure that the depositor can withdraw all campaign's input tokens atomically to avoid race conditions with recipe execution
-                require(amountDeposited > 0, WaitingToReceiveAllTokens());
-
-                // Update the accounting to reflect the withdrawal
-                delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
-                walletAccounting.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
-
-                // Transfer the amount deposited back to the depositor
-                inputToken.safeTransfer(msg.sender, amountDeposited);
-            }
+            emit DepositorWithdrawn(_weirollWallets[i], msg.sender);
         }
-
-        emit DepositorWithdrawn(_weirollWallet, msg.sender);
     }
 
     /**

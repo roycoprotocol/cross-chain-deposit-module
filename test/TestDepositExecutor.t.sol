@@ -159,12 +159,15 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         vm.warp(unlockTimestamp);
 
+        address[] memory walletsToWithdraw = new address[](1);
+        walletsToWithdraw[0] = address(weirollWalletCreatedForBridge);
+
         for (uint256 i = 0; i < bridgeResult.depositors.length; ++i) {
             vm.warp(unlockTimestamp + (i * 1 hours));
 
             // Withdraw without executing deposit recipes
             vm.startPrank(bridgeResult.depositors[i]);
-            depositExecutor.withdraw(address(weirollWalletCreatedForBridge));
+            depositExecutor.withdraw(walletsToWithdraw);
             vm.stopPrank();
 
             // Assert that depositor got their receipt tokens and any interest.
@@ -272,6 +275,9 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         vm.warp(unlockTimestamp);
 
+        address[] memory walletsToWithdraw = new address[](1);
+        walletsToWithdraw[0] = address(weirollWalletCreatedForBridge);
+
         for (uint256 i = 0; i < bridgeResult.depositors.length; ++i) {
             // Expect transfer call and event
             vm.expectCall(USDC_POLYGON_ADDRESS, abi.encodeCall(ERC20.transfer, (bridgeResult.depositors[i], bridgeResult.depositAmounts[i])));
@@ -280,7 +286,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
             // Withdraw without executing deposit recipes
             vm.startPrank(bridgeResult.depositors[i]);
-            depositExecutor.withdraw(address(weirollWalletCreatedForBridge));
+            depositExecutor.withdraw(walletsToWithdraw);
             vm.stopPrank();
 
             // Assert that depositor got their tokens
