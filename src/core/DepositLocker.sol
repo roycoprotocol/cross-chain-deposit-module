@@ -434,7 +434,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
-        // Initialize compose message - first 33 bytes are BRIDGE_TYPE and market hash
+        // Initialize compose message
         bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE);
 
         // Array to store the actual depositors bridged
@@ -445,7 +445,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 numDepositorsIncluded;
 
         for (uint256 i = 0; i < _depositors.length; ++i) {
-            // Process depositor and update the compose message
+            // Process depositor and update the compose message with depositor info
             uint256 depositAmount = _processSingleTokenDepositor(_marketHash, numDepositorsIncluded, _depositors[i], nonce, composeMsg);
             if (depositAmount == 0) {
                 // If this depositor was omitted, continue.
@@ -511,7 +511,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
 
-        // Initialize compose messages for both tokens
         // Get deposit amount for each depositor and total deposit amount for this batch
         uint256 lp_TotalDepositsInBatch = 0;
         uint256[] memory lp_DepositAmounts = new uint256[](_depositors.length);
@@ -542,25 +541,24 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             address(token0), address(token1), lp_TotalDepositsInBatch, _minAmountOfToken0ToBridge, _minAmountOfToken1ToBridge, address(this), block.timestamp
         );
 
-        uint256 token0_DecimalConversionRate = 10 ** (token0.decimals() - tokenToLzV2OFT[token0].sharedDecimals());
-        uint256 token1_DecimalConversionRate = 10 ** (token1.decimals() - tokenToLzV2OFT[token1].sharedDecimals());
-
+        // Initialize compose messages for both tokens
         bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE);
         bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE);
-
-        // Array to store the actual depositors bridged
-        address[] memory depositorsBridged = new address[](_depositors.length);
-
-        // Initialize totals
-        TotalAmountsToBridge memory totals;
 
         // Create params struct
         LpTokenDepositorParams memory params;
         params.lp_TotalAmountToBridge = lp_TotalDepositsInBatch;
         params.token0_TotalAmountReceivedOnBurn = token0_AmountReceivedOnBurn;
         params.token1_TotalAmountReceivedOnBurn = token1_AmountReceivedOnBurn;
-        params.token0_DecimalConversionRate = token0_DecimalConversionRate;
-        params.token1_DecimalConversionRate = token1_DecimalConversionRate;
+        // Get conversion rate between LD and SD to calculate dust amounts to refund
+        params.token0_DecimalConversionRate = 10 ** (token0.decimals() - tokenToLzV2OFT[token0].sharedDecimals());
+        params.token1_DecimalConversionRate = 10 ** (token1.decimals() - tokenToLzV2OFT[token1].sharedDecimals());
+
+        // Initialize an array to store the actual depositors bridged
+        address[] memory depositorsBridged = new address[](_depositors.length);
+
+        // Initialize totals
+        TotalAmountsToBridge memory totals;
 
         // Marshal the bridge payload for each token's bridge
         for (uint256 i = 0; i < _depositors.length; ++i) {
