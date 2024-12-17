@@ -774,16 +774,16 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @notice Deposit Recipe can now be executed.
      * @dev Only callable by the campaign verifier for initialized campaigns.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
-     * @param _scriptVerificationHash The hash of the campaign parameters to verify - prevents token/script setting frontrunning attacks by the campaign owner.
+     * @param _campaignVerificationHash The hash of the campaign parameters to verify - prevents token/script setting frontrunning attacks by the owner.
      */
-    function verifyCampaign(bytes32 _sourceMarketHash, bytes32 _scriptVerificationHash) external onlyCampaignVerifier {
+    function verifyCampaign(bytes32 _sourceMarketHash, bytes32 _campaignVerificationHash) external onlyCampaignVerifier {
         // Get the deposit campaign corresponding to this source market hash
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
 
         // Check that the campaign has been initialized
         require(address(campaign.receiptToken) != address(0), CampaignIsUninitialized());
         // Check that the campaign params have not been modified since the verifier reviewed them
-        require(_scriptVerificationHash == getCampaignVerificationHash(_sourceMarketHash), CampaignVerificationFailed());
+        require(_campaignVerificationHash == getCampaignVerificationHash(_sourceMarketHash), CampaignVerificationFailed());
 
         campaign.verified = true;
         emit CampaignVerificationStatusSet(_sourceMarketHash, true);
