@@ -43,16 +43,8 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
-        DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS,
-            30_284,
-            address(0xbeef),
-            GREEN_LIGHTER_ADDRESS,
-            recipeMarketHub,
-            IWETH(WETH_MAINNET_ADDRESS),
-            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            lzV2OFTs
-        );
+        DepositLocker depositLocker =
+            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -135,16 +127,8 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(STARGATE_POOL_NATIVE_MAINNET_ADDRESS); // Stargate native pool on ETH Mainnet
 
         // Locker for bridging to SEI (Stargate Hydra on destination chain)
-        DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS,
-            30_280,
-            address(0xbeef),
-            GREEN_LIGHTER_ADDRESS,
-            recipeMarketHub,
-            IWETH(WETH_MAINNET_ADDRESS),
-            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            lzV2OFTs
-        );
+        DepositLocker depositLocker =
+            new DepositLocker(OWNER_ADDRESS, 30_280, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -232,16 +216,8 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to Avax
-        DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS,
-            30_106,
-            address(0xbeef),
-            GREEN_LIGHTER_ADDRESS,
-            recipeMarketHub,
-            IWETH(WETH_MAINNET_ADDRESS),
-            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            lzV2OFTs
-        );
+        DepositLocker depositLocker =
+            new DepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 
@@ -325,16 +301,8 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(STARGATE_POOL_NATIVE_MAINNET_ADDRESS); // Stargate native pool on ETH Mainnet
 
         // Locker for bridging to IOTA (hydra on IOTA so its feeless)
-        DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS,
-            30_284,
-            address(0xbeef),
-            GREEN_LIGHTER_ADDRESS,
-            recipeMarketHub,
-            IWETH(WETH_MAINNET_ADDRESS),
-            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            lzV2OFTs
-        );
+        DepositLocker depositLocker =
+            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs);
 
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
 

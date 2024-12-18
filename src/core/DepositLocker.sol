@@ -316,7 +316,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _depositExecutor The address of the DepositExecutor on the destination chain.
      * @param _greenLighter The address of the global green lighter responsible for marking deposits as bridgable.
      * @param _recipeMarketHub The address of the recipe market hub used to create markets on the source chain.
-     * @param _wrapped_native_asset_token The address of the wrapped native asset token on the source chain.
      * @param _uniswap_v2_router The address of the Uniswap V2 router on the source chain.
      * @param _lzV2OFTs The LayerZero V2 OFT instances for each acceptable deposit token on the source chain.
      */
@@ -326,7 +325,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         address _depositExecutor,
         address _greenLighter,
         RecipeMarketHubBase _recipeMarketHub,
-        IWETH _wrapped_native_asset_token,
         IUniswapV2Router01 _uniswap_v2_router,
         IOFT[] memory _lzV2OFTs
     )
@@ -334,7 +332,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     {
         // Initialize the contract state
         RECIPE_MARKET_HUB = _recipeMarketHub;
-        WRAPPED_NATIVE_ASSET_TOKEN = _wrapped_native_asset_token;
+        WRAPPED_NATIVE_ASSET_TOKEN = IWETH(_uniswap_v2_router.WETH());
         UNISWAP_V2_ROUTER = _uniswap_v2_router;
         ccdmNonce = 1; // The first CCDM bridge transaction will have a nonce of 1
 

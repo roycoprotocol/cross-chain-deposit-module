@@ -324,16 +324,8 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS); // WBTC OFT Adapter on ETH Mainnet
 
         // Locker for bridging to IOTA (Stargate Hydra on destination chain)
-        DepositLocker depositLocker = new DepositLocker(
-            OWNER_ADDRESS,
-            30_284,
-            address(0xbeef),
-            GREEN_LIGHTER_ADDRESS,
-            recipeMarketHub,
-            IWETH(WETH_MAINNET_ADDRESS),
-            UNISWAP_V2_MAINNET_ROUTER_ADDRESS,
-            lzV2OFTs
-        );
+        DepositLocker depositLocker =
+            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs);
 
         result.depositLocker = address(depositLocker);
 
