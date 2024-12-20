@@ -531,12 +531,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Returns the hash of the campaign parameters which must be used to check against the current parameters on verification.
-     * @notice Hash includes the campaign's input tokens, receipt token, and deposit recipe since correct execution is dependent on all three.
-     * @return campaignVerificationHash The hash of the encoded input tokens, receipt token, and deposit recipe.
+     * @notice Hash includes the campaign's receipt token and deposit recipe since correct execution is dependent on all three.
+     * @return campaignVerificationHash The hash of the encoded receipt token and deposit recipe.
      */
     function getCampaignVerificationHash(bytes32 _sourceMarketHash) public view returns (bytes32 campaignVerificationHash) {
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[_sourceMarketHash];
-        campaignVerificationHash = keccak256(abi.encode(campaign.inputTokens, campaign.receiptToken, campaign.depositRecipe));
+        campaignVerificationHash = keccak256(abi.encode(campaign.receiptToken, campaign.depositRecipe));
     }
 
     /**
@@ -786,7 +786,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @notice Deposit Recipe can now be executed.
      * @dev Only callable by the campaign verifier for initialized campaigns.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
-     * @param _campaignVerificationHash The hash of the campaign parameters to verify - prevents token/script setting frontrunning attacks by the owner.
+     * @param _campaignVerificationHash The hash of the campaign parameters to verify - prevents receipt token and script setting frontrunning attacks.
      */
     function verifyCampaign(bytes32 _sourceMarketHash, bytes32 _campaignVerificationHash) external onlyCampaignVerifier {
         // Get the deposit campaign corresponding to this source market hash
