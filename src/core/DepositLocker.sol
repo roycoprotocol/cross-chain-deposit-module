@@ -428,8 +428,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _depositors The addresses of the depositors (APs) to bridge
      */
     function bridgeSingleTokens(bytes32 _marketHash, address[] calldata _depositors) external payable readyToBridge(_marketHash) nonReentrant {
-        require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
-
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
         // Initialize compose message
@@ -455,6 +453,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Ensure that at least one depositor was included in the bridge payload
         require(totalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+        // Ensure that the number of depositors bridged is less than the globally defined limit
+        require(numDepositorsIncluded <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
 
         // Resize the compose message to reflect the actual number of depositors included in the payload
         composeMsg.resizeComposeMsg(numDepositorsIncluded);
@@ -504,8 +504,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         readyToBridge(_marketHash)
         nonReentrant
     {
-        require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
-
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
 
@@ -571,8 +569,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Ensure that at least one depositor was included in the bridge payload
         require(totals.token0_TotalAmountToBridge > 0 && totals.token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
-        // Resize the compose messages to reflect the actual number of depositors bridged
         uint256 numDepositorsIncluded = params.numDepositorsIncluded;
+        // Ensure that the number of depositors bridged is less than the globally defined limit
+        require(numDepositorsIncluded <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
+        // Resize the compose messages to reflect the actual number of depositors bridged
         token0_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
         token1_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
 
