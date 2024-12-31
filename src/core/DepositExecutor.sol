@@ -479,7 +479,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
                 for (uint256 j = 0; j < campaign.inputTokens.length; ++j) {
                     // Get the amount of this input token deposited by the depositor and the total deposit amount
-                    ERC20 inputToken = campaign.inputTokens[i];
+                    ERC20 inputToken = campaign.inputTokens[j];
                     uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
                     uint256 totalAmountDeposited = walletAccounting.tokenToTotalAmountDeposited[inputToken];
 
@@ -487,7 +487,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                     delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
                     walletAccounting.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
 
-                    if (i == 0) {
+                    if (j == 0) {
                         // Calculate the receipt tokens owed to the depositor
                         uint256 receiptTokensOwed = (receiptToken.balanceOf(_weirollWallets[i]) * amountDeposited) / totalAmountDeposited;
                         // Remit the receipt tokens to the depositor
@@ -511,7 +511,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                 // If deposit recipe hasn't been executed, return the depositor's share of the input tokens
                 for (uint256 j = 0; j < campaign.inputTokens.length; ++j) {
                     // Get the amount of this input token deposited by the depositor
-                    ERC20 inputToken = campaign.inputTokens[i];
+                    ERC20 inputToken = campaign.inputTokens[j];
                     uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
 
                     // Make sure that the depositor can withdraw all campaign's input tokens atomically to avoid race conditions with recipe execution
