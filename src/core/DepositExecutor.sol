@@ -803,7 +803,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Sets the campaign verification status to false.
-     * @notice Deposit Recipe cannot be executed and withdrawals are blocked until verified.
+     * @notice Deposit Recipe cannot be executed until verified.
      * @dev Only callable by the campaign verifier.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      */
