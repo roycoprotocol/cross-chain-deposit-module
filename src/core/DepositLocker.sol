@@ -100,7 +100,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     IUniswapV2Router01 public immutable UNISWAP_V2_ROUTER;
 
     /// @notice The hash of the Weiroll Wallet code
-    bytes32 public immutable WEIROLL_WALLET_INIT_CODE_HASH;
+    bytes32 public immutable WEIROLL_WALLET_PROXY_CODE_HASH;
 
     /// @notice The party that green lights bridging on a per market basis
     address public greenLighter;
@@ -299,7 +299,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Check that the length is valid and the codeHash matches that of a Weiroll Wallet proxy
-        require(code.length == 195 && codeHash == WEIROLL_WALLET_INIT_CODE_HASH, OnlyWeirollWallet());
+        require(code.length == 195 && codeHash == WEIROLL_WALLET_PROXY_CODE_HASH, OnlyWeirollWallet());
         _;
     }
 
@@ -354,7 +354,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         RECIPE_MARKET_HUB = _recipeMarketHub;
         WRAPPED_NATIVE_ASSET_TOKEN = IWETH(_uniswap_v2_router.WETH());
         UNISWAP_V2_ROUTER = _uniswap_v2_router;
-        WEIROLL_WALLET_INIT_CODE_HASH = keccak256(
+        WEIROLL_WALLET_PROXY_CODE_HASH = keccak256(
             abi.encodePacked(
                 hex"363d3d3761008b603836393d3d3d3661008b013d73", _recipeMarketHub.WEIROLL_WALLET_IMPLEMENTATION(), hex"5af43d82803e903d91603657fd5bf3"
             )
