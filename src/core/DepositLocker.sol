@@ -288,6 +288,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when the lengths of the source market hashes and owners array don't match in the constructor.
     error ArrayLengthMismatch();
 
+    /// @notice Error emitted when transferring back excess msg.value fails.
+    error RefundFailed();
+
     /*//////////////////////////////////////////////////////////////
                                 Modifiers
     //////////////////////////////////////////////////////////////*/
@@ -504,7 +507,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Refund any excess value sent with the transaction
         if (msg.value > bridgingFee) {
-            payable(msg.sender).transfer(msg.value - bridgingFee);
+            (bool success,) = payable(msg.sender).call{ value: msg.value - bridgingFee }("");
+            require(success, RefundFailed());
         }
 
         // Emit event to keep track of bridged deposits
@@ -788,7 +792,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Refund excess value sent with the transaction
         if (msg.value > totalBridgingFee) {
-            payable(msg.sender).transfer(msg.value - totalBridgingFee);
+            (bool success,) = payable(msg.sender).call{ value: msg.value - totalBridgingFee }("");
+            require(success, RefundFailed());
         }
 
         // Emit event to keep track of bridged deposits
