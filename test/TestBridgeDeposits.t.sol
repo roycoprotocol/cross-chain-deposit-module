@@ -362,8 +362,13 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         vm.stopPrank();
 
+        bytes32[] memory marketHashes = new bytes32[](1);
+        marketHashes[0] = marketHash;
+        address[] memory owners = new address[](1);
+        owners[0] = IP_ADDRESS;
+
         vm.startPrank(OWNER_ADDRESS);
-        depositLocker.setLpMarketOwner(marketHash, IP_ADDRESS);
+        depositLocker.setLpMarketOwners(marketHashes, owners);
         vm.stopPrank();
 
         vm.startPrank(GREEN_LIGHTER_ADDRESS);

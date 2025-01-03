@@ -753,12 +753,14 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /**
-     * @notice Flags the LayerZero V2 OFT as a valid invoker of the lzCompose function.
+     * @notice Flags the LayerZero V2 OFTs as valid invokers of the lzCompose function.
      * @dev Only callable by the contract owner.
-     * @param _lzV2OFT LayerZero V2 OFT to flag as valid.
+     * @param _lzV2OFTs LayerZero V2 OFTs to flag as valid.
      */
-    function setValidLzOFT(address _lzV2OFT) external onlyOwner {
-        _setValidLzOFT(_lzV2OFT);
+    function setValidLzOFTs(address[] calldata _lzV2OFTs) external onlyOwner {
+        for (uint256 i = 0; i < _lzV2OFTs.length; ++i) {
+            _setValidLzOFT(_lzV2OFTs[i]);
+        }
     }
 
     /**
@@ -772,13 +774,28 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /**
+     * @notice Sets owners for the specified campaigns.
+     * @dev Only callable by the contract owner.
+     * @param _sourceMarketHashes The market hashes on the source chain used to identify the corresponding campaigns on the destination.
+     * @param _campaignOwners The addresses of the campaign owners.
+     */
+    function setCampaignOwners(bytes32[] calldata _sourceMarketHashes, address[] calldata _campaignOwners) external onlyOwner {
+        // Make sure the each campaign identified by its source market hash has a corresponding owner
+        require(_sourceMarketHashes.length == _campaignOwners.length, ArrayLengthMismatch());
+
+        for (uint256 i = 0; i < _sourceMarketHashes.length; ++i) {
+            _setCampaignOwner(_sourceMarketHashes[i], _campaignOwners[i]);
+        }
+    }
+
+    /**
      * @notice Sets a new owner for the specified campaign.
      * @dev Only callable by the contract owner or the current owner of the campaign.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
-     * @param _owner The address of the campaign owner.
+     * @param _campaignOwner The address of the campaign owner.
      */
-    function setNewCampaignOwner(bytes32 _sourceMarketHash, address _owner) external onlyCampaignOwnerOrDepositExecutorOwner(_sourceMarketHash) {
-        _setCampaignOwner(_sourceMarketHash, _owner);
+    function setNewCampaignOwner(bytes32 _sourceMarketHash, address _campaignOwner) external onlyCampaignOwnerOrDepositExecutorOwner(_sourceMarketHash) {
+        _setCampaignOwner(_sourceMarketHash, _campaignOwner);
     }
 
     /**

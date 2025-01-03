@@ -285,6 +285,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when bridging all the specified deposits fails.
     error FailedToBridgeAllDeposits();
 
+    /// @notice Error emitted when the lengths of the source market hashes and owners array don't match in the constructor.
+    error ArrayLengthMismatch();
+
     /*//////////////////////////////////////////////////////////////
                                 Modifiers
     //////////////////////////////////////////////////////////////*/
@@ -924,24 +927,29 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Sets the owner of an LP token market.
+     * @notice Sets the owners of LP token markets.
      * @dev Only callable by the contract owner.
-     * @param _marketHash The market hash to set the LP token owner for.
-     * @param _lpMarketOwner Address of the LP token market owner.
+     * @param _marketHashes The market hashes to set the LP market owners for.
+     * @param _lpMarketOwners Addresses of the LP market owners.
      */
-    function setLpMarketOwner(bytes32 _marketHash, address _lpMarketOwner) external onlyOwner {
-        marketHashToLpMarketOwner[_marketHash] = _lpMarketOwner;
-        emit LpMarketOwnerSet(_marketHash, _lpMarketOwner);
+    function setLpMarketOwners(bytes32[] calldata _marketHashes, address[] calldata _lpMarketOwners) external onlyOwner {
+        require(_marketHashes.length == _lpMarketOwners.length, ArrayLengthMismatch());
+        for (uint256 i = 0; i < _marketHashes.length; ++i) {
+            marketHashToLpMarketOwner[_marketHashes[i]] = _lpMarketOwners[i];
+            emit LpMarketOwnerSet(_marketHashes[i], _lpMarketOwners[i]);
+        }
     }
 
     /**
-     * @notice Sets the LayerZero V2 OFT for the underlying token.
-     * @notice _lzV2OFT must implement IOFT.
+     * @notice Sets the LayerZero V2 OFTs for the underlying tokens.
+     * @notice Elements of _lzV2OFTs must implement IOFT.
      * @dev Only callable by the contract owner.
-     * @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
+     * @param _lzV2OFTs LayerZero OFTs to use to bridge the underlying tokens.
      */
-    function setLzOFT(IOFT _lzV2OFT) external onlyOwner {
-        _setLzV2OFTForToken(_lzV2OFT);
+    function setLzOFTs(IOFT[] calldata _lzV2OFTs) external onlyOwner {
+        for (uint256 i = 0; i < _lzV2OFTs.length; ++i) {
+            _setLzV2OFTForToken(_lzV2OFTs[i]);
+        }
     }
 
     /**
