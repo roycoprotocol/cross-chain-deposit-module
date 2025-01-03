@@ -102,6 +102,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The hash of the Weiroll Wallet code
     bytes32 public immutable WEIROLL_WALLET_PROXY_CODE_HASH;
 
+    /// @notice The address of the Weiroll Wallet that deposited into the CCDM in this transaction.
+    address public transient currentlyDepositingWeirollWallet;
+
     /// @notice The party that green lights bridging on a per market basis
     address public greenLighter;
 
@@ -416,6 +419,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
         walletInfo.ccdmNonceOnDeposit = ccdmNonce;
         walletInfo.amountDeposited = amountDeposited;
+
+        // Set the depositing Weiroll Wallet in transient state
+        currentlyDepositingWeirollWallet = msg.sender;
 
         // Emit deposit event
         emit UserDeposited(targetMarketHash, depositor, amountDeposited);
