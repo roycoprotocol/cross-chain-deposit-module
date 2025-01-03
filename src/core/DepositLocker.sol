@@ -30,7 +30,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 300;
 
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
-    uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
+    uint256 public constant RAGE_QUIT_PERIOD_DURATION = 0 hours;
 
     /// @notice The code hash of the Uniswap V2 Pair contract.
     bytes32 internal constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;
@@ -98,6 +98,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice The Uniswap V2 router on the source chain.
     IUniswapV2Router01 public immutable UNISWAP_V2_ROUTER;
+
+    /// @notice The hash of the Weiroll Wallet code
+    bytes32 public immutable WEIROLL_WALLET_PROXY_CODE_HASH;
+
+    /// @notice The address of the Weiroll Wallet that deposited into the CCDM in this transaction.
+    address public transient currentlyDepositingWeirollWallet;
 
     /// @notice The party that green lights bridging on a per market basis
     address public greenLighter;
@@ -240,6 +246,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     event GreenLightTurnedOff(bytes32 indexed marketHash);
 
+    /// @notice Error emitted when calling deposit from an address that isn't a Weiroll Wallet.
+    error OnlyWeirollWallet();
+
     /// @notice Error emitted when trying to deposit into the locker for a Royco market that is either not created or has an undeployed input token.
     error RoycoMarketNotInitialized();
 
@@ -279,9 +288,29 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when bridging all the specified deposits fails.
     error FailedToBridgeAllDeposits();
 
+    /// @notice Error emitted when the lengths of the source market hashes and owners array don't match in the constructor.
+    error ArrayLengthMismatch();
+
+    /// @notice Error emitted when transferring back excess msg.value fails.
+    error RefundFailed();
+
     /*//////////////////////////////////////////////////////////////
                                 Modifiers
     //////////////////////////////////////////////////////////////*/
+
+    /// @dev Modifier to ensure the caller is a Weiroll Wallet created using the clone with immutable args pattern.
+    modifier onlyWeirollWallet() {
+        bytes memory code = msg.sender.code;
+        bytes32 codeHash;
+        assembly ("memory-safe") {
+            // Get code hash of the runtime bytecode without the immutable args
+            codeHash := keccak256(add(code, 32), 56)
+        }
+
+        // Check that the length is valid and the codeHash matches that of a Weiroll Wallet proxy
+        require(code.length == 195 && codeHash == WEIROLL_WALLET_PROXY_CODE_HASH, OnlyWeirollWallet());
+        _;
+    }
 
     /// @dev Modifier to ensure the caller is the authorized multisig for the market.
     modifier onlyGreenLighter() {
@@ -334,6 +363,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         RECIPE_MARKET_HUB = _recipeMarketHub;
         WRAPPED_NATIVE_ASSET_TOKEN = IWETH(_uniswap_v2_router.WETH());
         UNISWAP_V2_ROUTER = _uniswap_v2_router;
+        WEIROLL_WALLET_PROXY_CODE_HASH = keccak256(
+            abi.encodePacked(
+                hex"363d3d3761008b603836393d3d3d3661008b013d73", _recipeMarketHub.WEIROLL_WALLET_IMPLEMENTATION(), hex"5af43d82803e903d91603657fd5bf3"
+            )
+        );
         ccdmNonce = 1; // The first CCDM bridge transaction will have a nonce of 1
 
         for (uint256 i = 0; i < _lzV2OFTs.length; ++i) {
@@ -357,7 +391,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /**
      * @notice Called by the deposit script from the depositor's Weiroll wallet.
      */
-    function deposit() external nonReentrant {
+    function deposit() external nonReentrant onlyWeirollWallet {
         // Get Weiroll Wallet's market hash, depositor/owner/AP, and amount deposited
         WeirollWallet wallet = WeirollWallet(payable(msg.sender));
         bytes32 targetMarketHash = wallet.marketHash();
@@ -385,6 +419,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
         walletInfo.ccdmNonceOnDeposit = ccdmNonce;
         walletInfo.amountDeposited = amountDeposited;
+
+        // Set the depositing Weiroll Wallet in transient state
+        currentlyDepositingWeirollWallet = msg.sender;
 
         // Emit deposit event
         emit UserDeposited(targetMarketHash, depositor, amountDeposited);
@@ -428,8 +465,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _depositors The addresses of the depositors (APs) to bridge
      */
     function bridgeSingleTokens(bytes32 _marketHash, address[] calldata _depositors) external payable readyToBridge(_marketHash) nonReentrant {
-        require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
-
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
         // Initialize compose message
@@ -455,6 +490,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Ensure that at least one depositor was included in the bridge payload
         require(totalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+        // Ensure that the number of depositors bridged is less than the globally defined limit
+        require(numDepositorsIncluded <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
 
         // Resize the compose message to reflect the actual number of depositors included in the payload
         composeMsg.resizeComposeMsg(numDepositorsIncluded);
@@ -476,7 +513,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Refund any excess value sent with the transaction
         if (msg.value > bridgingFee) {
-            payable(msg.sender).transfer(msg.value - bridgingFee);
+            (bool success,) = payable(msg.sender).call{ value: msg.value - bridgingFee }("");
+            require(success, RefundFailed());
         }
 
         // Emit event to keep track of bridged deposits
@@ -504,8 +542,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         readyToBridge(_marketHash)
         nonReentrant
     {
-        require(_depositors.length <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
-
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
 
@@ -571,8 +607,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Ensure that at least one depositor was included in the bridge payload
         require(totals.token0_TotalAmountToBridge > 0 && totals.token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
-        // Resize the compose messages to reflect the actual number of depositors bridged
         uint256 numDepositorsIncluded = params.numDepositorsIncluded;
+        // Ensure that the number of depositors bridged is less than the globally defined limit
+        require(numDepositorsIncluded <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
+        // Resize the compose messages to reflect the actual number of depositors bridged
         token0_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
         token1_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
 
@@ -760,7 +798,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Refund excess value sent with the transaction
         if (msg.value > totalBridgingFee) {
-            payable(msg.sender).transfer(msg.value - totalBridgingFee);
+            (bool success,) = payable(msg.sender).call{ value: msg.value - totalBridgingFee }("");
+            require(success, RefundFailed());
         }
 
         // Emit event to keep track of bridged deposits
@@ -899,24 +938,29 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Sets the owner of an LP token market.
+     * @notice Sets the owners of LP token markets.
      * @dev Only callable by the contract owner.
-     * @param _marketHash The market hash to set the LP token owner for.
-     * @param _lpMarketOwner Address of the LP token market owner.
+     * @param _marketHashes The market hashes to set the LP market owners for.
+     * @param _lpMarketOwners Addresses of the LP market owners.
      */
-    function setLpMarketOwner(bytes32 _marketHash, address _lpMarketOwner) external onlyOwner {
-        marketHashToLpMarketOwner[_marketHash] = _lpMarketOwner;
-        emit LpMarketOwnerSet(_marketHash, _lpMarketOwner);
+    function setLpMarketOwners(bytes32[] calldata _marketHashes, address[] calldata _lpMarketOwners) external onlyOwner {
+        require(_marketHashes.length == _lpMarketOwners.length, ArrayLengthMismatch());
+        for (uint256 i = 0; i < _marketHashes.length; ++i) {
+            marketHashToLpMarketOwner[_marketHashes[i]] = _lpMarketOwners[i];
+            emit LpMarketOwnerSet(_marketHashes[i], _lpMarketOwners[i]);
+        }
     }
 
     /**
-     * @notice Sets the LayerZero V2 OFT for the underlying token.
-     * @notice _lzV2OFT must implement IOFT.
+     * @notice Sets the LayerZero V2 OFTs for the underlying tokens.
+     * @notice Elements of _lzV2OFTs must implement IOFT.
      * @dev Only callable by the contract owner.
-     * @param _lzV2OFT LayerZero OFT to use to bridge the specified token.
+     * @param _lzV2OFTs LayerZero OFTs to use to bridge the underlying tokens.
      */
-    function setLzOFT(IOFT _lzV2OFT) external onlyOwner {
-        _setLzV2OFTForToken(_lzV2OFT);
+    function setLzOFTs(IOFT[] calldata _lzV2OFTs) external onlyOwner {
+        for (uint256 i = 0; i < _lzV2OFTs.length; ++i) {
+            _setLzV2OFTForToken(_lzV2OFTs[i]);
+        }
     }
 
     /**
