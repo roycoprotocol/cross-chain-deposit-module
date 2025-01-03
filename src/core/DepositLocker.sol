@@ -30,7 +30,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 300;
 
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
-    uint256 public constant RAGE_QUIT_PERIOD_DURATION = 48 hours;
+    uint256 public constant RAGE_QUIT_PERIOD_DURATION = 0 hours;
 
     /// @notice The code hash of the Uniswap V2 Pair contract.
     bytes32 internal constant UNISWAP_V2_PAIR_CODE_HASH = 0x5b83bdbcc56b2e630f2807bbadd2b0c21619108066b92a58de081261089e9ce5;
