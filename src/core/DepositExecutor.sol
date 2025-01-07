@@ -362,8 +362,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         bytes memory composeMsg = _message.composeMsg();
         uint256 tokenAmountBridged = _message.amountLD();
 
-        // Extract the source market's hash (first 32 bytes), ccdmNonce (following 32 bytes), and numTokensBridged (following 1 byte).
-        (bytes32 sourceMarketHash, uint256 ccdmNonce, uint8 numTokensBridged) = composeMsg.readComposeMsgMetadata();
+        // Extract the payload's metadata
+        (bytes32 sourceMarketHash, uint256 ccdmNonce, uint8 numTokensBridged, uint8 srcChainTokenDecimals) = composeMsg.readComposeMsgMetadata();
 
         // Get the deposit token from the LZ V2 OApp that invoked the compose call
         ERC20 depositToken = ERC20(IOFT(_from).token());
@@ -389,8 +389,19 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Get the accounting ledger for this Weiroll Wallet
         WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[cachedWeirollWallet];
 
+        // Calculate the conversion rate to normalize source and destination decimals for deposit amounts
+        uint8 dstChainTokenDecimals = depositToken.decimals();
+        uint256 decimalConversionRate;
+        bool scaleUp;
+        if (dstChainTokenDecimals > srcChainTokenDecimals) {
+            scaleUp = true;
+            decimalConversionRate = 10 ** (dstChainTokenDecimals - srcChainTokenDecimals);
+        } else {
+            decimalConversionRate = 10 ** (srcChainTokenDecimals - dstChainTokenDecimals);
+        }
+
         // Execute accounting logic to keep track of each depositor's position in this wallet.
-        _accountForDeposits(walletAccounting, composeMsg, depositToken, tokenAmountBridged);
+        _accountForDeposits(walletAccounting, composeMsg, depositToken, tokenAmountBridged, decimalConversionRate, scaleUp);
 
         emit CCDMBridgeProcessed(sourceMarketHash, ccdmNonce, _guid, cachedWeirollWallet);
     }
@@ -626,12 +637,16 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _composeMsg The compose message containing depositor addresses and deposit amounts.
      * @param _depositToken The ERC20 token that was deposited.
      * @param _tokenAmountBridged The total amount of tokens that were bridged and available for deposits.
+     * @param _decimalConversionRate The rate at which to convert the source chain's token amount to the destination chain's token amount.
+     * @param _scaleUp Boolean indicating whether to scale the deposit amounts up or down.
      */
     function _accountForDeposits(
         WeirollWalletAccounting storage _walletAccounting,
         bytes memory _composeMsg,
         ERC20 _depositToken,
-        uint256 _tokenAmountBridged
+        uint256 _tokenAmountBridged,
+        uint256 _decimalConversionRate,
+        bool _scaleUp
     )
         internal
     {
@@ -647,7 +662,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             offset += 20;
 
             // Extract deposit amount (12 bytes)
-            uint96 depositAmount = _composeMsg.readUint96(offset);
+            uint256 depositAmount = _composeMsg.readUint96(offset);
+            if (_decimalConversionRate != 1) {
+                // If there is a decimal discrepancy between source and destination, normalize the deposit amount
+                depositAmount = _scaleUp ? depositAmount * _decimalConversionRate : depositAmount / _decimalConversionRate;
+            }
             offset += 12;
 
             // Update total amount deposited

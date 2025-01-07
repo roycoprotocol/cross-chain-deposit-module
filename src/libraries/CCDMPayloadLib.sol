@@ -6,23 +6,22 @@ pragma solidity ^0.8.0;
 /// @notice A library for encoding and decoding CCDM payloads
 library CCDMPayloadLib {
     /*//////////////////////////////////////////////////////////////
-                    CCDM Payload Structure
-               -------------------------------
-                Per Payload (first 65 bytes):
-                    - Market Hash: bytes32 (32 bytes)
-                    - CCDM Nonce: uint256 (32 bytes)
-                    - Number of Tokens Bridged: uint8 (1 byte)
-                Per Depositor (following 32 byte blocks):
-                    - Depositor / AP address: address (20 bytes)
-                    - Amount Deposited: uint96 (12 bytes)
+                        CCDM Payload Structure
+                    -------------------------------
+    Per Payload (first 66 bytes):
+        - Market Hash: bytes32 (32 bytes)
+        - CCDM Nonce: uint256 (32 bytes)
+        - Number of Tokens Bridged: uint8 (1 byte)
+        - Bridged Token's Decimals on the Source Chain: uint8 (1 byte)
+    Per Depositor (following 32 byte blocks):
+        - Depositor / AP address: address (20 bytes)
+        - Amount Deposited: uint96 (12 bytes)
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Size of payload metadata and offset to the first depositor in a CCDM payload.
-    // (32 bytes for the Market Hash + 32 bytes for the CCDM Nonce + 1 byte for the number of tokens bridged) = 65 bytes
-    uint256 internal constant METADATA_SIZE = 65;
+    /// @notice Size of the per payload metadata (and offset to the first depositor) in a CCDM payload.
+    uint256 internal constant METADATA_SIZE = 66;
 
-    /// @notice Bytes used per depositor position in the payload
-    // (20 bytes for depositor address + 12 bytes for the corresponding deposit amount) = 32 bytes
+    /// @notice Size of the per depositor data in a CCDM payload.
     uint256 internal constant BYTES_PER_DEPOSITOR = 32;
 
     /*//////////////////////////////////////////////////////////////
@@ -34,12 +33,14 @@ library CCDMPayloadLib {
     /// @param _marketHash The Royco market hash associated with the deposits.
     /// @param _ccdmNonce The ccdmNonce associated with the DUAL_OR_LP_TOKEN deposits.
     /// @param _numTokensBridged The number of input tokens bridged for the destination campaign.
+    /// @param _srcChainTokenDecimals The source chain's decimals for the token bridged.
     /// @return composeMsg The compose message initialized with the params.
     function initComposeMsg(
         uint256 _numDepositors,
         bytes32 _marketHash,
         uint256 _ccdmNonce,
-        uint8 _numTokensBridged
+        uint8 _numTokensBridged,
+        uint8 _srcChainTokenDecimals
     )
         internal
         pure
@@ -52,6 +53,7 @@ library CCDMPayloadLib {
             mstore(ptr, _marketHash) // Write _marketHash (32 bytes)
             mstore(add(ptr, 32), _ccdmNonce) // Write _ccdmNonce (32 bytes)
             mstore8(add(ptr, 64), _numTokensBridged) // Write _numTokensBridged (1 byte)
+            mstore8(add(ptr, 65), _srcChainTokenDecimals) // Write _srcChainTokenDecimals (1 byte)
         }
     }
 
@@ -83,10 +85,17 @@ library CCDMPayloadLib {
                             Decoding Functions
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Reads the metadata of the _composeMsg.
-    /// @dev The metadata is the source market hash (first 32 bytes), ccdmNonce (following 32 bytes), numTokensBridged (following 1 byte).
+    /// @dev Reads the per payload metadata of the _composeMsg.
     /// @param _composeMsg The compose message received in lzCompose.
-    function readComposeMsgMetadata(bytes memory _composeMsg) internal pure returns (bytes32 sourceMarketHash, uint256 ccdmNonce, uint8 numTokensBridged) {
+    /// @return sourceMarketHash The Royco market hash associated with the deposits.
+    /// @return ccdmNonce The ccdmNonce associated with the DUAL_OR_LP_TOKEN deposits.
+    /// @return numTokensBridged The number of input tokens bridged for the destination campaign.
+    /// @return srcChainTokenDecimals The source chain's decimals for the token bridged.
+    function readComposeMsgMetadata(bytes memory _composeMsg)
+        internal
+        pure
+        returns (bytes32 sourceMarketHash, uint256 ccdmNonce, uint8 numTokensBridged, uint8 srcChainTokenDecimals)
+    {
         assembly ("memory-safe") {
             // Pointer to the start of the compose message data (first 32 bytes is the length)
             let ptr := add(_composeMsg, 32)
@@ -94,8 +103,13 @@ library CCDMPayloadLib {
             sourceMarketHash := mload(ptr)
             // Read the next 32 bytes as ccdmNonce
             ccdmNonce := mload(add(ptr, 32))
-            // Read the next 1 byte as numTokensBridged
-            numTokensBridged := shr(248, mload(add(ptr, 64)))
+            // Read the next 32 bytes into a buffer
+            let buffer := mload(add(ptr, 64))
+            // Read the highest byte of the buffer as numTokensBridged
+            numTokensBridged := shr(248, buffer)
+            // Read the second highest byte of the buffer as srcChainTokenDecimals
+            // Bit mask negates everything but the lowest byte after the right shift
+            srcChainTokenDecimals := and(shr(240, buffer), 0xFF)
         }
     }
 

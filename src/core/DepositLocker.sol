@@ -27,7 +27,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The limit for how many depositors can be bridged in a single transaction
-    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 300;
+    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 2;
 
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
     uint256 public constant RAGE_QUIT_PERIOD_DURATION = 0 hours;
@@ -413,10 +413,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /**
      * @notice Deposits a depositor into the Deposit Locker on behalf of another depositor.
-     * @dev This function can be used for bridge compression - being able to bridge N depositors as a single address.
+     * @dev This function can be used for bridge compression - being able to bridge n depositors as a single address.
      * @dev Called by the deposit script of the depositor's Weiroll Wallet.
      * @dev Requires an approval of the deposit amount for the market's input token.
-     * @param _depositorToDepositFor The depositor to deposit for. Set to address(0) if depositing directly for the AP.
+     * @param _depositorToDepositFor The depositor to deposit for.
      */
     function depositFor(address _depositorToDepositFor) external nonReentrant onlyWeirollWallet {
         _processDeposit(_depositorToDepositFor);
@@ -448,8 +448,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     function bridgeSingleTokens(bytes32 _marketHash, address[] calldata _depositors) external payable readyToBridge(_marketHash) nonReentrant {
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
+        // Get the market's input token
+        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
+
         // Initialize compose message
-        bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE);
+        bytes memory composeMsg =
+            CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE, marketInputToken.decimals());
 
         // Array to store the actual depositors bridged
         address[] memory depositorsBridged = new address[](_depositors.length);
@@ -481,9 +485,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         assembly ("memory-safe") {
             mstore(depositorsBridged, numDepositorsIncluded)
         }
-
-        // Get the market's input token
-        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
 
         // Estimate gas used by the lzCompose call for this bridge transaction
         uint128 destinationGasLimit = CCDMFeeLib.estimateDestinationGasLimit(numDepositorsIncluded);
@@ -557,8 +558,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         );
 
         // Initialize compose messages for both tokens
-        bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE);
-        bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE);
+        bytes memory token0_ComposeMsg =
+            CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE, token0.decimals());
+        bytes memory token1_ComposeMsg =
+            CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE, token1.decimals());
 
         // Create params struct
         LpTokenDepositorParams memory params;
