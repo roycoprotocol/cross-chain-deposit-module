@@ -102,9 +102,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The hash of the Weiroll Wallet code
     bytes32 public immutable WEIROLL_WALLET_PROXY_CODE_HASH;
 
-    /// @notice The address of the Weiroll Wallet that deposited into the CCDM in this transaction.
-    address public transient currentlyDepositingWeirollWallet;
-
     /// @notice The party that green lights bridging on a per market basis
     address public greenLighter;
 
@@ -147,6 +144,15 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     event UserDeposited(bytes32 indexed marketHash, address indexed depositor, uint256 amountDeposited);
 
     /**
+     * @notice Emitted when a user deposits funds on behalf of another address into a market.
+     * @param marketHash The unique hash identifier of the market where the deposit occurred.
+     * @param depositor The address of the user who initiated the deposit.
+     * @param depositedFor The address for whom the deposit was made on behalf of.
+     * @param amountDeposited The amount of funds that were deposited.
+     */
+    event UserDepositedFor(bytes32 indexed marketHash, address indexed depositor, address indexed depositedFor, uint256 amountDeposited);
+
+    /**
      * @notice Emitted when a user withdraws funds from a market.
      * @param marketHash The unique hash identifier of the market from which the withdrawal was made.
      * @param depositor The address of the user who invoked the withdrawal.
@@ -154,6 +160,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     event UserWithdrawn(bytes32 indexed marketHash, address indexed depositor, uint256 amountWithdrawn);
 
+    /**
+     * @notice Emitted when a user withdraws funds on behalf of another address from a market.
+     * @param marketHash The unique hash identifier of the market from which the withdrawal was made.
+     * @param depositor The address of the user who invoked the withdrawal.
+     * @param withdrawnFrom The address from whose balance the withdrawal was made (depositor must have previously deposited for this address).
+     * @param amountWithdrawn The amount of funds that were withdrawn.
+     */
+    event UserWithdrawnFrom(bytes32 indexed marketHash, address indexed depositor, address indexed withdrawnFrom, uint256 amountWithdrawn);
     /**
      * @notice Emitted when single tokens are bridged to the destination chain.
      * @param marketHash The unique hash identifier of the market related to the bridged tokens.
@@ -389,72 +403,39 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Called by the deposit script from the depositor's Weiroll wallet.
+     * @notice Directly deposits a depositor into the Deposit Locker.
+     * @dev Called by the deposit script of the depositor's Weiroll Wallet.
+     * @dev Requires an approval of the deposit amount for the market's input token.
      */
     function deposit() external nonReentrant onlyWeirollWallet {
-        // Get Weiroll Wallet's market hash, depositor/owner/AP, and amount deposited
-        WeirollWallet wallet = WeirollWallet(payable(msg.sender));
-        bytes32 targetMarketHash = wallet.marketHash();
-        address depositor = wallet.owner();
-        uint256 amountDeposited = wallet.amount();
-
-        // Get the token to deposit for this market
-        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
-
-        if (!_isUniV2Pair(address(marketInputToken))) {
-            // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for SINGLE_TOKEN markets
-            bool depositAmountHasValidPrecision =
-                amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
-            require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
-        }
-
-        // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
-        if (address(marketInputToken).code.length == 0) revert RoycoMarketNotInitialized();
-
-        // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
-        marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
-
-        // Account for deposit
-        marketHashToDepositorToDepositorInfo[targetMarketHash][depositor].totalAmountDeposited += amountDeposited;
-        WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
-        walletInfo.ccdmNonceOnDeposit = ccdmNonce;
-        walletInfo.amountDeposited = amountDeposited;
-
-        // Set the depositing Weiroll Wallet in transient state
-        currentlyDepositingWeirollWallet = msg.sender;
-
-        // Emit deposit event
-        emit UserDeposited(targetMarketHash, depositor, amountDeposited);
+        _processDeposit(address(0));
     }
 
     /**
-     * @notice Called by the withdraw script from the depositor's Weiroll wallet.
+     * @notice Deposits a depositor into the Deposit Locker on behalf of another depositor.
+     * @dev This function can be used for bridge compression - being able to bridge N depositors as a single address.
+     * @dev Called by the deposit script of the depositor's Weiroll Wallet.
+     * @dev Requires an approval of the deposit amount for the market's input token.
+     * @param _depositorToDepositFor The depositor to deposit for. Set to address(0) if depositing directly for the AP.
+     */
+    function depositFor(address _depositorToDepositFor) external nonReentrant onlyWeirollWallet {
+        _processDeposit(_depositorToDepositFor);
+    }
+
+    /**
+     * @notice Directly withdraws the amount deposited into the Deposit Locker from a depositor's Weiroll Wallet to the depositor/AP.
+     * @dev Called by the withdraw script of the depositor's Weiroll Wallet.
      */
     function withdraw() external nonReentrant {
-        // Get Weiroll Wallet's market hash and depositor/owner/AP
-        WeirollWallet wallet = WeirollWallet(payable(msg.sender));
-        bytes32 targetMarketHash = wallet.marketHash();
-        address depositor = wallet.owner();
+        _processWithdrawal(address(0));
+    }
 
-        // Get the necessary depositor and Weiroll Wallet info to process the withdrawal
-        DepositorInfo storage depositorInfo = marketHashToDepositorToDepositorInfo[targetMarketHash][depositor];
-        WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
-
-        // Get amount to withdraw for this Weiroll Wallet
-        uint256 amountToWithdraw = walletInfo.amountDeposited;
-        // Ensure that this Weiroll Wallet's deposit hasn't been bridged and this Weiroll Wallet hasn't withdrawn.
-        require(walletInfo.ccdmNonceOnDeposit > depositorInfo.latestCcdmNonce && amountToWithdraw > 0, NothingToWithdraw());
-
-        // Account for the withdrawal
-        depositorInfo.totalAmountDeposited -= amountToWithdraw;
-        delete walletInfo.amountDeposited;
-
-        // Transfer back the amount deposited directly to the AP
-        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
-        marketInputToken.safeTransfer(depositor, amountToWithdraw);
-
-        // Emit withdrawal event
-        emit UserWithdrawn(targetMarketHash, depositor, amountToWithdraw);
+    /**
+     * @notice Withdraws the amount deposited into the Deposit Locker from a depositor's Weiroll Wallet on behalf of another depositor to the AP.
+     * @dev Called by the withdraw script of the depositor's Weiroll Wallet.
+     */
+    function withdrawFrom(address _depositorToWithdrawFrom) external nonReentrant {
+        _processWithdrawal(_depositorToWithdrawFrom);
     }
 
     /**
@@ -643,6 +624,77 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /*//////////////////////////////////////////////////////////////
                             Internal Functions
     //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Processes a user deposit.
+     * @param _depositorToDepositFor The depositor to deposit for. Set to address(0) if depositing directly for the AP.
+     */
+    function _processDeposit(address _depositorToDepositFor) internal {
+        // Get Weiroll Wallet's market hash, depositor/owner/AP, and amount deposited
+        WeirollWallet wallet = WeirollWallet(payable(msg.sender));
+        bytes32 targetMarketHash = wallet.marketHash();
+        address depositor = _depositorToDepositFor == address(0) ? wallet.owner() : _depositorToDepositFor;
+        uint256 amountDeposited = wallet.amount();
+
+        // Get the token to deposit for this market
+        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
+
+        if (!_isUniV2Pair(address(marketInputToken))) {
+            // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for SINGLE_TOKEN markets
+            bool depositAmountHasValidPrecision =
+                amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
+            require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
+        }
+
+        // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
+        require(address(marketInputToken).code.length != 0, RoycoMarketNotInitialized());
+
+        // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
+        marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
+
+        // Account for the deposit in the depositor's cumulative entry
+        marketHashToDepositorToDepositorInfo[targetMarketHash][depositor].totalAmountDeposited += amountDeposited;
+        // Account for the deposit in the individual Weiroll Wallet's entry
+        WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
+        walletInfo.ccdmNonceOnDeposit = ccdmNonce;
+        walletInfo.amountDeposited = amountDeposited;
+
+        // Emit deposit event(s)
+        emit UserDeposited(targetMarketHash, depositor, amountDeposited);
+        if (_depositorToDepositFor != address(0)) {
+            emit UserDepositedFor(targetMarketHash, depositor, _depositorToDepositFor, amountDeposited);
+        }
+    }
+
+    function _processWithdrawal(address _depositorToWithdrawFrom) internal {
+        // Get Weiroll Wallet's market hash and depositor/owner/AP
+        WeirollWallet wallet = WeirollWallet(payable(msg.sender));
+        bytes32 targetMarketHash = wallet.marketHash();
+        address depositor = _depositorToWithdrawFrom == address(0) ? wallet.owner() : _depositorToWithdrawFrom;
+
+        // Get the necessary depositor and Weiroll Wallet info to process the withdrawal
+        DepositorInfo storage depositorInfo = marketHashToDepositorToDepositorInfo[targetMarketHash][depositor];
+        WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
+
+        // Get amount to withdraw for this Weiroll Wallet
+        uint256 amountToWithdraw = walletInfo.amountDeposited;
+        // Ensure that this Weiroll Wallet's deposit hasn't been bridged and this Weiroll Wallet hasn't withdrawn.
+        require(walletInfo.ccdmNonceOnDeposit > depositorInfo.latestCcdmNonce && amountToWithdraw > 0, NothingToWithdraw());
+
+        // Account for the withdrawal
+        depositorInfo.totalAmountDeposited -= amountToWithdraw;
+        delete walletInfo.amountDeposited;
+
+        // Transfer back the amount deposited directly to the AP
+        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
+        marketInputToken.safeTransfer(depositor, amountToWithdraw);
+
+        // Emit withdrawal event(s)
+        emit UserWithdrawn(targetMarketHash, depositor, amountToWithdraw);
+        if (_depositorToWithdrawFrom != address(0)) {
+            emit UserWithdrawnFrom(targetMarketHash, depositor, _depositorToWithdrawFrom, amountToWithdraw);
+        }
+    }
 
     /**
      * @notice Processes a single token depositor by updating the compose message and clearing depositor data.
