@@ -7,17 +7,17 @@ import { Ownable2Step, Ownable } from "../../lib/openzeppelin-contracts/contract
 /**
  * @title MerkleVaultFactory
  * @author Shivaansh Kapoor, Jack Corddry
- * @notice A factory contract responsible for deploying new MerkleVault instances for different markets.
+ * @notice A factory contract responsible for deploying new Merkle Vault instances for different markets.
  * @dev
- *  - Uses CREATE2 (with a fixed salt) to deterministically deploy MerkleVault contracts.
+ *  - Uses CREATE2 (with a fixed salt) to deterministically deploy Merkle Vault contracts.
  *  - Will deploy vaults with the same vault owner and market hash to the same addresses on the source and destination chain.
  */
 contract MerkleVaultFactory is Ownable2Step {
     /// @notice A constant salt used in CREATE2 for deterministic vault deployments.
     bytes32 public constant MERKLE_VAULT_DEPLOYMENT_SALT = keccak256(abi.encodePacked("BOYCO"));
 
-    /// @notice Maps each market hash to its deployed MerkleVault address.
-    mapping(bytes32 => address) public marketHashToMerkleVault;
+    /// @notice Maps each market hash to its deployed Merkle Vault address.
+    mapping(bytes32 => address) internal marketHashToMerkleVault;
 
     /**
      * @notice Emitted when a new MerkleVault is deployed.
@@ -27,8 +27,11 @@ contract MerkleVaultFactory is Ownable2Step {
      */
     event MerkleVaultDeployed(bytes32 indexed marketHash, address indexed vaultOwner, address indexed merkleVault);
 
-    /// @notice Thrown when attempting to deploy a MerkleVault for a market hash that already has one.
+    /// @notice Thrown when attempting to deploy a Merkle Vault for a market hash that already has one.
     error InvalidMerkleVaultDeployment();
+
+    /// @notice Thrown when trying to get a Merkle Vault that hasn't been deployed yet.
+    error MerkleVaultNotDeployed();
 
     /**
      * @notice Initializes the factory contract and sets the initial owner.
@@ -50,7 +53,7 @@ contract MerkleVaultFactory is Ownable2Step {
     function deployMerkleVault(bytes32 _marketHash, address _vaultOwner) external onlyOwner returns (address merkleVault) {
         // Check if a MerkleVault is already deployed for this market and ensure a valid _vaultOwner
         merkleVault = marketHashToMerkleVault[_marketHash];
-        require(address(merkleVault) == address(0) && _vaultOwner != address(0), InvalidMerkleVaultDeployment());
+        require(merkleVault == address(0) && _vaultOwner != address(0), InvalidMerkleVaultDeployment());
 
         // Deploy the MerkleVault with CREATE2
         merkleVault = address(new MerkleVault{ salt: MERKLE_VAULT_DEPLOYMENT_SALT }(_vaultOwner, _marketHash));
@@ -58,5 +61,15 @@ contract MerkleVaultFactory is Ownable2Step {
         // Store the Merkle Vault for the specified market and emit the event
         marketHashToMerkleVault[_marketHash] = merkleVault;
         emit MerkleVaultDeployed(_marketHash, _vaultOwner, merkleVault);
+    }
+
+    /**
+     * @notice Gets a Merkle Vault for the specified market.
+     * @param _marketHash The hash representing the market the vault will be deployed for.
+     * @return merkleVault The address of the Merkle Vault for the specified market.
+     */
+    function getMerkleVault(bytes32 _marketHash) external returns (address merkleVault) {
+        merkleVault = marketHashToMerkleVault[_marketHash];
+        require(merkleVault != address(0), MerkleVaultNotDeployed());
     }
 }
