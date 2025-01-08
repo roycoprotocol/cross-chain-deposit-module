@@ -151,6 +151,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice A CCDM bridge transaction that results in multiple OFTs being bridged (LP bridge) will have the same nonce.
     uint256 public ccdmNonce;
 
+    /// @notice Used to make each merkle deposit leaf is unique.
+    /// @notice This allows for the depositor to withdraw correctly in the event that they make multiple deposits in the same merkle tree.
+    uint256 public merkleDepositNonce;
+
     /*//////////////////////////////////////////////////////////////
                             Events and Errors
     //////////////////////////////////////////////////////////////*/
@@ -161,11 +165,20 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param marketHash The unique hash identifier of the market where the deposit occurred.
      * @param depositor The address of the user who made the deposit.
      * @param amountDeposited The amount of funds that were deposited by the user.
+     * @param merkleDepositNonce Unique identifier for this merkle deposit - used to make sure that each merkle depositor's leaf is unique.
+     * @param leafIndex The index in the Merkle tree where the new deposit leaf was added.
      * @param leafIndex The index in the Merkle tree where the new deposit leaf was added.
      * @param updatedMerkleRoot The new Merkle root after the deposit leaf was inserted.
      */
     event MerkleDepositMade(
-        uint256 indexed ccdmNonce, bytes32 indexed marketHash, address indexed depositor, uint256 amountDeposited, uint256 leafIndex, bytes32 updatedMerkleRoot
+        uint256 indexed ccdmNonce,
+        bytes32 indexed marketHash,
+        address indexed depositor,
+        uint256 amountDeposited,
+        uint256 merkleDepositNonce,
+        bytes32 leaf,
+        uint256 leafIndex,
+        bytes32 updatedMerkleRoot
     );
 
     /**
@@ -485,14 +498,15 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             // If the tree is uninitialized, initialize it with the depth
             merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
         }
+        bytes32 depositLeaf = keccak256(abi.encodePacked(merkleDepositNonce, depositor, amountDeposited));
         // Add the depositor the Merkle Tree
-        (uint256 leafIndex, bytes32 updatedMerkleRoot) = merkleDepositsInfo.merkleTree.push(keccak256(abi.encodePacked(depositor, amountDeposited)));
+        (uint256 leafIndex, bytes32 updatedMerkleRoot) = merkleDepositsInfo.merkleTree.push(depositLeaf);
         // Update the merkle root and the total amount deposited into the merkle tree
         merkleDepositsInfo.merkleRoot = updatedMerkleRoot;
         merkleDepositsInfo.totalAmountDeposited += amountDeposited;
 
         // Emit merkle deposit event
-        emit MerkleDepositMade(ccdmNonce, targetMarketHash, depositor, amountDeposited, leafIndex, updatedMerkleRoot);
+        emit MerkleDepositMade(ccdmNonce, targetMarketHash, depositor, amountDeposited, merkleDepositNonce++, depositLeaf, leafIndex, updatedMerkleRoot);
     }
 
     /**
@@ -577,7 +591,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 totalAmountDeposited = merkleDepositsInfo.totalAmountDeposited;
 
         // Ensure that at least one depositor was included in the bridge payload
-        require(merkleDepositsInfo.merkleTree.depth() == MERKLE_TREE_DEPTH && totalAmountDeposited > 0, MustBridgeAtLeastOneDepositor());
+        require(totalAmountDeposited > 0, MustBridgeAtLeastOneDepositor());
 
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
@@ -589,7 +603,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             0, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE, marketInputToken.decimals(), CCDMPayloadLib.BridgeType.MERKLE_DEPOSITORS
         );
         // Write the merkle root and the deposits it holds to the compose message
-        composeMsg.writeMerkleDepositsData(merkleRoot, totalAmountDeposited);
+        composeMsg.writeMerkleBridgeData(merkleRoot, totalAmountDeposited);
 
         // Estimate gas used by the lzCompose call for this bridge transaction
         uint128 destinationGasLimit = CCDMFeeLib.GAS_FOR_MERKLE_BRIDGE;
@@ -603,6 +617,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             (bool success,) = payable(msg.sender).call{ value: msg.value - bridgingFee }("");
             require(success, RefundFailed());
         }
+
+        // Reset the merkle tree and its accounting infor for this market
+        merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
+        delete merkleDepositsInfo.merkleRoot;
+        delete merkleDepositsInfo.totalAmountDeposited;
 
         // Emit event to keep track of bridged deposits
         emit SingleTokensMerkleBridgedToDestination(_marketHash, ccdmNonce++, merkleRoot, messageReceipt.guid, messageReceipt.nonce, totalAmountDeposited);
@@ -634,7 +653,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 totalAmountDeposited = merkleDepositsInfo.totalAmountDeposited;
 
         // Ensure that at least one depositor was included in the bridge payload
-        require(merkleDepositsInfo.merkleTree.depth() == MERKLE_TREE_DEPTH && totalAmountDeposited > 0, MustBridgeAtLeastOneDepositor());
+        require(totalAmountDeposited > 0, MustBridgeAtLeastOneDepositor());
 
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
@@ -664,8 +683,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         );
 
         // Write the merkle root and the deposits they hold to the compose messages
-        token0_ComposeMsg.writeMerkleDepositsData(merkleRoot, totalAmountDeposited);
-        token1_ComposeMsg.writeMerkleDepositsData(merkleRoot, totalAmountDeposited);
+        token0_ComposeMsg.writeMerkleBridgeData(merkleRoot, totalAmountDeposited);
+        token1_ComposeMsg.writeMerkleBridgeData(merkleRoot, totalAmountDeposited);
 
         // Normalize deposit amounts for SD
         // IMPORTANT: Dust amount is locked in the locker forever.
@@ -694,6 +713,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             (bool success,) = payable(msg.sender).call{ value: msg.value - totalBridgingFee }("");
             require(success, RefundFailed());
         }
+
+        // Reset the merkle tree and its accounting infor for this market
+        merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
+        delete merkleDepositsInfo.merkleRoot;
+        delete merkleDepositsInfo.totalAmountDeposited;
 
         // Emit event to keep track of bridged deposits
         emit LpTokensMerkleBridgedToDestination(

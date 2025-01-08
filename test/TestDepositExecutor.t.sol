@@ -167,7 +167,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
             // Withdraw without executing deposit recipes
             vm.startPrank(bridgeResult.depositors[i]);
-            depositExecutor.withdraw(walletsToWithdraw);
+            depositExecutor.withdrawIndividualDeposits(walletsToWithdraw);
             vm.stopPrank();
 
             // Assert that depositor got their receipt tokens and any interest.
@@ -286,7 +286,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
             // Withdraw without executing deposit recipes
             vm.startPrank(bridgeResult.depositors[i]);
-            depositExecutor.withdraw(walletsToWithdraw);
+            depositExecutor.withdrawIndividualDeposits(walletsToWithdraw);
             vm.stopPrank();
 
             // Assert that depositor got their tokens

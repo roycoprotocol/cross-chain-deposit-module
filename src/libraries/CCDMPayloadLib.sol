@@ -17,7 +17,7 @@ library CCDMPayloadLib {
 
     MERKLE_DEPOSITORS Data:
         - Merkle Root: bytes32 (32 bytes)
-        - Total Amount Deposited: uint256 (32 bytes)
+        - Total Amount Deposited on Source: uint256 (32 bytes)
 
     INDIVUAL_DEPOSITORS Data:
         Per Depositor (following 32 byte blocks):
@@ -80,13 +80,13 @@ library CCDMPayloadLib {
     /// @dev Writes a merkle root to the _composeMsg right after the metadata.
     /// @param _composeMsg The bytes array to which the merkle root will be written to.
     /// @param _merkleRoot The merkle root for this CCDM bridge payload.
-    /// @param _totalAmountDeposited The total amount of deposits held by the merkle root.
-    function writeMerkleDepositsData(bytes memory _composeMsg, bytes32 _merkleRoot, uint256 _totalAmountDeposited) internal pure {
+    /// @param _totalAmountDepositedOnSource The total amount of deposits held by the merkle root.
+    function writeMerkleBridgeData(bytes memory _composeMsg, bytes32 _merkleRoot, uint256 _totalAmountDepositedOnSource) internal pure {
         assembly ("memory-safe") {
             // The memory pointer for the depositor at this index
             let ptr := add(_composeMsg, add(32, METADATA_SIZE))
             mstore(ptr, _merkleRoot) // Write the _merkleRoot as the first word
-            mstore(add(ptr, 32), _merkleRoot) // Write the _totalAmountDeposited as the second word
+            mstore(add(ptr, 32), _totalAmountDepositedOnSource) // Write the _totalAmountDepositedOnSource as the second word
         }
     }
 
@@ -153,12 +153,12 @@ library CCDMPayloadLib {
     /// @dev Reads the merkle root of the _composeMsg.
     /// @param _composeMsg The compose message received in lzCompose
     /// @return merkleRoot The address read from the composeMsg at the specified offset.
-    /// @return totalAmountDeposited The total amount of deposits held by the merkle root.
-    function readMerkleDepositsData(bytes memory _composeMsg) internal pure returns (bytes32 merkleRoot, uint256 totalAmountDeposited) {
+    /// @return totalAmountDepositedOnSource The total amount of deposits held by the merkle root.
+    function readMerkleBridgeData(bytes memory _composeMsg) internal pure returns (bytes32 merkleRoot, uint256 totalAmountDepositedOnSource) {
         assembly ("memory-safe") {
             let ptr := add(_composeMsg, add(32, METADATA_SIZE))
             merkleRoot := mload(ptr) // Read the merkleRoot as the first word
-            totalAmountDeposited := mload(add(ptr, 32)) // Read the totalAmountDeposited as the second word
+            totalAmountDepositedOnSource := mload(add(ptr, 32)) // Read the totalAmountDepositedOnSource as the second word
         }
     }
 
