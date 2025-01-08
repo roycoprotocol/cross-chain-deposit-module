@@ -6,20 +6,36 @@ pragma solidity ^0.8.0;
 /// @notice A library for encoding and decoding CCDM payloads
 library CCDMPayloadLib {
     /*//////////////////////////////////////////////////////////////
-                        CCDM Payload Structure
-                    -------------------------------
-    Per Payload (first 66 bytes):
+                      CCDM Payload Structure
+                ----------------------------------
+    Per Payload Metadata (first 67 bytes):
         - Market Hash: bytes32 (32 bytes)
         - CCDM Nonce: uint256 (32 bytes)
         - Number of Tokens Bridged: uint8 (1 byte)
         - Bridged Token's Decimals on the Source Chain: uint8 (1 byte)
-    Per Depositor (following 32 byte blocks):
-        - Depositor / AP address: address (20 bytes)
-        - Amount Deposited: uint96 (12 bytes)
+        - Bridge Type: uint8 (1 byte)
+
+    MERKLE_DEPOSITORS Data:
+        - Merkle Root: bytes32 (32 bytes)
+        - Total Amount Deposited: uint256 (32 bytes)
+
+    INDIVUAL_DEPOSITORS Data:
+        Per Depositor (following 32 byte blocks):
+            - Depositor / AP address: address (20 bytes)
+            - Amount Deposited: uint96 (12 bytes)
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Size of the per payload metadata (and offset to the first depositor) in a CCDM payload.
-    uint256 internal constant METADATA_SIZE = 66;
+    /// @notice Enum for indicating the type of CCDM bridge (merkle or individual).
+    enum BridgeType {
+        MERKLE_DEPOSITORS,
+        INDIVUAL_DEPOSITORS
+    }
+
+    /// @notice Size of a MERKLE_DEPOSITORS payload.
+    uint256 internal constant MERKLE_DEPOSITORS_PAYLOAD_SIZE = 131;
+
+    /// @notice Size of the per payload metadata (and merkle root / offset to the first depositor) in a CCDM payload.
+    uint256 internal constant METADATA_SIZE = 67;
 
     /// @notice Size of the per depositor data in a CCDM payload.
     uint256 internal constant BYTES_PER_DEPOSITOR = 32;
@@ -34,19 +50,22 @@ library CCDMPayloadLib {
     /// @param _ccdmNonce The ccdmNonce associated with the DUAL_OR_LP_TOKEN deposits.
     /// @param _numTokensBridged The number of input tokens bridged for the destination campaign.
     /// @param _srcChainTokenDecimals The source chain's decimals for the token bridged.
+    /// @param _bridgeType The type of CCDM bridge (merkle or individual).
     /// @return composeMsg The compose message initialized with the params.
     function initComposeMsg(
         uint256 _numDepositors,
         bytes32 _marketHash,
         uint256 _ccdmNonce,
         uint8 _numTokensBridged,
-        uint8 _srcChainTokenDecimals
+        uint8 _srcChainTokenDecimals,
+        BridgeType _bridgeType
     )
         internal
         pure
         returns (bytes memory composeMsg)
     {
-        uint256 msgSizeInBytes = METADATA_SIZE + (_numDepositors * BYTES_PER_DEPOSITOR);
+        uint256 msgSizeInBytes =
+            _bridgeType == BridgeType.MERKLE_DEPOSITORS ? MERKLE_DEPOSITORS_PAYLOAD_SIZE : METADATA_SIZE + (_numDepositors * BYTES_PER_DEPOSITOR);
         composeMsg = new bytes(msgSizeInBytes);
         assembly ("memory-safe") {
             let ptr := add(composeMsg, 32) // Pointer to the start of the data in _composeMsg
@@ -54,12 +73,26 @@ library CCDMPayloadLib {
             mstore(add(ptr, 32), _ccdmNonce) // Write _ccdmNonce (32 bytes)
             mstore8(add(ptr, 64), _numTokensBridged) // Write _numTokensBridged (1 byte)
             mstore8(add(ptr, 65), _srcChainTokenDecimals) // Write _srcChainTokenDecimals (1 byte)
+            mstore8(add(ptr, 66), _bridgeType) // Write _bridgeType (1 byte)
+        }
+    }
+
+    /// @dev Writes a merkle root to the _composeMsg right after the metadata.
+    /// @param _composeMsg The bytes array to which the merkle root will be written to.
+    /// @param _merkleRoot The merkle root for this CCDM bridge payload.
+    /// @param _totalAmountDeposited The total amount of deposits held by the merkle root.
+    function writeMerkleDepositsData(bytes memory _composeMsg, bytes32 _merkleRoot, uint256 _totalAmountDeposited) internal pure {
+        assembly ("memory-safe") {
+            // The memory pointer for the depositor at this index
+            let ptr := add(_composeMsg, add(32, METADATA_SIZE))
+            mstore(ptr, _merkleRoot) // Write the _merkleRoot as the first word
+            mstore(add(ptr, 32), _merkleRoot) // Write the _totalAmountDeposited as the second word
         }
     }
 
     /// @dev Writes a depositor and their amount directly into the _composeMsg at a particular index.
     /// @dev The index must be within the bounds of the payload size.
-    /// @param _composeMsg The bytes array to which the depositor information will be written.
+    /// @param _composeMsg The bytes array to which the depositor information will be written to.
     /// @param _depositor The depositor's address.
     /// @param _depositAmount The amount deposited by the depositor.
     function writeDepositor(bytes memory _composeMsg, uint256 _depositorIndex, address _depositor, uint96 _depositAmount) internal pure {
@@ -91,10 +124,11 @@ library CCDMPayloadLib {
     /// @return ccdmNonce The ccdmNonce associated with the DUAL_OR_LP_TOKEN deposits.
     /// @return numTokensBridged The number of input tokens bridged for the destination campaign.
     /// @return srcChainTokenDecimals The source chain's decimals for the token bridged.
+    /// @return bridgeType The type of CCDM bridge (merkle or individual).
     function readComposeMsgMetadata(bytes memory _composeMsg)
         internal
         pure
-        returns (bytes32 sourceMarketHash, uint256 ccdmNonce, uint8 numTokensBridged, uint8 srcChainTokenDecimals)
+        returns (bytes32 sourceMarketHash, uint256 ccdmNonce, uint8 numTokensBridged, uint8 srcChainTokenDecimals, BridgeType bridgeType)
     {
         assembly ("memory-safe") {
             // Pointer to the start of the compose message data (first 32 bytes is the length)
@@ -110,6 +144,21 @@ library CCDMPayloadLib {
             // Read the second highest byte of the buffer as srcChainTokenDecimals
             // Bit mask negates everything but the lowest byte after the right shift
             srcChainTokenDecimals := and(shr(240, buffer), 0xFF)
+            // Read the third highest byte of the buffer as bridgeType
+            // Bit mask negates everything but the lowest byte after the right shift
+            bridgeType := and(shr(232, buffer), 0xFF)
+        }
+    }
+
+    /// @dev Reads the merkle root of the _composeMsg.
+    /// @param _composeMsg The compose message received in lzCompose
+    /// @return merkleRoot The address read from the composeMsg at the specified offset.
+    /// @return totalAmountDeposited The total amount of deposits held by the merkle root.
+    function readMerkleDepositsData(bytes memory _composeMsg) internal pure returns (bytes32 merkleRoot, uint256 totalAmountDeposited) {
+        assembly ("memory-safe") {
+            let ptr := add(_composeMsg, add(32, METADATA_SIZE))
+            merkleRoot := mload(ptr) // Read the merkleRoot as the first word
+            totalAmountDeposited := mload(add(ptr, 32)) // Read the totalAmountDeposited as the second word
         }
     }
 

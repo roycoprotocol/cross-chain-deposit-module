@@ -11,6 +11,7 @@ import { ClonesWithImmutableArgs } from "../../lib/clones-with-immutable-args/sr
 import { IOFT } from "../interfaces/IOFT.sol";
 import { OFTComposeMsgCodec } from "../libraries/OFTComposeMsgCodec.sol";
 import { CCDMPayloadLib } from "../libraries/CCDMPayloadLib.sol";
+import { MerkleProof } from "../../lib/openzeppelin-contracts/contracts/utils/cryptography/MerkleProof.sol";
 
 /// @title DepositExecutor
 /// @author Shivaansh Kapoor, Jack Corddry
@@ -363,7 +364,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         uint256 tokenAmountBridged = _message.amountLD();
 
         // Extract the payload's metadata
-        (bytes32 sourceMarketHash, uint256 ccdmNonce, uint8 numTokensBridged, uint8 srcChainTokenDecimals) = composeMsg.readComposeMsgMetadata();
+        (bytes32 sourceMarketHash, uint256 ccdmNonce, uint8 numTokensBridged, uint8 srcChainTokenDecimals, CCDMPayloadLib.BridgeType bridgeType) =
+            composeMsg.readComposeMsgMetadata();
 
         // Get the deposit token from the LZ V2 OApp that invoked the compose call
         ERC20 depositToken = ERC20(IOFT(_from).token());
