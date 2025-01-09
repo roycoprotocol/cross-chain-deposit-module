@@ -371,7 +371,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
             recipeMarketHub.fillIPOffers(ipOfferHashes, fillAmounts, address(0), FRONTEND_FEE_RECIPIENT);
             vm.stopPrank();
 
-            (uint256 totalAmountDeposited,) = depositLocker.marketHashToDepositorToDepositorInfo(result.marketHash, ap);
+            (uint256 totalAmountDeposited,) = depositLocker.marketHashToDepositorToIndividualDepositorInfo(result.marketHash, ap);
             result.depositAmounts[i] = totalAmountDeposited;
         }
 

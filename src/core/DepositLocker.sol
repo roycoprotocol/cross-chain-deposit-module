@@ -83,22 +83,21 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 token1_DecimalConversionRate;
     }
 
-    /// @notice Struct to hold the info about merkelized deposits for a specific market.
+    /// @notice Struct to hold the info about merklized deposits for a specific market.
     struct MerkleDepositsInfo {
-        MerkleTree.Bytes32PushTree merkleTree; // Merkle tree storing depositor info in the leaves.
+        MerkleTree.Bytes32PushTree merkleTree; // Merkle tree storing each deposit as a leaf.
         bytes32 merkleRoot; // Merkle root of the merkle tree representing deposits for this market.
-        uint256 totalAmountDeposited; // Total amount deposited by this depositor for this market.
-        bool canBeBridged;
+        uint256 totalAmountDeposited; // Total amount deposited by depositors for this market.
     }
 
     /// @notice Struct to hold the info about a depositor.
-    struct DepositorInfo {
+    struct IndividualDepositorInfo {
         uint256 totalAmountDeposited; // Total amount deposited by this depositor for this market.
         uint256 latestCcdmNonce; // Most recent CCDM nonce of the bridge txn that this depositor was included in for this market.
     }
 
     /// @notice Struct to hold the info about a Weiroll Wallet.
-    struct WeirollWalletInfo {
+    struct WeirollWalletDepositInfo {
         uint256 amountDeposited; // The amount deposited by this specific Weiroll Wallet.
         uint256 ccdmNonceOnDeposit; // The global CCDM nonce when this Weiroll Wallet deposited into the Deposit Locker.
     }
@@ -141,11 +140,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Mapping from market hash to the MerkleDepositsInfo struct.
     mapping(bytes32 => MerkleDepositsInfo) public marketHashToMerkleDepositsInfo;
 
-    /// @notice Mapping from market hash to depositor's address to the DepositorInfo struct.
-    mapping(bytes32 => mapping(address => DepositorInfo)) public marketHashToDepositorToDepositorInfo;
+    /// @notice Mapping from market hash to depositor's address to the IndividualDepositorInfo struct.
+    mapping(bytes32 => mapping(address => IndividualDepositorInfo)) public marketHashToDepositorToIndividualDepositorInfo;
 
-    /// @notice Mapping from depositor's address to Weiroll Wallet to the WeirollWalletInfo struct.
-    mapping(address => mapping(address => WeirollWalletInfo)) public depositorToWeirollWalletToWeirollWalletInfo;
+    /// @notice Mapping from depositor's address to Weiroll Wallet to the WeirollWalletDepositInfo struct.
+    mapping(address => mapping(address => WeirollWalletDepositInfo)) public depositorToWeirollWalletToWeirollWalletDepositInfo;
 
     /// @notice Used to keep track of CCDM bridge transactions.
     /// @notice A CCDM bridge transaction that results in multiple OFTs being bridged (LP bridge) will have the same nonce.
@@ -544,8 +543,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
 
         // Account for deposit
-        marketHashToDepositorToDepositorInfo[targetMarketHash][depositor].totalAmountDeposited += amountDeposited;
-        WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
+        marketHashToDepositorToIndividualDepositorInfo[targetMarketHash][depositor].totalAmountDeposited += amountDeposited;
+        WeirollWalletDepositInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletDepositInfo[depositor][msg.sender];
         walletInfo.ccdmNonceOnDeposit = ccdmNonce;
         walletInfo.amountDeposited = amountDeposited;
 
@@ -564,8 +563,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         address depositor = wallet.owner();
 
         // Get the necessary depositor and Weiroll Wallet info to process the withdrawal
-        DepositorInfo storage depositorInfo = marketHashToDepositorToDepositorInfo[targetMarketHash][depositor];
-        WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
+        IndividualDepositorInfo storage depositorInfo = marketHashToDepositorToIndividualDepositorInfo[targetMarketHash][depositor];
+        WeirollWalletDepositInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletDepositInfo[depositor][msg.sender];
 
         // Get amount to withdraw for this Weiroll Wallet
         uint256 amountToWithdraw = walletInfo.amountDeposited;
@@ -760,7 +759,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             nonce,
             NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE,
             marketInputToken.decimals(),
-            CCDMPayloadLib.BridgeType.INDIVUAL_DEPOSITORS
+            CCDMPayloadLib.BridgeType.INDIVIDUAL_DEPOSITORS
         );
 
         // Array to store the actual depositors bridged
@@ -839,7 +838,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 lp_TotalDepositsInBatch = 0;
         uint256[] memory lp_DepositAmounts = new uint256[](_depositors.length);
         for (uint256 i = 0; i < _depositors.length; ++i) {
-            DepositorInfo storage depositorInfo = marketHashToDepositorToDepositorInfo[_marketHash][_depositors[i]];
+            IndividualDepositorInfo storage depositorInfo = marketHashToDepositorToIndividualDepositorInfo[_marketHash][_depositors[i]];
             lp_DepositAmounts[i] = depositorInfo.totalAmountDeposited;
             lp_TotalDepositsInBatch += lp_DepositAmounts[i];
             // Set the total amount deposited by this depositor (AP) for this market to zero
@@ -867,10 +866,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Initialize compose messages for both tokens
         bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(
-            _depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE, token0.decimals(), CCDMPayloadLib.BridgeType.INDIVUAL_DEPOSITORS
+            _depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE, token0.decimals(), CCDMPayloadLib.BridgeType.INDIVIDUAL_DEPOSITORS
         );
         bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(
-            _depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE, token1.decimals(), CCDMPayloadLib.BridgeType.INDIVUAL_DEPOSITORS
+            _depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE, token1.decimals(), CCDMPayloadLib.BridgeType.INDIVIDUAL_DEPOSITORS
         );
 
         // Create params struct
@@ -958,17 +957,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         returns (uint256 depositAmount)
     {
         // Get amount deposited by the depositor (AP)
-        depositAmount = marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
+        depositAmount = marketHashToDepositorToIndividualDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
 
         if (depositAmount == 0 || depositAmount > type(uint96).max) {
             return 0; // Skip if no deposit or deposit amount exceeds limit
         }
 
         // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
-        marketHashToDepositorToDepositorInfo[_marketHash][_depositor].latestCcdmNonce = _ccdmNonce;
+        marketHashToDepositorToIndividualDepositorInfo[_marketHash][_depositor].latestCcdmNonce = _ccdmNonce;
 
         // Set the total amount deposited by this depositor (AP) for this market to zero
-        delete marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
+        delete marketHashToDepositorToIndividualDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
 
         // Add depositor to the compose message
         _composeMsg.writeDepositor(_depositorIndex, _depositor, uint96(depositAmount));

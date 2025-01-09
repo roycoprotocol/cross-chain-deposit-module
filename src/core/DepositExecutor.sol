@@ -74,9 +74,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @custom:field leafToWithdrawn Mapping to keep track of which leaves have already withdrawn.
     /// Only set for wallets created by MERKLE_DEPOSITORS bridges.
     /// @custom:field depositorToTokenToAmountDepositedOnDest Mapping to account for depositor's balance of each token in this Weiroll Wallet.
-    /// Only set for wallets created by INDIVUAL_DEPOSITORS bridges.
+    /// Only set for wallets created by INDIVIDUAL_DEPOSITORS bridges.
     /// @custom:field tokenToTotalAmountDepositedOnDest Mapping to account for total amounts deposited for each token in this Weiroll Wallet.
-    /// Set for MERKLE_DEPOSITORS and INDIVUAL_DEPOSITORS bridges.
+    /// Set for MERKLE_DEPOSITORS and INDIVIDUAL_DEPOSITORS bridges.
     struct WeirollWalletAccounting {
         bytes32 merkleRoot;
         uint256 totalMerkleTreeAmountDepositedOnSource;

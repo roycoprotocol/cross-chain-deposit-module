@@ -19,7 +19,7 @@ library CCDMPayloadLib {
         - Merkle Root: bytes32 (32 bytes)
         - Total Amount Deposited on Source: uint256 (32 bytes)
 
-    INDIVUAL_DEPOSITORS Data:
+    INDIVIDUAL_DEPOSITORS Data:
         Per Depositor (following 32 byte blocks):
             - Depositor / AP address: address (20 bytes)
             - Amount Deposited: uint96 (12 bytes)
@@ -28,7 +28,7 @@ library CCDMPayloadLib {
     /// @notice Enum for indicating the type of CCDM bridge (merkle or individual).
     enum BridgeType {
         MERKLE_DEPOSITORS,
-        INDIVUAL_DEPOSITORS
+        INDIVIDUAL_DEPOSITORS
     }
 
     /// @notice Size of a MERKLE_DEPOSITORS payload.
@@ -46,6 +46,7 @@ library CCDMPayloadLib {
 
     /// @dev Initializes a compose message for CCDM.
     /// @param _numDepositors The number of depositors that will be bridged using this compose message.
+    /// This is only set for INDIVIDUAL_DEPOSITORS bridges.
     /// @param _marketHash The Royco market hash associated with the deposits.
     /// @param _ccdmNonce The ccdmNonce associated with the DUAL_OR_LP_TOKEN deposits.
     /// @param _numTokensBridged The number of input tokens bridged for the destination campaign.
