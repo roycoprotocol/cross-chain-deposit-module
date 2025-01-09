@@ -487,6 +487,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
+        // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
+        if (address(marketInputToken).code.length == 0) revert RoycoMarketNotInitialized();
+
         if (!_isUniV2Pair(address(marketInputToken))) {
             // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for SINGLE_TOKEN markets
             bool depositAmountHasValidPrecision =
