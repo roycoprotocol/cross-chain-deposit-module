@@ -135,8 +135,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Mapping from market hash to the time the green light will turn on for bridging.
     mapping(bytes32 => uint256) public marketHashToBridgingAllowedTimestamp;
 
-    /// @notice Mapping from market hash to the owner of the LP market.
-    mapping(bytes32 => address) public marketHashToLpMarketOwner;
+    /// @notice Mapping from market hash to the owner of the corresponding deposit campaign.
+    mapping(bytes32 => address) public marketHashToCampaignOwner;
 
     /// @notice Mapping from market hash to the MerkleDepositsInfo struct.
     mapping(bytes32 => MerkleDepositsInfo) public marketHashToMerkleDepositsInfo;
@@ -292,11 +292,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     event DepositExecutorSet(address depositExecutor);
 
     /**
-     * @notice Emitted when the LP token market owner is set.
-     * @param marketHash The hash of the market for which the LP token owner was set.
-     * @param lpMarketOwner The address of the LP token market owner.
+     * @notice Emitted when the owner of the market's corresponding deposit campaign is set.
+     * @param marketHash The hash of the market for which to set the deposit campaign owner for.
+     * @param campaignOwner The address of the owner of the market's corresponding deposit campaign.
      */
-    event LpMarketOwnerSet(bytes32 indexed marketHash, address lpMarketOwner);
+    event CampaignOwnerSet(bytes32 indexed marketHash, address campaignOwner);
 
     /**
      * @notice Emitted when the LayerZero V2 OFT for a token is set.
@@ -354,8 +354,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when the caller is not the global greenLighter.
     error OnlyGreenLighter();
 
-    /// @notice Error emitted when the caller is not the LP token market's owner.
-    error OnlyLpMarketOwner();
+    /// @notice Error emitted when the caller is not the owner of the market's corresponding deposit campaign.
+    error OnlyCampaignOwner();
 
     /// @notice Error emitted when the deposit amount is too precise to bridge based on the shared decimals of the OFT
     error DepositAmountIsTooPrecise();
@@ -402,19 +402,20 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         _;
     }
 
-    /// @dev Modifier to check if green light is given for bridging and depositExecutor has been set.
+    /// @dev Modifier to ensure the caller is the owner of the market's corresponding deposit campaign or owner of the Deposit Locker.
+    modifier onlyCampaignOwnerOrDepositLockerOwner(bytes32 _marketHash) {
+        require(msg.sender == marketHashToCampaignOwner[_marketHash] || msg.sender == owner(), OnlyCampaignOwner());
+        _;
+    }
+
+    /// @dev Modifier to check if the bridge is ready to be invoked.
     modifier readyToBridge(bytes32 _marketHash) {
+        require(msg.sender == marketHashToCampaignOwner[_marketHash], OnlyCampaignOwner());
         uint256 bridgingAllowedTimestamp = marketHashToBridgingAllowedTimestamp[_marketHash];
         require(dstChainLzEid != 0, DestinationChainEidNotSet());
         require(depositExecutor != address(0), DepositExecutorNotSet());
         require(bridgingAllowedTimestamp != 0, GreenLightNotGiven());
         require(block.timestamp >= bridgingAllowedTimestamp, RageQuitPeriodInProgress());
-        _;
-    }
-
-    /// @dev Modifier to ensure the caller is the owner of an LP market.
-    modifier onlyLpMarketOwner(bytes32 _marketHash) {
-        require(msg.sender == marketHashToLpMarketOwner[_marketHash], OnlyLpMarketOwner());
         _;
     }
 
@@ -648,7 +649,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     )
         external
         payable
-        onlyLpMarketOwner(_marketHash)
         readyToBridge(_marketHash)
         nonReentrant
     {
@@ -829,7 +829,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     )
         external
         payable
-        onlyLpMarketOwner(_marketHash)
         readyToBridge(_marketHash)
         nonReentrant
     {
@@ -1187,6 +1186,16 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
+     * @notice Sets a new owner of the market's corresponding deposit campaign.
+     * @param _marketHash The hash of the market for which to set the deposit campaign owner for.
+     * @param _campaignOwner The address of the owner of the market's corresponding deposit campaign.
+     */
+    function _setCampaignOwner(bytes32 _marketHash, address _campaignOwner) internal {
+        marketHashToCampaignOwner[_marketHash] = _campaignOwner;
+        emit CampaignOwnerSet(_marketHash, _campaignOwner);
+    }
+
+    /**
      * @notice Checks if a given token address is a Uniswap V2 LP token.
      * @param _token The address of the token to check.
      * @return True if the token is a Uniswap V2 LP token, false otherwise.
@@ -1233,17 +1242,28 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Sets the owners of LP token markets.
+     * @notice Sets owners for the specified campaigns.
      * @dev Only callable by the contract owner.
-     * @param _marketHashes The market hashes to set the LP market owners for.
-     * @param _lpMarketOwners Addresses of the LP market owners.
+     * @param _marketHashes The hashes of the markets for which to set the deposit campaign owners for.
+     * @param _campaignOwners The addresses of the owners of the markets' corresponding deposit campaigns.
      */
-    function setLpMarketOwners(bytes32[] calldata _marketHashes, address[] calldata _lpMarketOwners) external onlyOwner {
-        require(_marketHashes.length == _lpMarketOwners.length, ArrayLengthMismatch());
+    function setCampaignOwners(bytes32[] calldata _marketHashes, address[] calldata _campaignOwners) external onlyOwner {
+        // Make sure the each campaign identified by its source market hash has a corresponding owner
+        require(_marketHashes.length == _campaignOwners.length, ArrayLengthMismatch());
+
         for (uint256 i = 0; i < _marketHashes.length; ++i) {
-            marketHashToLpMarketOwner[_marketHashes[i]] = _lpMarketOwners[i];
-            emit LpMarketOwnerSet(_marketHashes[i], _lpMarketOwners[i]);
+            _setCampaignOwner(_marketHashes[i], _campaignOwners[i]);
         }
+    }
+
+    /**
+     * @notice Sets a new owner for the specified campaign.
+     * @dev Only callable by the contract owner or the current owner of the campaign.
+     * @param _marketHash The hash of the market for which to set the deposit campaign owner for.
+     * @param _campaignOwner The address of the owner of the market's corresponding deposit campaign.
+     */
+    function setNewCampaignOwner(bytes32 _marketHash, address _campaignOwner) external onlyCampaignOwnerOrDepositLockerOwner(_marketHash) {
+        _setCampaignOwner(_marketHash, _campaignOwner);
     }
 
     /**

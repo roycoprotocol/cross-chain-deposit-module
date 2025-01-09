@@ -375,6 +375,15 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
             result.depositAmounts[i] = totalAmountDeposited;
         }
 
+        bytes32[] memory marketHashes = new bytes32[](1);
+        marketHashes[0] = result.marketHash;
+        address[] memory owners = new address[](1);
+        owners[0] = IP_ADDRESS;
+
+        vm.startPrank(OWNER_ADDRESS);
+        depositLocker.setCampaignOwners(marketHashes, owners);
+        vm.stopPrank();
+
         vm.startPrank(GREEN_LIGHTER_ADDRESS);
         depositLocker.turnGreenLightOn(result.marketHash);
         vm.stopPrank();
