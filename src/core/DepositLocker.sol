@@ -29,8 +29,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The depth of the Merkle Tree dictating the number of depositors it can hold.
-    /// @dev A depth of 22 can hold 2^22 = 4,194,304 depositors.
-    uint8 public constant MERKLE_TREE_DEPTH = 22;
+    /// @dev A depth of 32 can hold 2^32 = 4,294,967,296 individual deposits.
+    uint8 public constant MERKLE_TREE_DEPTH = 32;
 
     /// @notice The value used for a null leaf in the Merkle Tree.
     bytes32 public constant NULL_LEAF = bytes32(0);
@@ -421,7 +421,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /*//////////////////////////////////////////////////////////////
                                 Constructor
     //////////////////////////////////////////////////////////////*/
-
     /**
      * @notice Initialize the DepositLocker Contract.
      * @param _owner The address of the owner of the contract.
@@ -472,6 +471,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
                             External Functions
     //////////////////////////////////////////////////////////////*/
 
+    /**
+     * @notice Deposits a depositor into the Deposit Locker as a merklized deposit for this Weiroll Wallet.
+     * @dev Each merklized deposit made needs to be withdrawn individually on the destination.
+     * @dev Called by the deposit script of the depositor's Weiroll Wallet.
+     * @dev Requires an approval of the deposit amount for the market's input token.
+     */
     function merkleDeposit() external nonReentrant onlyWeirollWallet {
         // Get Weiroll Wallet's market hash, depositor/owner/AP, and amount deposited
         WeirollWallet wallet = WeirollWallet(payable(msg.sender));
@@ -510,7 +515,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Directly deposits a depositor into the Deposit Locker.
+     * @notice Directly deposits a depositor as an individual depositor into the Deposit Locker.
      * @dev Called by the deposit script of the depositor's Weiroll Wallet.
      * @dev Requires an approval of the deposit amount for the market's input token.
      */
@@ -548,7 +553,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Directly withdraws the amount deposited into the Deposit Locker from a depositor's Weiroll Wallet to the depositor/AP.
+     * @notice Directly withdraws the amount deposited into the Deposit Locker from an individual depositor's Weiroll Wallet to the depositor/AP.
      * @dev Called by the withdraw script of the depositor's Weiroll Wallet.
      */
     function withdraw() external nonReentrant {
