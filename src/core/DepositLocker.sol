@@ -506,8 +506,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             // If the tree is uninitialized, initialize it with the depth
             merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
         }
+        // Generate the deposit leaf
         bytes32 depositLeaf = keccak256(abi.encodePacked(merkleDepositNonce, depositor, amountDeposited));
-        // Add the depositor the Merkle Tree
+        // Add the deposit leaf to the Merkle Tree
         (uint256 leafIndex, bytes32 updatedMerkleRoot) = merkleDepositsInfo.merkleTree.push(depositLeaf);
         // Update the merkle root and the total amount deposited into the merkle tree
         merkleDepositsInfo.merkleRoot = updatedMerkleRoot;
@@ -639,6 +640,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @notice Merkle bridges depositors in Uniswap V2 LP token markets from the source chain to the destination chain.
      * @dev NOTE: Be generous with the msg.value to pay for bridging fees, as you will be refunded the excess.
      * @dev NOTE: Dust amount after redeeming LP tokens and normalizing between the OFT's LD and SD is locked in the locker forever.
+     * @dev NOTE: Dust does not scale with the number of deposits being merkle bridged.
      * @dev Green light must be given before calling.
      * @param _marketHash The hash of the market to bridge tokens for.
      * @param _minAmountOfToken0ToBridge The minimum amount of Token A to receive from removing liquidity.
@@ -659,9 +661,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         bytes32 merkleRoot = merkleDepositsInfo.merkleRoot;
         uint256 totalAmountDeposited = merkleDepositsInfo.totalAmountDeposited;
 
-        // Ensure that at least one depositor was included in the bridge payload
-        require(totalAmountDeposited > 0, MustBridgeAtLeastOneDepositor());
-
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
         // Get the market's input token
@@ -677,9 +676,24 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         ERC20 token1 = ERC20(uniV2Pair.token1());
 
         // Burn the LP tokens and retrieve the pair's underlying tokens
-        (uint256 token0_AmountToBridge, uint256 token1_AmountToBridge) = UNISWAP_V2_ROUTER.removeLiquidity(
+        (uint256 token0_TotalAmountToBridge, uint256 token1_TotalAmountToBridge) = UNISWAP_V2_ROUTER.removeLiquidity(
             address(token0), address(token1), totalAmountDeposited, _minAmountOfToken0ToBridge, _minAmountOfToken1ToBridge, address(this), block.timestamp
         );
+
+        // Normalize deposit amounts to the OFT's SD
+        // IMPORTANT: Dust amount is locked in the Deposit Locker forever.
+        // Dust does not scale with the number of deposits bridged.
+        uint256 token0_DecimalConversionRate = 10 ** (token0.decimals() - tokenToLzV2OFT[token0].sharedDecimals());
+        uint256 token1_DecimalConversionRate = 10 ** (token1.decimals() - tokenToLzV2OFT[token1].sharedDecimals());
+        if (token0_DecimalConversionRate != 1) {
+            token0_TotalAmountToBridge = (token0_TotalAmountToBridge / token0_DecimalConversionRate) * token0_DecimalConversionRate;
+        }
+        if (token1_DecimalConversionRate != 1) {
+            token1_TotalAmountToBridge = (token1_TotalAmountToBridge / token1_DecimalConversionRate) * token1_DecimalConversionRate;
+        }
+
+        // Ensure that at least one depositor was included in the bridge payload
+        require(token0_TotalAmountToBridge > 0 || token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
         // Initialize compose messages for both tokens
         bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(
@@ -693,26 +707,18 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         token0_ComposeMsg.writeMerkleBridgeData(merkleRoot, totalAmountDeposited);
         token1_ComposeMsg.writeMerkleBridgeData(merkleRoot, totalAmountDeposited);
 
-        // Normalize deposit amounts for SD
-        // IMPORTANT: Dust amount is locked in the locker forever.
-        uint256 token0_DecimalConversionRate = 10 ** (token0.decimals() - tokenToLzV2OFT[token0].sharedDecimals());
-        uint256 token1_DecimalConversionRate = 10 ** (token1.decimals() - tokenToLzV2OFT[token1].sharedDecimals());
-        if (token0_DecimalConversionRate != 1) {
-            token0_AmountToBridge = token0_AmountToBridge / token0_DecimalConversionRate;
-        }
-        if (token1_DecimalConversionRate != 1) {
-            token1_AmountToBridge = token1_AmountToBridge / token1_DecimalConversionRate;
-        }
-
+        // Bridge the two consecutive tokens
         uint256 totalBridgingFee = 0;
         uint128 destinationGasLimit = CCDMFeeLib.GAS_FOR_MERKLE_BRIDGE;
 
         // Bridge Token A
-        MessagingReceipt memory token0_MessageReceipt = _executeBridge(token0, token0_AmountToBridge, token0_ComposeMsg, totalBridgingFee, destinationGasLimit);
+        MessagingReceipt memory token0_MessageReceipt =
+            _executeBridge(token0, token0_TotalAmountToBridge, token0_ComposeMsg, totalBridgingFee, destinationGasLimit);
         totalBridgingFee += token0_MessageReceipt.fee.nativeFee;
 
         // Bridge Token B
-        MessagingReceipt memory token1_MessageReceipt = _executeBridge(token1, token1_AmountToBridge, token1_ComposeMsg, totalBridgingFee, destinationGasLimit);
+        MessagingReceipt memory token1_MessageReceipt =
+            _executeBridge(token1, token1_TotalAmountToBridge, token1_ComposeMsg, totalBridgingFee, destinationGasLimit);
         totalBridgingFee += token1_MessageReceipt.fee.nativeFee;
 
         // Refund excess value sent with the transaction
@@ -721,7 +727,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             require(success, RefundFailed());
         }
 
-        // Reset the merkle tree and its accounting infor for this market
+        // Reset the merkle tree and its accounting information for this market
         merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
         delete merkleDepositsInfo.merkleRoot;
         delete merkleDepositsInfo.totalAmountDeposited;
@@ -734,11 +740,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             token0_MessageReceipt.guid,
             token0_MessageReceipt.nonce,
             token0,
-            token0_AmountToBridge,
+            token0_TotalAmountToBridge,
             token1_MessageReceipt.guid,
             token1_MessageReceipt.nonce,
             token1,
-            token1_AmountToBridge
+            token1_TotalAmountToBridge
         );
     }
 
@@ -901,7 +907,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Ensure that at least one depositor was included in the bridge payload
-        require(totals.token0_TotalAmountToBridge > 0 && totals.token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+        require(totals.token0_TotalAmountToBridge > 0 || totals.token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
         uint256 numDepositorsIncluded = params.numDepositorsIncluded;
         // Ensure that the number of depositors bridged is less than the globally defined limit
@@ -1019,15 +1025,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             token1_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _token1, token1_DepositAmount, params.token1_DecimalConversionRate);
         }
 
-        if (token0_DepositAmount == 0 || token1_DepositAmount == 0) {
-            // Can't bridge this depositor because they were trying to bridge a dust amount of at least one token.
-            // Refund the non-dust if any and omit from the payload
-            if (token0_DepositAmount != 0) {
-                _token0.safeTransfer(params.depositor, token0_DepositAmount);
-            }
-            if (token1_DepositAmount != 0) {
-                _token1.safeTransfer(params.depositor, token1_DepositAmount);
-            }
+        if (token0_DepositAmount == 0 && token1_DepositAmount == 0) {
+            // If both resulting amounts are 0, dust has been refunded, and depositor should be ommitted from the bridge.
             return;
         }
 
