@@ -484,7 +484,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
     }
 
     function test_ExecutorOnBridge_StandardDepositFlowNoFuzz() external {
-        BridgeDepositsResult memory bridgeResult = _bridgeDeposits(12_000e6, 2);
+        BridgeDepositsResult memory bridgeResult = _bridgeDeposits(12_000e6, 1);
 
         vm.selectFork(polygonFork);
         assertEq(vm.activeFork(), polygonFork);

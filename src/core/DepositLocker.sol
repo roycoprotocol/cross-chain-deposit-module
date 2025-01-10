@@ -186,7 +186,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param depositor The address of the user who made the deposit.
      * @param amountDeposited The amount of funds that were deposited by the user.
      */
-    event UserDeposited(bytes32 indexed marketHash, address indexed depositor, uint256 amountDeposited);
+    event IndividualDepositMade(bytes32 indexed marketHash, address indexed depositor, uint256 amountDeposited);
 
     /**
      * @notice Emitted when a user withdraws funds from a market.
@@ -194,7 +194,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param depositor The address of the user who invoked the withdrawal.
      * @param amountWithdrawn The amount of funds that were withdrawn by the user.
      */
-    event UserWithdrawn(bytes32 indexed marketHash, address indexed depositor, uint256 amountWithdrawn);
+    event IndividualWithdrawalMade(bytes32 indexed marketHash, address indexed depositor, uint256 amountWithdrawn);
 
     /**
      * @notice Emitted when single tokens are merkle bridged to the destination chain.
@@ -415,10 +415,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @dev Modifier to check if the bridge is ready to be invoked.
     modifier readyToBridge(bytes32 _marketHash) {
+        // Basic checks for bridge readiness
         require(msg.sender == marketHashToCampaignOwner[_marketHash], OnlyCampaignOwner());
-        uint256 bridgingAllowedTimestamp = marketHashToBridgingAllowedTimestamp[_marketHash];
         require(dstChainLzEid != 0, DestinationChainEidNotSet());
         require(depositExecutor != address(0), DepositExecutorNotSet());
+        // Green light related bridge checks
+        uint256 bridgingAllowedTimestamp = marketHashToBridgingAllowedTimestamp[_marketHash];
         require(bridgingAllowedTimestamp != 0, GreenLightNotGiven());
         require(block.timestamp >= bridgingAllowedTimestamp, RageQuitPeriodInProgress());
         _;
@@ -565,7 +567,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         walletInfo.amountDeposited = amountDeposited;
 
         // Emit deposit event
-        emit UserDeposited(targetMarketHash, depositor, amountDeposited);
+        emit IndividualDepositMade(targetMarketHash, depositor, amountDeposited);
     }
 
     /**
@@ -596,7 +598,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         marketInputToken.safeTransfer(depositor, amountToWithdraw);
 
         // Emit withdrawal event
-        emit UserWithdrawn(targetMarketHash, depositor, amountToWithdraw);
+        emit IndividualWithdrawalMade(targetMarketHash, depositor, amountToWithdraw);
     }
 
     /**
