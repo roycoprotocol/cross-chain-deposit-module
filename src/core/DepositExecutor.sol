@@ -67,8 +67,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @dev Holds the granular depositor balances of a WeirollWallet.
     /// @custom:field merkleRoot Merkle root to facilitate withdrawals for merkle deposits.
     /// Only set for wallets created by MERKLE_DEPOSITORS bridges.
-    /// @custom:field totalMerkleTreeAmountDepositedOnSource Total deposits stored in the merkle root on the source chain.
-    /// Only set for wallets created by MERKLE_DEPOSITORS bridges.
     /// @custom:field totalMerkleTreeSourceAmountLeftToWithdraw Total deposits stored in the merkle root on the source chain that are still withdrawable.
     /// Only set for wallets created by MERKLE_DEPOSITORS bridges.
     /// @custom:field leafToWithdrawn Mapping to keep track of which leaves have already withdrawn.
@@ -79,7 +77,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// Set for MERKLE_DEPOSITORS and INDIVIDUAL_DEPOSITORS bridges.
     struct WeirollWalletAccounting {
         bytes32 merkleRoot;
-        uint256 totalMerkleTreeAmountDepositedOnSource;
         uint256 totalMerkleTreeSourceAmountLeftToWithdraw;
         mapping(bytes32 => bool) leafToWithdrawn;
         mapping(address => mapping(ERC20 => uint256)) depositorToTokenToAmountDepositedOnDest;
@@ -417,7 +414,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             if (walletAccounting.merkleRoot == bytes32(0)) {
                 // Set fields that are constant between payloads once
                 walletAccounting.merkleRoot = merkleRoot;
-                walletAccounting.totalMerkleTreeAmountDepositedOnSource = totalAmountDepositedOnSource;
                 walletAccounting.totalMerkleTreeSourceAmountLeftToWithdraw = totalAmountDepositedOnSource;
             }
             walletAccounting.tokenToTotalAmountDepositedOnDest[depositToken] = tokenAmountBridged;
@@ -620,9 +616,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         require(MerkleProof.verify(_merkleProof, merkleRoot, depositLeaf), InvalidMerkleProof());
 
         // Process the withdrawal
-        // Get the original amount deposited on source
-        uint256 totalMerkleTreeAmountDepositedOnSource = walletAccounting.totalMerkleTreeAmountDepositedOnSource;
-        // Get the amount left to withdraw from merkle tree
+        // Get the source amount left to withdraw from merkle tree
         uint256 totalMerkleTreeSourceAmountLeftToWithdraw = walletAccounting.totalMerkleTreeSourceAmountLeftToWithdraw;
 
         if (weirollWallet.executed()) {
@@ -664,7 +658,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                 require(totalAmountDepositedOnDest > 0, WaitingToReceiveAllTokens());
 
                 // Calculate the tokens owed to the depositor
-                uint256 amountOwed = (totalAmountDepositedOnDest * _amountDepositedOnSource) / totalMerkleTreeAmountDepositedOnSource;
+                uint256 amountOwed = (totalAmountDepositedOnDest * _amountDepositedOnSource) / totalMerkleTreeSourceAmountLeftToWithdraw;
                 // Account for withdrawal
                 walletAccounting.tokenToTotalAmountDepositedOnDest[inputToken] -= amountOwed;
 
