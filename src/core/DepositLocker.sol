@@ -707,7 +707,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Ensure that at least one depositor was included in the bridge payload
-        require(token0_TotalAmountToBridge > 0 || token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+        require(token0_TotalAmountToBridge > 0 && token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
         // Initialize compose messages for both tokens
         bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(
@@ -923,7 +923,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Ensure that at least one depositor was included in the bridge payload
-        require(totals.token0_TotalAmountToBridge > 0 || totals.token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+        require(totals.token0_TotalAmountToBridge > 0 && totals.token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
 
         uint256 numDepositorsIncluded = params.numDepositorsIncluded;
         // Ensure that the number of depositors bridged is less than the globally defined limit
@@ -1041,8 +1041,15 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             token1_DepositAmount = _adjustForPrecisionAndRefundDust(params.depositor, _token1, token1_DepositAmount, params.token1_DecimalConversionRate);
         }
 
-        if (token0_DepositAmount == 0 && token1_DepositAmount == 0) {
-            // If both resulting amounts are 0, dust has been refunded, and depositor should be ommitted from the bridge.
+        if (token0_DepositAmount == 0 || token1_DepositAmount == 0) {
+            // Can't bridge this depositor because they were trying to bridge a dust amount of at least one token.
+            // Refund the non-dust if any and omit from the payload
+            if (token0_DepositAmount != 0) {
+                _token0.safeTransfer(params.depositor, token0_DepositAmount);
+            }
+            if (token1_DepositAmount != 0) {
+                _token1.safeTransfer(params.depositor, token1_DepositAmount);
+            }
             return;
         }
 
