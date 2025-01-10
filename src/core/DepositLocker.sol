@@ -362,6 +362,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when the total deposit amount for the depositor exceeds the per market limit in a single bridge.
     error TotalDepositAmountExceedsLimit();
 
+    /// @notice Error emitted when trying to bridge LP tokens as a single token.
+    error CannotBridgeLpTokens();
+
     /// @notice Error emitted when attempting to bridge more depositors than the bridge limit
     error DepositorsPerBridgeLimitExceeded();
 
@@ -603,6 +606,13 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _marketHash The hash of the market to merkle bridge tokens for.
      */
     function merkleBridgeSingleTokens(bytes32 _marketHash) external payable readyToBridge(_marketHash) nonReentrant {
+        // The CCDM nonce for this CCDM bridge transaction
+        uint256 nonce = ccdmNonce;
+        // Get the market's input token
+        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
+
+        require(!_isUniV2Pair(address(marketInputToken)), CannotBridgeLpTokens());
+
         // Get merkleDepositsInfo for the specified market
         MerkleDepositsInfo storage merkleDepositsInfo = marketHashToMerkleDepositsInfo[_marketHash];
         bytes32 merkleRoot = merkleDepositsInfo.merkleRoot;
@@ -610,11 +620,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Ensure that at least one depositor was included in the bridge payload
         require(totalAmountDeposited > 0, MustBridgeAtLeastOneDepositor());
-
-        // The CCDM nonce for this CCDM bridge transaction
-        uint256 nonce = ccdmNonce;
-        // Get the market's input token
-        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
 
         // Initialize compose message
         bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(
@@ -769,6 +774,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 nonce = ccdmNonce;
         // Get the market's input token
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
+
+        require(!_isUniV2Pair(address(marketInputToken)), CannotBridgeLpTokens());
 
         // Initialize compose message
         bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(
