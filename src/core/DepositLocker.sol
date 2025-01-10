@@ -359,6 +359,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when the deposit amount is too precise to bridge based on the shared decimals of the OFT
     error DepositAmountIsTooPrecise();
 
+    /// @notice Error emitted when the total deposit amount for the depositor exceeds the per market limit in a single bridge.
+    error TotalDepositAmountExceedsLimit();
+
     /// @notice Error emitted when attempting to bridge more depositors than the bridge limit
     error DepositorsPerBridgeLimitExceeded();
 
@@ -533,11 +536,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
+        // Get the individual depositor info
+        IndividualDepositorInfo storage depositorInfo = marketHashToDepositorToIndividualDepositorInfo[targetMarketHash][depositor];
+        uint256 totalDepositAmountPostDeposit = depositorInfo.totalAmountDeposited + amountDeposited;
+
         if (!_isUniV2Pair(address(marketInputToken))) {
-            // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for SINGLE_TOKEN markets
+            // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for single token markets
             bool depositAmountHasValidPrecision =
                 amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
             require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
+            // Check that the deposit amount isn't exceeding the max amount that can be individually bridged in a single bridge
+            require(totalDepositAmountPostDeposit <= type(uint96).max, TotalDepositAmountExceedsLimit());
         }
 
         // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
@@ -547,7 +556,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
 
         // Account for deposit
-        marketHashToDepositorToIndividualDepositorInfo[targetMarketHash][depositor].totalAmountDeposited += amountDeposited;
+        depositorInfo.totalAmountDeposited = totalDepositAmountPostDeposit;
         WeirollWalletDepositInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletDepositInfo[depositor][msg.sender];
         walletInfo.ccdmNonceOnDeposit = ccdmNonce;
         walletInfo.amountDeposited = amountDeposited;
