@@ -29,14 +29,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The depth of the Merkle Tree dictating the number of depositors it can hold.
-    /// @dev A depth of 32 can hold 2^32 = 4,294,967,296 individual deposits.
-    uint8 public constant MERKLE_TREE_DEPTH = 32;
+    /// @dev A depth of 23 can hold 2^23 = 8,388,608 individual deposits.
+    uint8 public constant MERKLE_TREE_DEPTH = 23;
 
     /// @notice The value used for a null leaf in the Merkle Tree.
     bytes32 public constant NULL_LEAF = bytes32(0);
 
     /// @notice The limit for how many depositors can be bridged in a single transaction
-    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 300;
+    uint256 public constant MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE = 300;
 
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
     uint256 public constant RAGE_QUIT_PERIOD_DURATION = 0 hours;
@@ -810,7 +810,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Ensure that at least one depositor was included in the bridge payload
         require(totalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
         // Ensure that the number of depositors bridged is less than the globally defined limit
-        require(numDepositorsIncluded <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
+        require(numDepositorsIncluded <= MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
 
         // Resize the compose message to reflect the actual number of depositors included in the payload
         composeMsg.resizeComposeMsg(numDepositorsIncluded);
@@ -821,7 +821,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Estimate gas used by the lzCompose call for this bridge transaction
-        uint128 destinationGasLimit = CCDMFeeLib.estimateDestinationGasLimit(numDepositorsIncluded);
+        uint128 destinationGasLimit = CCDMFeeLib.estimateIndividualDepositorsBridgeGasLimit(numDepositorsIncluded);
 
         // Execute the bridge
         MessagingReceipt memory messageReceipt = _executeBridge(marketInputToken, totalAmountToBridge, composeMsg, 0, destinationGasLimit);
@@ -929,7 +929,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         uint256 numDepositorsIncluded = params.numDepositorsIncluded;
         // Ensure that the number of depositors bridged is less than the globally defined limit
-        require(numDepositorsIncluded <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
+        require(numDepositorsIncluded <= MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
         // Resize the compose messages to reflect the actual number of depositors bridged
         token0_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
         token1_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
@@ -1104,7 +1104,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     function _executeConsecutiveBridges(LpBridgeParams memory _params) internal {
         uint256 totalBridgingFee = 0;
-        uint128 destinationGasLimit = CCDMFeeLib.estimateDestinationGasLimit(_params.depositorsBridged.length);
+        uint128 destinationGasLimit = CCDMFeeLib.estimateIndividualDepositorsBridgeGasLimit(_params.depositorsBridged.length);
 
         // Bridge Token A
         MessagingReceipt memory token0_MessageReceipt =

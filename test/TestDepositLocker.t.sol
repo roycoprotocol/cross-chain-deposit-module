@@ -68,7 +68,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
 
     function test_MerkleDeposits(uint256 offerAmount, uint256 numDepositors) external {
         // Bound the number of depositors and offer amount to prevent overflows and underflows
-        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE());
         offerAmount = bound(offerAmount, 1e6, ERC20(WETH_MAINNET_ADDRESS).totalSupply());
 
         // Check for dust removal
@@ -90,7 +90,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
 
     function test_Deposits(uint256 offerAmount, uint256 numDepositors) external {
         // Bound the number of depositors and offer amount to prevent overflows and underflows
-        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE());
         offerAmount = bound(offerAmount, 1e6, ERC20(WETH_MAINNET_ADDRESS).totalSupply());
 
         // Check for dust removal
@@ -115,7 +115,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         assertEq(vm.activeFork(), mainnetFork);
 
         // Bound the number of depositors and offer amount to prevent overflows and underflows
-        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE());
         offerAmount = bound(offerAmount, 1e6, ERC20(WETH_MAINNET_ADDRESS).totalSupply());
         numWithdrawals = bound(numWithdrawals, 1, numDepositors);
 

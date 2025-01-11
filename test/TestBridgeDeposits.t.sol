@@ -46,7 +46,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         DepositLocker depositLocker =
             new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs);
 
-        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE());
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), USDC_MAINNET_ADDRESS, address(depositLocker));
@@ -139,7 +139,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         DepositLocker depositLocker =
             new DepositLocker(OWNER_ADDRESS, 30_280, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs);
 
-        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE());
 
         vm.assume(_removeDust(offerAmount / numDepositors, 18, 6) > 0);
 
@@ -237,7 +237,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         DepositLocker depositLocker =
             new DepositLocker(OWNER_ADDRESS, 30_106, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs);
 
-        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE());
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), WBTC_MAINNET_ADDRESS, address(depositLocker));
@@ -331,7 +331,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
         DepositLocker depositLocker =
             new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs);
 
-        numDepositors = bound(numDepositors, 1, depositLocker.MAX_DEPOSITORS_PER_BRIDGE());
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE());
 
         RecipeMarketHubBase.Recipe memory DEPOSIT_RECIPE =
             _buildDepositRecipe(DepositLocker.deposit.selector, address(walletHelper), UNI_V2_wETH_USDC_PAIR, address(depositLocker));

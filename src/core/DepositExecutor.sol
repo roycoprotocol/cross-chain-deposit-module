@@ -696,6 +696,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Retrieves the amount deposited by a specific depositor for a specific token in a Weiroll Wallet within a Deposit Campaign.
+     * @dev Only valid for Weiroll Wallets created by the INDIVIDUAL_DEPOSITORS bridge type.
      * @param _sourceMarketHash The unique hash identifier of the source market (Deposit Campaign).
      * @param _weirollWallet The address of the Weiroll Wallet.
      * @param _depositor The address of the depositor.
@@ -713,6 +714,27 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         returns (uint256 amountDeposited)
     {
         amountDeposited = sourceMarketHashToDepositCampaign[_sourceMarketHash].weirollWalletToAccounting[_weirollWallet].depositorToTokenToAmountDepositedOnDest[_depositor][_token];
+    }
+
+    /**
+     * @notice Retrieves the merkle root and total source amount left to withdraw from the merkle root for a particular Weiroll Wallet.
+     * @dev Only valid for Weiroll Wallets created by the MERKLE_DEPOSITORS bridge type.
+     * @param _sourceMarketHash The unique hash identifier of the source market (Deposit Campaign).
+     * @param _weirollWallet The address of the Weiroll Wallet.
+     * @return merkleRoot Merkle root to facilitate withdrawals for merkle deposits.
+     * @return totalMerkleTreeSourceAmountLeftToWithdraw Total deposits stored in the merkle root on the source chain that are still withdrawable.
+     */
+    function getMerkleInfoForWeirollWallet(
+        bytes32 _sourceMarketHash,
+        address _weirollWallet
+    )
+        external
+        view
+        returns (bytes32 merkleRoot, uint256 totalMerkleTreeSourceAmountLeftToWithdraw)
+    {
+        WeirollWalletAccounting storage walletAccounting = sourceMarketHashToDepositCampaign[_sourceMarketHash].weirollWalletToAccounting[_weirollWallet];
+        merkleRoot = walletAccounting.merkleRoot;
+        totalMerkleTreeSourceAmountLeftToWithdraw = walletAccounting.totalMerkleTreeSourceAmountLeftToWithdraw;
     }
 
     /**
