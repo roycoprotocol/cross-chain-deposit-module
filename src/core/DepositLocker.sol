@@ -496,7 +496,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
         // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
-        if (address(marketInputToken).code.length == 0) revert RoycoMarketNotInitialized();
+        require(address(marketInputToken).code.length != 0, RoycoMarketNotInitialized());
 
         if (!_isUniV2Pair(address(marketInputToken))) {
             // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for SINGLE_TOKEN markets
@@ -505,7 +505,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
         }
 
-        // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
+        // Transfer the deposit amount from the Weiroll Wallet to the Deposit Locker
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
 
         // Get the merkleDepositsInfo struct for the intended market
@@ -541,6 +541,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
+        // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
+        require(address(marketInputToken).code.length != 0, RoycoMarketNotInitialized());
+
         // Get the individual depositor info
         IndividualDepositorInfo storage depositorInfo = marketHashToDepositorToIndividualDepositorInfo[targetMarketHash][depositor];
         uint256 totalDepositAmountPostDeposit = depositorInfo.totalAmountDeposited + amountDeposited;
@@ -554,10 +557,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             require(totalDepositAmountPostDeposit <= type(uint96).max, TotalDepositAmountExceedsLimit());
         }
 
-        // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
-        if (address(marketInputToken).code.length == 0) revert RoycoMarketNotInitialized();
-
-        // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
+        // Transfer the deposit amount from the Weiroll Wallet to the Deposit Locker
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
 
         // Account for deposit

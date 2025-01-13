@@ -310,7 +310,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         // Bounds
         uint256 numDepositors = 10;
         uint256 offerAmount = 1_000_000e6;
-        uint256 dustAmount = bound(dustAmount, 0, 10_000e6);
+        dustAmount = bound(dustAmount, 0, 10_000e6);
 
         // 1. Bridge deposits on the source chain
         BridgeDepositsResult memory bridgeResult = _bridgeMerkleDeposits(offerAmount, numDepositors);
