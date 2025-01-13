@@ -88,7 +88,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         }
     }
 
-    function test_Deposits(uint256 offerAmount, uint256 numDepositors) external {
+    function test_IndividualDeposits(uint256 offerAmount, uint256 numDepositors) external {
         // Bound the number of depositors and offer amount to prevent overflows and underflows
         numDepositors = bound(numDepositors, 1, depositLocker.MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE());
         offerAmount = bound(offerAmount, 1e6, ERC20(WETH_MAINNET_ADDRESS).totalSupply());
@@ -110,7 +110,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         }
     }
 
-    function test_Withdrawals(uint256 offerAmount, uint256 numDepositors, uint256 numWithdrawals) external {
+    function test_IndividualWithdrawals(uint256 offerAmount, uint256 numDepositors, uint256 numWithdrawals) external {
         vm.selectFork(mainnetFork);
         assertEq(vm.activeFork(), mainnetFork);
 
