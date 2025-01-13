@@ -12,6 +12,7 @@ import { CCDMPayloadLib } from "../libraries/CCDMPayloadLib.sol";
 import { CCDMFeeLib } from "../libraries/CCDMFeeLib.sol";
 import { IUniswapV2Router01 } from "../../lib/v2-periphery/contracts/interfaces/IUniswapV2Router01.sol";
 import { IUniswapV2Pair } from "../../lib/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import { MerkleTree } from "../../lib/openzeppelin-contracts/contracts/utils/structs/MerkleTree.sol";
 
 /// @title DepositLocker
 /// @author Shivaansh Kapoor, Jack Corddry
@@ -21,13 +22,21 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     using CCDMPayloadLib for bytes;
     using OptionsBuilder for bytes;
     using SafeTransferLib for ERC20;
+    using MerkleTree for MerkleTree.Bytes32PushTree;
 
     /*//////////////////////////////////////////////////////////////
                                 Constants
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice The depth of the Merkle Tree dictating the number of individual deposits it can hold.
+    /// @dev A depth of 23 can hold 2^23 = 8,388,608 deposits.
+    uint8 public constant MERKLE_TREE_DEPTH = 23;
+
+    /// @notice The value used for a null leaf in the Merkle Tree.
+    bytes32 public constant NULL_LEAF = bytes32(0);
+
     /// @notice The limit for how many depositors can be bridged in a single transaction
-    uint256 public constant MAX_DEPOSITORS_PER_BRIDGE = 300;
+    uint256 public constant MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE = 300;
 
     /// @notice The duration of time that depositors have after the market's green light is given to rage quit before they can be bridged.
     uint256 public constant RAGE_QUIT_PERIOD_DURATION = 0 hours;
@@ -74,14 +83,21 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 token1_DecimalConversionRate;
     }
 
+    /// @notice Struct to hold the info about merklized deposits for a specific market.
+    struct MerkleDepositsInfo {
+        MerkleTree.Bytes32PushTree merkleTree; // Merkle tree storing each deposit as a leaf.
+        bytes32 merkleRoot; // Merkle root of the merkle tree representing deposits for this market.
+        uint256 totalAmountDeposited; // Total amount deposited by depositors for this market.
+    }
+
     /// @notice Struct to hold the info about a depositor.
-    struct DepositorInfo {
+    struct IndividualDepositorInfo {
         uint256 totalAmountDeposited; // Total amount deposited by this depositor for this market.
         uint256 latestCcdmNonce; // Most recent CCDM nonce of the bridge txn that this depositor was included in for this market.
     }
 
     /// @notice Struct to hold the info about a Weiroll Wallet.
-    struct WeirollWalletInfo {
+    struct WeirollWalletDepositInfo {
         uint256 amountDeposited; // The amount deposited by this specific Weiroll Wallet.
         uint256 ccdmNonceOnDeposit; // The global CCDM nonce when this Weiroll Wallet deposited into the Deposit Locker.
     }
@@ -102,9 +118,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The hash of the Weiroll Wallet code
     bytes32 public immutable WEIROLL_WALLET_PROXY_CODE_HASH;
 
-    /// @notice The address of the Weiroll Wallet that deposited into the CCDM in this transaction.
-    address public transient currentlyDepositingWeirollWallet;
-
     /// @notice The party that green lights bridging on a per market basis
     address public greenLighter;
 
@@ -121,22 +134,51 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Mapping from market hash to the time the green light will turn on for bridging.
     mapping(bytes32 => uint256) public marketHashToBridgingAllowedTimestamp;
 
-    /// @notice Mapping from market hash to the owner of the LP market.
-    mapping(bytes32 => address) public marketHashToLpMarketOwner;
+    /// @notice Mapping from market hash to the owner of the corresponding deposit campaign.
+    mapping(bytes32 => address) public marketHashToCampaignOwner;
 
-    /// @notice Mapping from market hash to depositor's address to the DepositorInfo struct.
-    mapping(bytes32 => mapping(address => DepositorInfo)) public marketHashToDepositorToDepositorInfo;
+    /// @notice Mapping from market hash to the MerkleDepositsInfo struct.
+    mapping(bytes32 => MerkleDepositsInfo) public marketHashToMerkleDepositsInfo;
 
-    /// @notice Mapping from depositor's address to Weiroll Wallet to the WeirollWalletInfo struct.
-    mapping(address => mapping(address => WeirollWalletInfo)) public depositorToWeirollWalletToWeirollWalletInfo;
+    /// @notice Mapping from market hash to depositor's address to the IndividualDepositorInfo struct.
+    mapping(bytes32 => mapping(address => IndividualDepositorInfo)) public marketHashToDepositorToIndividualDepositorInfo;
+
+    /// @notice Mapping from depositor's address to Weiroll Wallet to the WeirollWalletDepositInfo struct.
+    mapping(address => mapping(address => WeirollWalletDepositInfo)) public depositorToWeirollWalletToWeirollWalletDepositInfo;
 
     /// @notice Used to keep track of CCDM bridge transactions.
     /// @notice A CCDM bridge transaction that results in multiple OFTs being bridged (LP bridge) will have the same nonce.
     uint256 public ccdmNonce;
 
+    /// @notice Used to make each merkle deposit leaf is unique.
+    /// @notice This allows for the depositor to withdraw correctly in the event that they make multiple deposits in the same merkle tree.
+    uint256 public merkleDepositNonce;
+
     /*//////////////////////////////////////////////////////////////
                             Events and Errors
     //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Emitted when a merkle deposit is made for a given market.
+     * @param ccdmNonce The CCDM Nonce indicating the next bridge nonce.
+     * @param marketHash The unique hash identifier of the market where the deposit occurred.
+     * @param depositor The address of the user who made the deposit.
+     * @param amountDeposited The amount of funds that were deposited by the user.
+     * @param merkleDepositNonce Unique identifier for this merkle deposit - used to make sure that each merkle depositor's leaf is unique.
+     * @param leafIndex The index in the Merkle tree where the new deposit leaf was added.
+     * @param leafIndex The index in the Merkle tree where the new deposit leaf was added.
+     * @param updatedMerkleRoot The new Merkle root after the deposit leaf was inserted.
+     */
+    event MerkleDepositMade(
+        uint256 indexed ccdmNonce,
+        bytes32 indexed marketHash,
+        address indexed depositor,
+        uint256 amountDeposited,
+        uint256 merkleDepositNonce,
+        bytes32 leaf,
+        uint256 leafIndex,
+        bytes32 updatedMerkleRoot
+    );
 
     /**
      * @notice Emitted when a user deposits funds into a market.
@@ -144,7 +186,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param depositor The address of the user who made the deposit.
      * @param amountDeposited The amount of funds that were deposited by the user.
      */
-    event UserDeposited(bytes32 indexed marketHash, address indexed depositor, uint256 amountDeposited);
+    event IndividualDepositMade(bytes32 indexed marketHash, address indexed depositor, uint256 amountDeposited);
 
     /**
      * @notice Emitted when a user withdraws funds from a market.
@@ -152,7 +194,20 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param depositor The address of the user who invoked the withdrawal.
      * @param amountWithdrawn The amount of funds that were withdrawn by the user.
      */
-    event UserWithdrawn(bytes32 indexed marketHash, address indexed depositor, uint256 amountWithdrawn);
+    event IndividualWithdrawalMade(bytes32 indexed marketHash, address indexed depositor, uint256 amountWithdrawn);
+
+    /**
+     * @notice Emitted when single tokens are merkle bridged to the destination chain.
+     * @param marketHash The unique hash identifier of the market related to the bridged tokens.
+     * @param ccdmNonce The CCDM Nonce for this bridge.
+     * @param merkleRoot The merkle root bridged to the destination.
+     * @param lz_guid The LayerZero unique identifier associated with the bridging transaction.
+     * @param lz_nonce The LayerZero nonce value for the bridging message.
+     * @param totalAmountBridged The total amount of tokens that were bridged to the destination chain.
+     */
+    event SingleTokensMerkleBridgedToDestination(
+        bytes32 indexed marketHash, uint256 indexed ccdmNonce, bytes32 merkleRoot, bytes32 lz_guid, uint64 lz_nonce, uint256 totalAmountBridged
+    );
 
     /**
      * @notice Emitted when single tokens are bridged to the destination chain.
@@ -165,6 +220,34 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     event SingleTokensBridgedToDestination(
         bytes32 indexed marketHash, uint256 indexed ccdmNonce, address[] depositorsBridged, bytes32 lz_guid, uint64 lz_nonce, uint256 totalAmountBridged
+    );
+
+    /**
+     * @notice Emitted when UNI V2 LP tokens are merkle bridged to the destination chain.
+     * @param marketHash The unique hash identifier of the market associated with the LP tokens.
+     * @param ccdmNonce The CCDM Nonce for this bridge.
+     * @param merkleRoot The merkle root bridged to the destination.
+     * @param lz_token0_guid The LayerZero unique identifier for the bridging of token0.
+     * @param lz_token0_nonce The LayerZero nonce value for the bridging of token0.
+     * @param token0 The address of the first token in the liquidity pair.
+     * @param lz_token0_AmountBridged The amount of token0 that was bridged to the destination chain.
+     * @param lz_token1_guid The LayerZero unique identifier for the bridging of token1.
+     * @param lz_token1_nonce The LayerZero nonce value for the bridging of token1.
+     * @param token1 The address of the second token in the liquidity pair.
+     * @param lz_token1_AmountBridged The amount of token1 that was bridged to the destination chain.
+     */
+    event LpTokensMerkleBridgedToDestination(
+        bytes32 indexed marketHash,
+        uint256 indexed ccdmNonce,
+        bytes32 merkleRoot,
+        bytes32 lz_token0_guid,
+        uint64 lz_token0_nonce,
+        ERC20 token0,
+        uint256 lz_token0_AmountBridged,
+        bytes32 lz_token1_guid,
+        uint64 lz_token1_nonce,
+        ERC20 token1,
+        uint256 lz_token1_AmountBridged
     );
 
     /**
@@ -208,11 +291,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     event DepositExecutorSet(address depositExecutor);
 
     /**
-     * @notice Emitted when the LP token market owner is set.
-     * @param marketHash The hash of the market for which the LP token owner was set.
-     * @param lpMarketOwner The address of the LP token market owner.
+     * @notice Emitted when the owner of the market's corresponding deposit campaign is set.
+     * @param marketHash The hash of the market for which to set the deposit campaign owner for.
+     * @param campaignOwner The address of the owner of the market's corresponding deposit campaign.
      */
-    event LpMarketOwnerSet(bytes32 indexed marketHash, address lpMarketOwner);
+    event CampaignOwnerSet(bytes32 indexed marketHash, address campaignOwner);
 
     /**
      * @notice Emitted when the LayerZero V2 OFT for a token is set.
@@ -270,11 +353,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Error emitted when the caller is not the global greenLighter.
     error OnlyGreenLighter();
 
-    /// @notice Error emitted when the caller is not the LP token market's owner.
-    error OnlyLpMarketOwner();
+    /// @notice Error emitted when the caller is not the owner of the market's corresponding deposit campaign.
+    error OnlyCampaignOwner();
 
     /// @notice Error emitted when the deposit amount is too precise to bridge based on the shared decimals of the OFT
     error DepositAmountIsTooPrecise();
+
+    /// @notice Error emitted when the total deposit amount for the depositor exceeds the per market limit in a single bridge.
+    error TotalDepositAmountExceedsLimit();
+
+    /// @notice Error emitted when trying to bridge LP tokens as a single token.
+    error CannotBridgeLpTokens();
 
     /// @notice Error emitted when attempting to bridge more depositors than the bridge limit
     error DepositorsPerBridgeLimitExceeded();
@@ -318,26 +407,28 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         _;
     }
 
-    /// @dev Modifier to check if green light is given for bridging and depositExecutor has been set.
-    modifier readyToBridge(bytes32 _marketHash) {
-        uint256 bridgingAllowedTimestamp = marketHashToBridgingAllowedTimestamp[_marketHash];
-        require(dstChainLzEid != 0, DestinationChainEidNotSet());
-        require(depositExecutor != address(0), DepositExecutorNotSet());
-        require(bridgingAllowedTimestamp != 0, GreenLightNotGiven());
-        require(block.timestamp >= bridgingAllowedTimestamp, RageQuitPeriodInProgress());
+    /// @dev Modifier to ensure the caller is the owner of the market's corresponding deposit campaign or owner of the Deposit Locker.
+    modifier onlyCampaignOwnerOrDepositLockerOwner(bytes32 _marketHash) {
+        require(msg.sender == marketHashToCampaignOwner[_marketHash] || msg.sender == owner(), OnlyCampaignOwner());
         _;
     }
 
-    /// @dev Modifier to ensure the caller is the owner of an LP market.
-    modifier onlyLpMarketOwner(bytes32 _marketHash) {
-        require(msg.sender == marketHashToLpMarketOwner[_marketHash], OnlyLpMarketOwner());
+    /// @dev Modifier to check if the bridge is ready to be invoked.
+    modifier readyToBridge(bytes32 _marketHash) {
+        // Basic checks for bridge readiness
+        require(msg.sender == marketHashToCampaignOwner[_marketHash], OnlyCampaignOwner());
+        require(dstChainLzEid != 0, DestinationChainEidNotSet());
+        require(depositExecutor != address(0), DepositExecutorNotSet());
+        // Green light related bridge checks
+        uint256 bridgingAllowedTimestamp = marketHashToBridgingAllowedTimestamp[_marketHash];
+        require(bridgingAllowedTimestamp != 0, GreenLightNotGiven());
+        require(block.timestamp >= bridgingAllowedTimestamp, RageQuitPeriodInProgress());
         _;
     }
 
     /*//////////////////////////////////////////////////////////////
                                 Constructor
     //////////////////////////////////////////////////////////////*/
-
     /**
      * @notice Initialize the DepositLocker Contract.
      * @param _owner The address of the owner of the contract.
@@ -389,7 +480,56 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Called by the deposit script from the depositor's Weiroll wallet.
+     * @notice Deposits a depositor into the Deposit Locker as a merklized deposit for this Weiroll Wallet.
+     * @dev Each merklized deposit made needs to be withdrawn individually on the destination.
+     * @dev Called by the deposit script of the depositor's Weiroll Wallet.
+     * @dev Requires an approval of the deposit amount for the market's input token.
+     */
+    function merkleDeposit() external nonReentrant onlyWeirollWallet {
+        // Get Weiroll Wallet's market hash, depositor/owner/AP, and amount deposited
+        WeirollWallet wallet = WeirollWallet(payable(msg.sender));
+        bytes32 targetMarketHash = wallet.marketHash();
+        address depositor = wallet.owner();
+        uint256 amountDeposited = wallet.amount();
+
+        // Get the token to deposit for this market
+        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
+
+        // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
+        if (address(marketInputToken).code.length == 0) revert RoycoMarketNotInitialized();
+
+        if (!_isUniV2Pair(address(marketInputToken))) {
+            // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for SINGLE_TOKEN markets
+            bool depositAmountHasValidPrecision =
+                amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
+            require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
+        }
+
+        // Transfer the deposit amount from the Weiroll Wallet to the DepositLocker
+        marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
+
+        // Get the merkleDepositsInfo struct for the intended market
+        MerkleDepositsInfo storage merkleDepositsInfo = marketHashToMerkleDepositsInfo[targetMarketHash];
+        if (merkleDepositsInfo.merkleTree.depth() == 0) {
+            // If the tree is uninitialized, initialize it with the depth
+            merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
+        }
+        // Generate the deposit leaf
+        bytes32 depositLeaf = keccak256(abi.encodePacked(merkleDepositNonce, depositor, amountDeposited));
+        // Add the deposit leaf to the Merkle Tree
+        (uint256 leafIndex, bytes32 updatedMerkleRoot) = merkleDepositsInfo.merkleTree.push(depositLeaf);
+        // Update the merkle root and the total amount deposited into the merkle tree
+        merkleDepositsInfo.merkleRoot = updatedMerkleRoot;
+        merkleDepositsInfo.totalAmountDeposited += amountDeposited;
+
+        // Emit merkle deposit event
+        emit MerkleDepositMade(ccdmNonce, targetMarketHash, depositor, amountDeposited, merkleDepositNonce++, depositLeaf, leafIndex, updatedMerkleRoot);
+    }
+
+    /**
+     * @notice Directly deposits a depositor as an individual depositor into the Deposit Locker.
+     * @dev Called by the deposit script of the depositor's Weiroll Wallet.
+     * @dev Requires an approval of the deposit amount for the market's input token.
      */
     function deposit() external nonReentrant onlyWeirollWallet {
         // Get Weiroll Wallet's market hash, depositor/owner/AP, and amount deposited
@@ -401,11 +541,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
+        // Get the individual depositor info
+        IndividualDepositorInfo storage depositorInfo = marketHashToDepositorToIndividualDepositorInfo[targetMarketHash][depositor];
+        uint256 totalDepositAmountPostDeposit = depositorInfo.totalAmountDeposited + amountDeposited;
+
         if (!_isUniV2Pair(address(marketInputToken))) {
-            // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for SINGLE_TOKEN markets
+            // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for single token markets
             bool depositAmountHasValidPrecision =
                 amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
             require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
+            // Check that the deposit amount isn't exceeding the max amount that can be individually bridged in a single bridge
+            require(totalDepositAmountPostDeposit <= type(uint96).max, TotalDepositAmountExceedsLimit());
         }
 
         // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
@@ -415,20 +561,18 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
 
         // Account for deposit
-        marketHashToDepositorToDepositorInfo[targetMarketHash][depositor].totalAmountDeposited += amountDeposited;
-        WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
+        depositorInfo.totalAmountDeposited = totalDepositAmountPostDeposit;
+        WeirollWalletDepositInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletDepositInfo[depositor][msg.sender];
         walletInfo.ccdmNonceOnDeposit = ccdmNonce;
         walletInfo.amountDeposited = amountDeposited;
 
-        // Set the depositing Weiroll Wallet in transient state
-        currentlyDepositingWeirollWallet = msg.sender;
-
         // Emit deposit event
-        emit UserDeposited(targetMarketHash, depositor, amountDeposited);
+        emit IndividualDepositMade(targetMarketHash, depositor, amountDeposited);
     }
 
     /**
-     * @notice Called by the withdraw script from the depositor's Weiroll wallet.
+     * @notice Directly withdraws the amount deposited into the Deposit Locker from an individual depositor's Weiroll Wallet to the depositor/AP.
+     * @dev Called by the withdraw script of the depositor's Weiroll Wallet.
      */
     function withdraw() external nonReentrant {
         // Get Weiroll Wallet's market hash and depositor/owner/AP
@@ -437,8 +581,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         address depositor = wallet.owner();
 
         // Get the necessary depositor and Weiroll Wallet info to process the withdrawal
-        DepositorInfo storage depositorInfo = marketHashToDepositorToDepositorInfo[targetMarketHash][depositor];
-        WeirollWalletInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletInfo[depositor][msg.sender];
+        IndividualDepositorInfo storage depositorInfo = marketHashToDepositorToIndividualDepositorInfo[targetMarketHash][depositor];
+        WeirollWalletDepositInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletDepositInfo[depositor][msg.sender];
 
         // Get amount to withdraw for this Weiroll Wallet
         uint256 amountToWithdraw = walletInfo.amountDeposited;
@@ -454,12 +598,175 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         marketInputToken.safeTransfer(depositor, amountToWithdraw);
 
         // Emit withdrawal event
-        emit UserWithdrawn(targetMarketHash, depositor, amountToWithdraw);
+        emit IndividualWithdrawalMade(targetMarketHash, depositor, amountToWithdraw);
+    }
+
+    /**
+     * @notice Merkle bridges depositors in single token markets from the source chain to the destination chain.
+     * @dev NOTE: Be generous with the msg.value to pay for bridging fees, as you will be refunded the excess.
+     * @dev Green light must be given before calling.
+     * @param _marketHash The hash of the market to merkle bridge tokens for.
+     */
+    function merkleBridgeSingleTokens(bytes32 _marketHash) external payable readyToBridge(_marketHash) nonReentrant {
+        // The CCDM nonce for this CCDM bridge transaction
+        uint256 nonce = ccdmNonce;
+        // Get the market's input token
+        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
+
+        require(!_isUniV2Pair(address(marketInputToken)), CannotBridgeLpTokens());
+
+        // Get merkleDepositsInfo for the specified market
+        MerkleDepositsInfo storage merkleDepositsInfo = marketHashToMerkleDepositsInfo[_marketHash];
+        bytes32 merkleRoot = merkleDepositsInfo.merkleRoot;
+        uint256 totalAmountDeposited = merkleDepositsInfo.totalAmountDeposited;
+
+        // Ensure that at least one depositor was included in the bridge payload
+        require(totalAmountDeposited > 0, MustBridgeAtLeastOneDepositor());
+
+        // Initialize compose message
+        bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(
+            0, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE, marketInputToken.decimals(), CCDMPayloadLib.BridgeType.MERKLE_DEPOSITORS
+        );
+        // Write the merkle root and the deposits it holds to the compose message
+        composeMsg.writeMerkleBridgeData(merkleRoot, totalAmountDeposited);
+
+        // Estimate gas used by the lzCompose call for this bridge transaction
+        uint128 destinationGasLimit = CCDMFeeLib.GAS_FOR_MERKLE_BRIDGE;
+
+        // Execute the bridge
+        MessagingReceipt memory messageReceipt = _executeBridge(marketInputToken, totalAmountDeposited, composeMsg, 0, destinationGasLimit);
+        uint256 bridgingFee = messageReceipt.fee.nativeFee;
+
+        // Refund any excess value sent with the transaction
+        if (msg.value > bridgingFee) {
+            (bool success,) = payable(msg.sender).call{ value: msg.value - bridgingFee }("");
+            require(success, RefundFailed());
+        }
+
+        // Reset the merkle tree and its accounting infor for this market
+        merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
+        delete merkleDepositsInfo.merkleRoot;
+        delete merkleDepositsInfo.totalAmountDeposited;
+
+        // Emit event to keep track of bridged deposits
+        emit SingleTokensMerkleBridgedToDestination(_marketHash, ccdmNonce++, merkleRoot, messageReceipt.guid, messageReceipt.nonce, totalAmountDeposited);
+    }
+
+    /**
+     * @notice Merkle bridges depositors in Uniswap V2 LP token markets from the source chain to the destination chain.
+     * @dev NOTE: Be generous with the msg.value to pay for bridging fees, as you will be refunded the excess.
+     * @dev NOTE: Dust amount after redeeming LP tokens and normalizing between the OFT's LD and SD is locked in the locker forever.
+     * @dev NOTE: Dust does not scale with the number of deposits being merkle bridged.
+     * @dev Green light must be given before calling.
+     * @param _marketHash The hash of the market to bridge tokens for.
+     * @param _minAmountOfToken0ToBridge The minimum amount of Token A to receive from removing liquidity.
+     * @param _minAmountOfToken1ToBridge The minimum amount of Token B to receive from removing liquidity.
+     */
+    function merkleBridgeLpTokens(
+        bytes32 _marketHash,
+        uint96 _minAmountOfToken0ToBridge,
+        uint96 _minAmountOfToken1ToBridge
+    )
+        external
+        payable
+        readyToBridge(_marketHash)
+        nonReentrant
+    {
+        // Get merkleDepositsInfo for the specified market
+        MerkleDepositsInfo storage merkleDepositsInfo = marketHashToMerkleDepositsInfo[_marketHash];
+        bytes32 merkleRoot = merkleDepositsInfo.merkleRoot;
+        uint256 totalAmountDeposited = merkleDepositsInfo.totalAmountDeposited;
+
+        // The CCDM nonce for this CCDM bridge transaction
+        uint256 nonce = ccdmNonce;
+        // Get the market's input token
+        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
+
+        // Initialize the Uniswap V2 pair from the market's input token
+        IUniswapV2Pair uniV2Pair = IUniswapV2Pair(address(marketInputToken));
+        // Approve the LP tokens to be spent by the Uniswap V2 Router
+        marketInputToken.safeApprove(address(UNISWAP_V2_ROUTER), totalAmountDeposited);
+
+        // Get the constituent tokens in the Uniswap V2 Pair
+        ERC20 token0 = ERC20(uniV2Pair.token0());
+        ERC20 token1 = ERC20(uniV2Pair.token1());
+
+        // Burn the LP tokens and retrieve the pair's underlying tokens
+        (uint256 token0_TotalAmountToBridge, uint256 token1_TotalAmountToBridge) = UNISWAP_V2_ROUTER.removeLiquidity(
+            address(token0), address(token1), totalAmountDeposited, _minAmountOfToken0ToBridge, _minAmountOfToken1ToBridge, address(this), block.timestamp
+        );
+
+        // Normalize deposit amounts to the OFT's SD
+        // IMPORTANT: Dust amount is locked in the Deposit Locker forever.
+        // Dust does not scale with the number of deposits bridged.
+        uint256 token0_DecimalConversionRate = 10 ** (token0.decimals() - tokenToLzV2OFT[token0].sharedDecimals());
+        uint256 token1_DecimalConversionRate = 10 ** (token1.decimals() - tokenToLzV2OFT[token1].sharedDecimals());
+        if (token0_DecimalConversionRate != 1) {
+            token0_TotalAmountToBridge = (token0_TotalAmountToBridge / token0_DecimalConversionRate) * token0_DecimalConversionRate;
+        }
+        if (token1_DecimalConversionRate != 1) {
+            token1_TotalAmountToBridge = (token1_TotalAmountToBridge / token1_DecimalConversionRate) * token1_DecimalConversionRate;
+        }
+
+        // Ensure that at least one depositor was included in the bridge payload
+        require(token0_TotalAmountToBridge > 0 && token1_TotalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
+
+        // Initialize compose messages for both tokens
+        bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(
+            0, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE, token0.decimals(), CCDMPayloadLib.BridgeType.MERKLE_DEPOSITORS
+        );
+        bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(
+            0, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE, token1.decimals(), CCDMPayloadLib.BridgeType.MERKLE_DEPOSITORS
+        );
+
+        // Write the merkle root and the deposits they hold to the compose messages
+        token0_ComposeMsg.writeMerkleBridgeData(merkleRoot, totalAmountDeposited);
+        token1_ComposeMsg.writeMerkleBridgeData(merkleRoot, totalAmountDeposited);
+
+        // Bridge the two consecutive tokens
+        uint256 totalBridgingFee = 0;
+        uint128 destinationGasLimit = CCDMFeeLib.GAS_FOR_MERKLE_BRIDGE;
+
+        // Bridge Token A
+        MessagingReceipt memory token0_MessageReceipt =
+            _executeBridge(token0, token0_TotalAmountToBridge, token0_ComposeMsg, totalBridgingFee, destinationGasLimit);
+        totalBridgingFee += token0_MessageReceipt.fee.nativeFee;
+
+        // Bridge Token B
+        MessagingReceipt memory token1_MessageReceipt =
+            _executeBridge(token1, token1_TotalAmountToBridge, token1_ComposeMsg, totalBridgingFee, destinationGasLimit);
+        totalBridgingFee += token1_MessageReceipt.fee.nativeFee;
+
+        // Refund excess value sent with the transaction
+        if (msg.value > totalBridgingFee) {
+            (bool success,) = payable(msg.sender).call{ value: msg.value - totalBridgingFee }("");
+            require(success, RefundFailed());
+        }
+
+        // Reset the merkle tree and its accounting information for this market
+        merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
+        delete merkleDepositsInfo.merkleRoot;
+        delete merkleDepositsInfo.totalAmountDeposited;
+
+        // Emit event to keep track of bridged deposits
+        emit LpTokensMerkleBridgedToDestination(
+            _marketHash,
+            ccdmNonce++,
+            merkleRoot,
+            token0_MessageReceipt.guid,
+            token0_MessageReceipt.nonce,
+            token0,
+            token0_TotalAmountToBridge,
+            token1_MessageReceipt.guid,
+            token1_MessageReceipt.nonce,
+            token1,
+            token1_TotalAmountToBridge
+        );
     }
 
     /**
      * @notice Bridges depositors in single token markets from the source chain to the destination chain.
-     * @dev NOTE: Be generous with the _executorGasLimit to prevent reversion on the destination chain.
+     * @dev NOTE: Be generous with the msg.value to pay for bridging fees, as you will be refunded the excess.
      * @dev Green light must be given before calling.
      * @param _marketHash The hash of the market to bridge tokens for.
      * @param _depositors The addresses of the depositors (APs) to bridge
@@ -467,8 +774,20 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     function bridgeSingleTokens(bytes32 _marketHash, address[] calldata _depositors) external payable readyToBridge(_marketHash) nonReentrant {
         // The CCDM nonce for this CCDM bridge transaction
         uint256 nonce = ccdmNonce;
+        // Get the market's input token
+        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
+
+        require(!_isUniV2Pair(address(marketInputToken)), CannotBridgeLpTokens());
+
         // Initialize compose message
-        bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE);
+        bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(
+            _depositors.length,
+            _marketHash,
+            nonce,
+            NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE,
+            marketInputToken.decimals(),
+            CCDMPayloadLib.BridgeType.INDIVIDUAL_DEPOSITORS
+        );
 
         // Array to store the actual depositors bridged
         address[] memory depositorsBridged = new address[](_depositors.length);
@@ -491,7 +810,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Ensure that at least one depositor was included in the bridge payload
         require(totalAmountToBridge > 0, MustBridgeAtLeastOneDepositor());
         // Ensure that the number of depositors bridged is less than the globally defined limit
-        require(numDepositorsIncluded <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
+        require(numDepositorsIncluded <= MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
 
         // Resize the compose message to reflect the actual number of depositors included in the payload
         composeMsg.resizeComposeMsg(numDepositorsIncluded);
@@ -501,11 +820,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             mstore(depositorsBridged, numDepositorsIncluded)
         }
 
-        // Get the market's input token
-        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
-
         // Estimate gas used by the lzCompose call for this bridge transaction
-        uint128 destinationGasLimit = CCDMFeeLib.estimateDestinationGasLimit(numDepositorsIncluded);
+        uint128 destinationGasLimit = CCDMFeeLib.estimateIndividualDepositorsBridgeGasLimit(numDepositorsIncluded);
 
         // Execute the bridge
         MessagingReceipt memory messageReceipt = _executeBridge(marketInputToken, totalAmountToBridge, composeMsg, 0, destinationGasLimit);
@@ -523,6 +839,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /**
      * @notice Bridges depositors in Uniswap V2 LP token markets from the source chain to the destination chain.
+     * @dev NOTE: Be generous with the msg.value to pay for bridging fees, as you will be refunded the excess.
      * @dev Handles bridge precision by adjusting amounts to acceptable precision and refunding any dust to depositors.
      * @dev Green light must be given before calling.
      * @param _marketHash The hash of the market to bridge tokens for.
@@ -538,7 +855,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     )
         external
         payable
-        onlyLpMarketOwner(_marketHash)
         readyToBridge(_marketHash)
         nonReentrant
     {
@@ -549,7 +865,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 lp_TotalDepositsInBatch = 0;
         uint256[] memory lp_DepositAmounts = new uint256[](_depositors.length);
         for (uint256 i = 0; i < _depositors.length; ++i) {
-            DepositorInfo storage depositorInfo = marketHashToDepositorToDepositorInfo[_marketHash][_depositors[i]];
+            IndividualDepositorInfo storage depositorInfo = marketHashToDepositorToIndividualDepositorInfo[_marketHash][_depositors[i]];
             lp_DepositAmounts[i] = depositorInfo.totalAmountDeposited;
             lp_TotalDepositsInBatch += lp_DepositAmounts[i];
             // Set the total amount deposited by this depositor (AP) for this market to zero
@@ -576,8 +892,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         );
 
         // Initialize compose messages for both tokens
-        bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE);
-        bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(_depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE);
+        bytes memory token0_ComposeMsg = CCDMPayloadLib.initComposeMsg(
+            _depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE, token0.decimals(), CCDMPayloadLib.BridgeType.INDIVIDUAL_DEPOSITORS
+        );
+        bytes memory token1_ComposeMsg = CCDMPayloadLib.initComposeMsg(
+            _depositors.length, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_LP_TOKEN_BRIDGE, token1.decimals(), CCDMPayloadLib.BridgeType.INDIVIDUAL_DEPOSITORS
+        );
 
         // Create params struct
         LpTokenDepositorParams memory params;
@@ -609,7 +929,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         uint256 numDepositorsIncluded = params.numDepositorsIncluded;
         // Ensure that the number of depositors bridged is less than the globally defined limit
-        require(numDepositorsIncluded <= MAX_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
+        require(numDepositorsIncluded <= MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE, DepositorsPerBridgeLimitExceeded());
         // Resize the compose messages to reflect the actual number of depositors bridged
         token0_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
         token1_ComposeMsg.resizeComposeMsg(numDepositorsIncluded);
@@ -664,17 +984,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         returns (uint256 depositAmount)
     {
         // Get amount deposited by the depositor (AP)
-        depositAmount = marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
+        depositAmount = marketHashToDepositorToIndividualDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
 
         if (depositAmount == 0 || depositAmount > type(uint96).max) {
             return 0; // Skip if no deposit or deposit amount exceeds limit
         }
 
         // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
-        marketHashToDepositorToDepositorInfo[_marketHash][_depositor].latestCcdmNonce = _ccdmNonce;
+        marketHashToDepositorToIndividualDepositorInfo[_marketHash][_depositor].latestCcdmNonce = _ccdmNonce;
 
         // Set the total amount deposited by this depositor (AP) for this market to zero
-        delete marketHashToDepositorToDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
+        delete marketHashToDepositorToIndividualDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
 
         // Add depositor to the compose message
         _composeMsg.writeDepositor(_depositorIndex, _depositor, uint96(depositAmount));
@@ -784,7 +1104,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      */
     function _executeConsecutiveBridges(LpBridgeParams memory _params) internal {
         uint256 totalBridgingFee = 0;
-        uint128 destinationGasLimit = CCDMFeeLib.estimateDestinationGasLimit(_params.depositorsBridged.length);
+        uint128 destinationGasLimit = CCDMFeeLib.estimateIndividualDepositorsBridgeGasLimit(_params.depositorsBridged.length);
 
         // Bridge Token A
         MessagingReceipt memory token0_MessageReceipt =
@@ -892,6 +1212,16 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
+     * @notice Sets a new owner of the market's corresponding deposit campaign.
+     * @param _marketHash The hash of the market for which to set the deposit campaign owner for.
+     * @param _campaignOwner The address of the owner of the market's corresponding deposit campaign.
+     */
+    function _setCampaignOwner(bytes32 _marketHash, address _campaignOwner) internal {
+        marketHashToCampaignOwner[_marketHash] = _campaignOwner;
+        emit CampaignOwnerSet(_marketHash, _campaignOwner);
+    }
+
+    /**
      * @notice Checks if a given token address is a Uniswap V2 LP token.
      * @param _token The address of the token to check.
      * @return True if the token is a Uniswap V2 LP token, false otherwise.
@@ -938,17 +1268,28 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     }
 
     /**
-     * @notice Sets the owners of LP token markets.
+     * @notice Sets owners for the specified campaigns.
      * @dev Only callable by the contract owner.
-     * @param _marketHashes The market hashes to set the LP market owners for.
-     * @param _lpMarketOwners Addresses of the LP market owners.
+     * @param _marketHashes The hashes of the markets for which to set the deposit campaign owners for.
+     * @param _campaignOwners The addresses of the owners of the markets' corresponding deposit campaigns.
      */
-    function setLpMarketOwners(bytes32[] calldata _marketHashes, address[] calldata _lpMarketOwners) external onlyOwner {
-        require(_marketHashes.length == _lpMarketOwners.length, ArrayLengthMismatch());
+    function setCampaignOwners(bytes32[] calldata _marketHashes, address[] calldata _campaignOwners) external onlyOwner {
+        // Make sure the each campaign identified by its source market hash has a corresponding owner
+        require(_marketHashes.length == _campaignOwners.length, ArrayLengthMismatch());
+
         for (uint256 i = 0; i < _marketHashes.length; ++i) {
-            marketHashToLpMarketOwner[_marketHashes[i]] = _lpMarketOwners[i];
-            emit LpMarketOwnerSet(_marketHashes[i], _lpMarketOwners[i]);
+            _setCampaignOwner(_marketHashes[i], _campaignOwners[i]);
         }
+    }
+
+    /**
+     * @notice Sets a new owner for the specified campaign.
+     * @dev Only callable by the contract owner or the current owner of the campaign.
+     * @param _marketHash The hash of the market for which to set the deposit campaign owner for.
+     * @param _campaignOwner The address of the owner of the market's corresponding deposit campaign.
+     */
+    function setNewCampaignOwner(bytes32 _marketHash, address _campaignOwner) external onlyCampaignOwnerOrDepositLockerOwner(_marketHash) {
+        _setCampaignOwner(_marketHash, _campaignOwner);
     }
 
     /**

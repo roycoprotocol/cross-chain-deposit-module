@@ -11,6 +11,7 @@ import { ClonesWithImmutableArgs } from "../../lib/clones-with-immutable-args/sr
 import { IOFT } from "../interfaces/IOFT.sol";
 import { OFTComposeMsgCodec } from "../libraries/OFTComposeMsgCodec.sol";
 import { CCDMPayloadLib } from "../libraries/CCDMPayloadLib.sol";
+import { MerkleProof } from "../../lib/openzeppelin-contracts/contracts/utils/cryptography/MerkleProof.sol";
 
 /// @title DepositExecutor
 /// @author Shivaansh Kapoor, Jack Corddry
@@ -64,11 +65,22 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /// @dev Holds the granular depositor balances of a WeirollWallet.
-    /// @custom:field depositorToTokenToAmount Mapping to account for depositor's balance of each token in this Weiroll Wallet.
-    /// @custom:field tokenToTotalAmount Mapping to account for total amounts deposited for each token in this Weiroll Wallet.
+    /// @custom:field merkleRoot Merkle root to facilitate withdrawals for merkle deposits.
+    /// Only set for wallets created by MERKLE_DEPOSITORS bridges.
+    /// @custom:field totalMerkleTreeSourceAmountLeftToWithdraw Total deposits stored in the merkle root on the source chain that are still withdrawable.
+    /// Only set for wallets created by MERKLE_DEPOSITORS bridges.
+    /// @custom:field leafToWithdrawn Mapping to keep track of which leaves have already withdrawn.
+    /// Only set for wallets created by MERKLE_DEPOSITORS bridges.
+    /// @custom:field depositorToTokenToAmountDepositedOnDest Mapping to account for depositor's balance of each token in this Weiroll Wallet.
+    /// Only set for wallets created by INDIVIDUAL_DEPOSITORS bridges.
+    /// @custom:field tokenToTotalAmountDepositedOnDest Mapping to account for total amounts deposited for each token in this Weiroll Wallet.
+    /// Set for MERKLE_DEPOSITORS and INDIVIDUAL_DEPOSITORS bridges.
     struct WeirollWalletAccounting {
-        mapping(address => mapping(ERC20 => uint256)) depositorToTokenToAmountDeposited;
-        mapping(ERC20 => uint256) tokenToTotalAmountDeposited;
+        bytes32 merkleRoot;
+        uint256 totalMerkleTreeSourceAmountLeftToWithdraw;
+        mapping(bytes32 => bool) leafToWithdrawn;
+        mapping(address => mapping(ERC20 => uint256)) depositorToTokenToAmountDepositedOnDest;
+        mapping(ERC20 => uint256) tokenToTotalAmountDepositedOnDest;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -253,6 +265,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice Error emitted when trying to withdraw from a locked wallet.
     error CannotWithdrawBeforeUnlockTimestamp();
 
+    /// @notice Error emitted when trying to withdraw from the wrong withdraw function.
+    error InvalidWithdrawal();
+
+    /// @notice Error emitted when merkle proof verification fails on withdraw.
+    error InvalidMerkleProof();
+
     /// @notice Error emitted when trying to withdraw before a wallet has received all input tokens in the case when the deposit recipe hasn't executed.
     error WaitingToReceiveAllTokens();
 
@@ -362,8 +380,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         bytes memory composeMsg = _message.composeMsg();
         uint256 tokenAmountBridged = _message.amountLD();
 
-        // Extract the source market's hash (first 32 bytes), ccdmNonce (following 32 bytes), and numTokensBridged (following 1 byte).
-        (bytes32 sourceMarketHash, uint256 ccdmNonce, uint8 numTokensBridged) = composeMsg.readComposeMsgMetadata();
+        // Extract the payload's metadata
+        (bytes32 sourceMarketHash, uint256 ccdmNonce, uint8 numTokensBridged, uint8 srcChainTokenDecimals, CCDMPayloadLib.BridgeType bridgeType) =
+            composeMsg.readComposeMsgMetadata();
 
         // Get the deposit token from the LZ V2 OApp that invoked the compose call
         ERC20 depositToken = ERC20(IOFT(_from).token());
@@ -389,8 +408,30 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // Get the accounting ledger for this Weiroll Wallet
         WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[cachedWeirollWallet];
 
-        // Execute accounting logic to keep track of each depositor's position in this wallet.
-        _accountForDeposits(walletAccounting, composeMsg, depositToken, tokenAmountBridged);
+        if (bridgeType == CCDMPayloadLib.BridgeType.MERKLE_DEPOSITORS) {
+            // If merkle bridge, set the wallet's accounting information
+            (bytes32 merkleRoot, uint256 totalAmountDepositedOnSource) = composeMsg.readMerkleBridgeData();
+            if (walletAccounting.merkleRoot == bytes32(0)) {
+                // Set fields that are constant between payloads once
+                walletAccounting.merkleRoot = merkleRoot;
+                walletAccounting.totalMerkleTreeSourceAmountLeftToWithdraw = totalAmountDepositedOnSource;
+            }
+            walletAccounting.tokenToTotalAmountDepositedOnDest[depositToken] = tokenAmountBridged;
+        } else {
+            // Calculate the conversion rate to normalize source and destination decimals for deposit amounts
+            uint8 dstChainTokenDecimals = depositToken.decimals();
+            uint256 decimalConversionRate;
+            bool scaleUp;
+            if (dstChainTokenDecimals > srcChainTokenDecimals) {
+                scaleUp = true;
+                decimalConversionRate = 10 ** (dstChainTokenDecimals - srcChainTokenDecimals);
+            } else {
+                decimalConversionRate = 10 ** (srcChainTokenDecimals - dstChainTokenDecimals);
+            }
+
+            // Execute accounting logic to keep track of each depositor's position in this wallet.
+            _accountForIndividualDeposits(walletAccounting, composeMsg, depositToken, tokenAmountBridged, decimalConversionRate, scaleUp);
+        }
 
         emit CCDMBridgeProcessed(sourceMarketHash, ccdmNonce, _guid, cachedWeirollWallet);
     }
@@ -451,6 +492,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Withdraws input tokens and/or receipt tokens for each specified Weiroll wallet to the caller (depositor).
+     * @notice NOTE: This function ONLY handles withdrawals for individual deposits, NOT merkle deposits.
      * @dev This function allows depositors to withdraw their proportional shares of tokens and/or receipt tokens from the specified Weiroll wallets after they
      * are unlocked.
      * @dev If the deposit recipe was executed for a Weiroll wallet, the depositor receives a proportional share of both the receipt tokens and any residual
@@ -459,37 +501,39 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @dev Withdrawals are only possible after the Weiroll wallet's unlock timestamp has passed.
      * @param _weirollWallets An array of Weiroll Wallet addresses from which the msg.sender (depositor) wants to withdraw from.
      */
-    function withdraw(address[] calldata _weirollWallets) external nonReentrant {
+    function withdrawIndividualDeposits(address[] calldata _weirollWallets) external nonReentrant {
         // Execute withdrawals for the specified wallets
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             // Instantiate Weiroll Wallet from the address
             WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallets[i]));
-            // Get the campaign details for the source market
-            DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[weirollWallet.marketHash()];
-
             // Checks to ensure that the withdrawal is after the lock timestamp
             require(weirollWallet.lockedUntil() <= block.timestamp, CannotWithdrawBeforeUnlockTimestamp());
 
+            // Get the campaign details for the source market
+            DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[weirollWallet.marketHash()];
             // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM Nonce on destination)
             WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallets[i]];
 
+            // Check that the Weiroll Wallet isn't for merkle deposits
+            require(walletAccounting.merkleRoot == bytes32(0), InvalidWithdrawal());
+
             if (weirollWallet.executed()) {
-                // If deposit recipe has been executed, return the depositor's share of the receipt tokens and their share of
+                // If deposit recipe has been executed, return the depositor's share of the receipt tokens and their share of dust.
                 ERC20 receiptToken = campaign.receiptToken;
 
                 for (uint256 j = 0; j < campaign.inputTokens.length; ++j) {
                     // Get the amount of this input token deposited by the depositor and the total deposit amount
                     ERC20 inputToken = campaign.inputTokens[j];
-                    uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
-                    uint256 totalAmountDeposited = walletAccounting.tokenToTotalAmountDeposited[inputToken];
+                    uint256 amountDepositedOnDest = walletAccounting.depositorToTokenToAmountDepositedOnDest[msg.sender][inputToken];
+                    uint256 totalAmountDepositedOnDest = walletAccounting.tokenToTotalAmountDepositedOnDest[inputToken];
 
                     // Update the accounting to reflect the withdrawal
-                    delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
-                    walletAccounting.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
+                    delete walletAccounting.depositorToTokenToAmountDepositedOnDest[msg.sender][inputToken];
+                    walletAccounting.tokenToTotalAmountDepositedOnDest[inputToken] -= amountDepositedOnDest;
 
                     if (j == 0) {
                         // Calculate the receipt tokens owed to the depositor
-                        uint256 receiptTokensOwed = (receiptToken.balanceOf(_weirollWallets[i]) * amountDeposited) / totalAmountDeposited;
+                        uint256 receiptTokensOwed = (receiptToken.balanceOf(_weirollWallets[i]) * amountDepositedOnDest) / totalAmountDepositedOnDest;
                         // Remit the receipt tokens to the depositor
                         receiptToken.safeTransferFrom(_weirollWallets[i], msg.sender, receiptTokensOwed);
                     }
@@ -497,7 +541,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                     // Don't allow for double withdrawals if receipt and input token are equivalent
                     if (address(receiptToken) != address(inputToken)) {
                         // Calculate the dust tokens owed to the depositor
-                        uint256 dustTokensOwed = (inputToken.balanceOf(_weirollWallets[i]) * amountDeposited) / totalAmountDeposited;
+                        uint256 dustTokensOwed = (inputToken.balanceOf(_weirollWallets[i]) * amountDepositedOnDest) / totalAmountDepositedOnDest;
                         if (dustTokensOwed > 0) {
                             // Remit the dust tokens to the depositor
                             inputToken.safeTransferFrom(_weirollWallets[i], msg.sender, dustTokensOwed);
@@ -512,21 +556,122 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                 for (uint256 j = 0; j < campaign.inputTokens.length; ++j) {
                     // Get the amount of this input token deposited by the depositor
                     ERC20 inputToken = campaign.inputTokens[j];
-                    uint256 amountDeposited = walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
+                    uint256 amountDepositedOnDest = walletAccounting.depositorToTokenToAmountDepositedOnDest[msg.sender][inputToken];
 
                     // Make sure that the depositor can withdraw all campaign's input tokens atomically to avoid race conditions with recipe execution
-                    require(amountDeposited > 0, WaitingToReceiveAllTokens());
+                    require(amountDepositedOnDest > 0, WaitingToReceiveAllTokens());
 
                     // Update the accounting to reflect the withdrawal
-                    delete walletAccounting.depositorToTokenToAmountDeposited[msg.sender][inputToken];
-                    walletAccounting.tokenToTotalAmountDeposited[inputToken] -= amountDeposited;
+                    delete walletAccounting.depositorToTokenToAmountDepositedOnDest[msg.sender][inputToken];
+                    walletAccounting.tokenToTotalAmountDepositedOnDest[inputToken] -= amountDepositedOnDest;
 
                     // Transfer the amount deposited back to the depositor
-                    inputToken.safeTransfer(msg.sender, amountDeposited);
+                    inputToken.safeTransfer(msg.sender, amountDepositedOnDest);
                 }
             }
             emit DepositorWithdrawn(_weirollWallets[i], msg.sender);
         }
+    }
+
+    /**
+     * @notice Withdraws input tokens and/or receipt tokens for the specified Weiroll wallet to the caller (depositor).
+     * @notice NOTE: This function ONLY handles withdrawals for merkle deposits, NOT individual deposits.
+     * @dev This function allows depositors to withdraw their proportional shares of tokens and/or receipt tokens from the specified Weiroll wallets after they
+     * are unlocked.
+     * @dev If the deposit recipe was executed for a Weiroll wallet, the depositor receives a proportional share of both the receipt tokens and any residual
+     * ("dust") input tokens.
+     * @dev If the deposit recipe was not executed for a Weiroll wallet, the depositor simply withdraws their originally deposited input tokens.
+     * @dev Withdrawals are only possible after the Weiroll wallet's unlock timestamp has passed.
+     * @param _weirollWallet The Weiroll Wallet address from which the msg.sender (depositor) wants to withdraw from.
+     * @param _merkleDepositNonce Unique identifier for this merkle deposit - used to make sure that each merkle depositor's leaf is unique.
+     * @param _amountDepositedOnSource The deposit amount corresponding to this deposit.
+     * @param _merkleProof The merkle proof to prove leaf membership for this Weiroll Wallet's merkle root.
+     */
+    function withdrawMerkleDeposit(
+        address _weirollWallet,
+        uint256 _merkleDepositNonce,
+        uint256 _amountDepositedOnSource,
+        bytes32[] calldata _merkleProof
+    )
+        external
+        nonReentrant
+    {
+        // Instantiate Weiroll Wallet from the address
+        WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallet));
+        // Checks to ensure that the withdrawal is after the lock timestamp
+        require(weirollWallet.lockedUntil() <= block.timestamp, CannotWithdrawBeforeUnlockTimestamp());
+
+        // Get the campaign details for the source market
+        DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[weirollWallet.marketHash()];
+        // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM Nonce on destination)
+        WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallet];
+
+        // Get the merkle root and total deposit amount on source left to withdraw
+        bytes32 merkleRoot = walletAccounting.merkleRoot;
+        // Generate the leaf for this depositor to verify the proof against the root
+        bytes32 depositLeaf = keccak256(abi.encodePacked(_merkleDepositNonce, msg.sender, _amountDepositedOnSource));
+
+        // Check that the Weiroll Wallet isn't for individual deposits and this leaf hasn't been used to withdraw already
+        require(merkleRoot != bytes32(0) && !walletAccounting.leafToWithdrawn[depositLeaf], InvalidWithdrawal());
+        require(MerkleProof.verifyCalldata(_merkleProof, merkleRoot, depositLeaf), InvalidMerkleProof());
+
+        // Process the withdrawal
+        // Get the source amount left to withdraw from merkle tree
+        uint256 totalMerkleTreeSourceAmountLeftToWithdraw = walletAccounting.totalMerkleTreeSourceAmountLeftToWithdraw;
+
+        if (weirollWallet.executed()) {
+            // If deposit recipe has been executed, return the depositor's share of the receipt tokens and their share of dust.
+            ERC20 receiptToken = campaign.receiptToken;
+
+            for (uint256 i = 0; i < campaign.inputTokens.length; ++i) {
+                // Get the input token
+                ERC20 inputToken = campaign.inputTokens[i];
+
+                if (i == 0) {
+                    // Calculate the receipt tokens owed to the depositor
+                    uint256 receiptTokensOwed = (receiptToken.balanceOf(_weirollWallet) * _amountDepositedOnSource) / totalMerkleTreeSourceAmountLeftToWithdraw;
+                    // Remit the receipt tokens to the depositor
+                    receiptToken.safeTransferFrom(_weirollWallet, msg.sender, receiptTokensOwed);
+                }
+
+                // Don't allow for double withdrawals if receipt and input token are equivalent
+                if (address(receiptToken) != address(inputToken)) {
+                    // Calculate the dust tokens owed to the depositor
+                    uint256 dustTokensOwed = (inputToken.balanceOf(_weirollWallet) * _amountDepositedOnSource) / totalMerkleTreeSourceAmountLeftToWithdraw;
+                    if (dustTokensOwed > 0) {
+                        // Remit the dust tokens to the depositor
+                        inputToken.safeTransferFrom(_weirollWallet, msg.sender, dustTokensOwed);
+                    }
+                }
+            }
+        } else {
+            // Check that a valid number of input tokens have been set for this campaign
+            require(campaign.numInputTokens != 0 && (campaign.inputTokens.length == campaign.numInputTokens), CampaignTokensNotSet());
+
+            // If deposit recipe hasn't been executed, return the depositor's share of the input tokens
+            for (uint256 i = 0; i < campaign.inputTokens.length; ++i) {
+                // Get the amount of this input token deposited by the depositor
+                ERC20 inputToken = campaign.inputTokens[i];
+                uint256 totalAmountDepositedOnDest = walletAccounting.tokenToTotalAmountDepositedOnDest[inputToken];
+
+                // Make sure that the depositor can withdraw all campaign's input tokens atomically to avoid race conditions with recipe execution
+                require(totalAmountDepositedOnDest > 0, WaitingToReceiveAllTokens());
+
+                // Calculate the tokens owed to the depositor
+                uint256 amountOwed = (totalAmountDepositedOnDest * _amountDepositedOnSource) / totalMerkleTreeSourceAmountLeftToWithdraw;
+                // Account for withdrawal
+                walletAccounting.tokenToTotalAmountDepositedOnDest[inputToken] -= amountOwed;
+
+                // Transfer the amount deposited back to the depositor
+                inputToken.safeTransfer(msg.sender, amountOwed);
+            }
+        }
+
+        // Account for withdrawal
+        walletAccounting.leafToWithdrawn[depositLeaf] = true;
+        walletAccounting.totalMerkleTreeSourceAmountLeftToWithdraw -= _amountDepositedOnSource;
+
+        emit DepositorWithdrawn(_weirollWallet, msg.sender);
     }
 
     /**
@@ -551,6 +696,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
     /**
      * @notice Retrieves the amount deposited by a specific depositor for a specific token in a Weiroll Wallet within a Deposit Campaign.
+     * @dev Only valid for Weiroll Wallets created by the INDIVIDUAL_DEPOSITORS bridge type.
      * @param _sourceMarketHash The unique hash identifier of the source market (Deposit Campaign).
      * @param _weirollWallet The address of the Weiroll Wallet.
      * @param _depositor The address of the depositor.
@@ -567,8 +713,28 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         view
         returns (uint256 amountDeposited)
     {
-        amountDeposited =
-            sourceMarketHashToDepositCampaign[_sourceMarketHash].weirollWalletToAccounting[_weirollWallet].depositorToTokenToAmountDeposited[_depositor][_token];
+        amountDeposited = sourceMarketHashToDepositCampaign[_sourceMarketHash].weirollWalletToAccounting[_weirollWallet].depositorToTokenToAmountDepositedOnDest[_depositor][_token];
+    }
+
+    /**
+     * @notice Retrieves the merkle root and total source amount left to withdraw from the merkle root for a particular Weiroll Wallet.
+     * @dev Only valid for Weiroll Wallets created by the MERKLE_DEPOSITORS bridge type.
+     * @param _sourceMarketHash The unique hash identifier of the source market (Deposit Campaign).
+     * @param _weirollWallet The address of the Weiroll Wallet.
+     * @return merkleRoot Merkle root to facilitate withdrawals for merkle deposits.
+     * @return totalMerkleTreeSourceAmountLeftToWithdraw Total deposits stored in the merkle root on the source chain that are still withdrawable.
+     */
+    function getMerkleInfoForWeirollWallet(
+        bytes32 _sourceMarketHash,
+        address _weirollWallet
+    )
+        external
+        view
+        returns (bytes32 merkleRoot, uint256 totalMerkleTreeSourceAmountLeftToWithdraw)
+    {
+        WeirollWalletAccounting storage walletAccounting = sourceMarketHashToDepositCampaign[_sourceMarketHash].weirollWalletToAccounting[_weirollWallet];
+        merkleRoot = walletAccounting.merkleRoot;
+        totalMerkleTreeSourceAmountLeftToWithdraw = walletAccounting.totalMerkleTreeSourceAmountLeftToWithdraw;
     }
 
     /**
@@ -588,7 +754,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         returns (uint256 totalAmountDeposited)
     {
         totalAmountDeposited =
-            sourceMarketHashToDepositCampaign[_sourceMarketHash].weirollWalletToAccounting[_weirollWallet].tokenToTotalAmountDeposited[_token];
+            sourceMarketHashToDepositCampaign[_sourceMarketHash].weirollWalletToAccounting[_weirollWallet].tokenToTotalAmountDepositedOnDest[_token];
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -626,12 +792,16 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param _composeMsg The compose message containing depositor addresses and deposit amounts.
      * @param _depositToken The ERC20 token that was deposited.
      * @param _tokenAmountBridged The total amount of tokens that were bridged and available for deposits.
+     * @param _decimalConversionRate The rate at which to convert the source chain's token amount to the destination chain's token amount.
+     * @param _scaleUp Boolean indicating whether to scale the deposit amounts up or down.
      */
-    function _accountForDeposits(
+    function _accountForIndividualDeposits(
         WeirollWalletAccounting storage _walletAccounting,
         bytes memory _composeMsg,
         ERC20 _depositToken,
-        uint256 _tokenAmountBridged
+        uint256 _tokenAmountBridged,
+        uint256 _decimalConversionRate,
+        bool _scaleUp
     )
         internal
     {
@@ -647,7 +817,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             offset += 20;
 
             // Extract deposit amount (12 bytes)
-            uint96 depositAmount = _composeMsg.readUint96(offset);
+            uint256 depositAmount = _composeMsg.readUint96(offset);
+            if (_decimalConversionRate != 1) {
+                // If there is a decimal discrepancy between source and destination, normalize the deposit amount
+                depositAmount = _scaleUp ? depositAmount * _decimalConversionRate : depositAmount / _decimalConversionRate;
+            }
             offset += 12;
 
             // Update total amount deposited
@@ -655,8 +829,8 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             require(depositsAccountedFor <= _tokenAmountBridged, CannotAccountForMoreDepositsThanBridged());
 
             // Update the accounting to reflect the deposit
-            _walletAccounting.depositorToTokenToAmountDeposited[depositor][_depositToken] += depositAmount;
-            _walletAccounting.tokenToTotalAmountDeposited[_depositToken] += depositAmount;
+            _walletAccounting.depositorToTokenToAmountDepositedOnDest[depositor][_depositToken] += depositAmount;
+            _walletAccounting.tokenToTotalAmountDepositedOnDest[_depositToken] += depositAmount;
         }
     }
 
@@ -677,7 +851,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             ERC20 inputToken = _inputTokens[i];
 
             // Get total amount of this token deposited into the Weiroll Wallet
-            uint256 amountOfTokenDepositedIntoWallet = _walletAccounting.tokenToTotalAmountDeposited[inputToken];
+            uint256 amountOfTokenDepositedIntoWallet = _walletAccounting.tokenToTotalAmountDepositedOnDest[inputToken];
             // Check that this input token was received through a CCDM bridge for this wallet.
             require(amountOfTokenDepositedIntoWallet > 0, InputTokenNotReceivedByThisWallet(inputToken));
 
@@ -925,5 +1099,16 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         delete campaign.verified;
 
         emit CampaignDepositRecipeSet(_sourceMarketHash);
+    }
+
+    /**
+     * @notice Sets the campaign unlock timestamp.
+     * @dev Only callable by the owner of the deposit executor
+     * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
+     * @param _unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign.
+     */
+    function setCampaignUnlockTimestamp(bytes32 _sourceMarketHash, uint256 _unlockTimestamp) external onlyOwner {
+        sourceMarketHashToDepositCampaign[_sourceMarketHash].unlockTimestamp = _unlockTimestamp;
+        emit CampaignUnlockTimestampSet(_sourceMarketHash, _unlockTimestamp);
     }
 }
