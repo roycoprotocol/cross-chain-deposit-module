@@ -613,7 +613,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         // Check that the Weiroll Wallet isn't for individual deposits and this leaf hasn't been used to withdraw already
         require(merkleRoot != bytes32(0) && !walletAccounting.leafToWithdrawn[depositLeaf], InvalidWithdrawal());
-        require(MerkleProof.verify(_merkleProof, merkleRoot, depositLeaf), InvalidMerkleProof());
+        require(MerkleProof.verifyCalldata(_merkleProof, merkleRoot, depositLeaf), InvalidMerkleProof());
 
         // Process the withdrawal
         // Get the source amount left to withdraw from merkle tree

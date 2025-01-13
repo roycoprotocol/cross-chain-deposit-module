@@ -28,8 +28,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
                                 Constants
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice The depth of the Merkle Tree dictating the number of depositors it can hold.
-    /// @dev A depth of 23 can hold 2^23 = 8,388,608 individual deposits.
+    /// @notice The depth of the Merkle Tree dictating the number of individual deposits it can hold.
+    /// @dev A depth of 23 can hold 2^23 = 8,388,608 deposits.
     uint8 public constant MERKLE_TREE_DEPTH = 23;
 
     /// @notice The value used for a null leaf in the Merkle Tree.
