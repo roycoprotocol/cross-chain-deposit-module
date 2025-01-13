@@ -1102,12 +1102,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     }
 
     /**
-     * @notice Sets the campaign unlock timestamp.
-     * @dev Only callable by the owner of the deposit executor
+     * @notice Allows the Deposit Executor's owner to override the campaign's unlock timestamp.
+     * @dev Only callable by the owner of the deposit executor.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param _unlockTimestamp The ABSOLUTE timestamp until deposits will be locked for this campaign.
      */
-    function setCampaignUnlockTimestamp(bytes32 _sourceMarketHash, uint256 _unlockTimestamp) external onlyOwner {
+    function overrideCampaignUnlockTimestamp(bytes32 _sourceMarketHash, uint256 _unlockTimestamp) external onlyOwner {
         sourceMarketHashToDepositCampaign[_sourceMarketHash].unlockTimestamp = _unlockTimestamp;
         emit CampaignUnlockTimestampSet(_sourceMarketHash, _unlockTimestamp);
     }
