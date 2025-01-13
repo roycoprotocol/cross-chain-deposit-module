@@ -274,9 +274,6 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /// @notice Error emitted when trying to withdraw before a wallet has received all input tokens in the case when the deposit recipe hasn't executed.
     error WaitingToReceiveAllTokens();
 
-    /// @notice Error emitted when the caller of the composeMsg instructs the executor to deploy more funds into Weiroll Wallets than were bridged.
-    error CannotAccountForMoreDepositsThanBridged();
-
     /*//////////////////////////////////////////////////////////////
                                   Modifiers
     //////////////////////////////////////////////////////////////*/
@@ -304,7 +301,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initialize the DepositExecutor Contract.
+     * @notice Initialize the Deposit Executor Contract.
      * @param _owner The address of the owner of this contract.
      * @param _lzV2Endpoint The address of the LayerZero V2 Endpoint on the destination chain.
      * @param _campaignVerifier The address of the campaign verifier.
@@ -826,12 +823,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
             // Update total amount deposited
             depositsAccountedFor += depositAmount;
-            require(depositsAccountedFor <= _tokenAmountBridged, CannotAccountForMoreDepositsThanBridged());
 
             // Update the accounting to reflect the deposit
-            _walletAccounting.depositorToTokenToAmountDepositedOnDest[depositor][_depositToken] += depositAmount;
-            _walletAccounting.tokenToTotalAmountDepositedOnDest[_depositToken] += depositAmount;
+            _walletAccounting.depositorToTokenToAmountDepositedOnDest[depositor][_depositToken] = depositAmount;
         }
+        // Update the accounting to reflect all the deposits
+        _walletAccounting.tokenToTotalAmountDepositedOnDest[_depositToken] = _tokenAmountBridged;
     }
 
     /**
