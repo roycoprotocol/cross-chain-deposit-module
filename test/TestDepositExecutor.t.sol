@@ -1066,7 +1066,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
 
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 
-        (, bytes32 marketMerkleRoot, uint256 merkleAmountDeposited) = depositLocker.marketHashToMerkleDepositsInfo(result.marketHash);
+        (, bytes32 marketMerkleRoot, uint256 merkleAmountDeposited,) = depositLocker.marketHashToMerkleDepositsInfo(result.marketHash);
         result.merkleRoot = marketMerkleRoot;
         result.merkleAmountDeposited = merkleAmountDeposited;
 
