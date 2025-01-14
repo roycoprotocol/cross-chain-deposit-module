@@ -132,6 +132,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The address of the DepositExecutor on the destination chain.
     address public depositExecutor;
 
+    /// @notice The gas limit when calling lzReceive for bridged tokens on the destination chain.
+    uint128 public extraLzReceiveGasLimit;
+
     /// @notice Mapping of an ERC20 token to its corresponding LayerZero OFT.
     /// @dev NOTE: Must implement the IOFT interface.
     mapping(ERC20 => IOFT) public tokenToLzV2OFT;
@@ -300,6 +303,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param dstChainLzEid The new LayerZero endpoint ID for the destination chain.
      */
     event DestinationChainLzEidSet(uint32 dstChainLzEid);
+
+    /**
+        * @notice Emitted when the extra gas limit for receiving bridged tokens on the destination chain is set.
+        * @param extraLzReceiveGasLimit The new extra gas limit for receiving bridged tokens on the destination chain.
+     */
+    event ExtraLzReceiveGasLimitSet(uint128 extraLzReceiveGasLimit);
 
     /**
      * @notice Emitted when the Deposit Executor address is set.
@@ -1237,7 +1246,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             to: _addressToBytes32(depositExecutor),
             amountLD: _amountToBridge,
             minAmountLD: _amountToBridge,
-            extraOptions: OptionsBuilder.newOptions().addExecutorLzComposeOption(0, _executorGasLimit, 0),
+            extraOptions: OptionsBuilder.newOptions()
+                .addExecutorLzReceiveOption(extraLzReceiveGasLimit, 0)
+                .addExecutorLzComposeOption(0, _executorGasLimit, 0),
             composeMsg: _composeMsg,
             oftCmd: ""
         });
@@ -1329,6 +1340,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         dstChainLzEid = _dstChainLzEid;
         emit DestinationChainLzEidSet(_dstChainLzEid);
     }
+
+    function setLzReceiveGasLimit(uint128 _gasLimit) external onlyOwner {
+        extraLzReceiveGasLimit = _gasLimit;
+        emit ExtraLzReceiveGasLimitSet(_gasLimit);
+    }
+ 
 
     /**
      * @notice Sets the DepositExecutor address.
