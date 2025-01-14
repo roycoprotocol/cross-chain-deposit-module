@@ -88,6 +88,11 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         MerkleTree.Bytes32PushTree merkleTree; // Merkle tree storing each deposit as a leaf.
         bytes32 merkleRoot; // Merkle root of the merkle tree representing deposits for this market.
         uint256 totalAmountDeposited; // Total amount deposited by depositors for this market.
+        // The CCDM nonce of the latest merkle bridge transaction for this market. Used to handle merkle withdrawals.
+        uint256 latestCcdmNonce;
+        // Each Weiroll Wallet's deposit amount since the last merkle bridge for this market.
+        // Signifies the amount the Weiroll Wallet has deposited into the current merkle tree when indexed with latestCcdmNonce.
+        mapping(uint256 => mapping(address => uint256)) latestCcdmNonceToWeirollWalletToDepositAmount;
     }
 
     /// @notice Struct to hold the info about a depositor.
@@ -146,6 +151,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Mapping from depositor's address to Weiroll Wallet to the WeirollWalletDepositInfo struct.
     mapping(address => mapping(address => WeirollWalletDepositInfo)) public depositorToWeirollWalletToWeirollWalletDepositInfo;
 
+    /// @notice Mapping from market hash to if deposits and bridges for a market are halted. Withdrawals are still enabled.
+    /// @dev NOTE: Halting a market's deposits and bridges cannot be undone. This ensures that funds will stay on source.
+    mapping(bytes32 => bool) public marketHashToHalted;
+
     /// @notice Used to keep track of CCDM bridge transactions.
     /// @notice A CCDM bridge transaction that results in multiple OFTs being bridged (LP bridge) will have the same nonce.
     uint256 public ccdmNonce;
@@ -179,6 +188,14 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint256 leafIndex,
         bytes32 updatedMerkleRoot
     );
+
+    /**
+     * @notice Emitted when a user withdraws funds from a market.
+     * @param marketHash The unique hash identifier of the market from which the withdrawal was made.
+     * @param depositor The address of the user who invoked the withdrawal.
+     * @param amountWithdrawn The amount of funds that were withdrawn by the user.
+     */
+    event MerkleWithdrawalMade(bytes32 indexed marketHash, address indexed depositor, uint256 amountWithdrawn);
 
     /**
      * @notice Emitted when a user deposits funds into a market.
@@ -317,6 +334,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     event GreenLighterSet(address greenLighter);
 
     /**
+     * @notice Emitted when deposits and bridging are eternally halted for a market. Withdrawals still are still functional.
+     * @param marketHash The hash of the market for which deposits and bridging have been halted.
+     */
+    event MarketHalted(bytes32 marketHash);
+
+    /**
      * @notice Emitted when the green light is turned on for a market.
      * @param marketHash The hash of the market for which the green light was turned on for.
      * @param bridgingAllowedTimestamp The timestamp when deposits will be bridgable (RAGE_QUIT_PERIOD_DURATION after the green light was turned on).
@@ -337,6 +360,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /// @notice Error emitted when calling withdraw with nothing deposited
     error NothingToWithdraw();
+
+    /// @notice Error emitted when trying to deposit into or bridge funds for a market that has been halted.
+    error MarketIsHalted();
+
+    /// @notice Error emitted when trying to merkle withdraw from a market that has not been halted.
+    error MerkleWithdrawalsNotEnabled();
 
     /// @notice Error emitted when green light is not given for bridging.
     error GreenLightNotGiven();
@@ -417,6 +446,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     modifier readyToBridge(bytes32 _marketHash) {
         // Basic checks for bridge readiness
         require(msg.sender == marketHashToCampaignOwner[_marketHash], OnlyCampaignOwner());
+        require(!marketHashToHalted[_marketHash], MarketIsHalted());
         require(dstChainLzEid != 0, DestinationChainEidNotSet());
         require(depositExecutor != address(0), DepositExecutorNotSet());
         // Green light related bridge checks
@@ -492,6 +522,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         address depositor = wallet.owner();
         uint256 amountDeposited = wallet.amount();
 
+        // Check that the target market isn't halted
+        require(!marketHashToHalted[targetMarketHash], MarketIsHalted());
+
         // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
 
@@ -521,9 +554,45 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Update the merkle root and the total amount deposited into the merkle tree
         merkleDepositsInfo.merkleRoot = updatedMerkleRoot;
         merkleDepositsInfo.totalAmountDeposited += amountDeposited;
+        // Update the amount this Weiroll Wallet has deposited into the currently stored merkle tree.
+        merkleDepositsInfo.latestCcdmNonceToWeirollWalletToDepositAmount[merkleDepositsInfo.latestCcdmNonce][msg.sender] = amountDeposited;
 
         // Emit merkle deposit event
         emit MerkleDepositMade(ccdmNonce, targetMarketHash, depositor, amountDeposited, merkleDepositNonce++, depositLeaf, leafIndex, updatedMerkleRoot);
+    }
+
+    /**
+     * @notice Directly withdraws the amount deposited into the Deposit Locker from an individual depositor's Weiroll Wallet to the depositor/AP.
+     * @dev NOTE: Market MUST be halted for this function to be called.
+     * @dev Called by the withdraw script of the depositor's Weiroll Wallet.
+     */
+    function merkleWithdrawal() external nonReentrant {
+        // Get Weiroll Wallet's market hash and depositor/owner/AP
+        WeirollWallet wallet = WeirollWallet(payable(msg.sender));
+        bytes32 targetMarketHash = wallet.marketHash();
+        address depositor = wallet.owner();
+
+        // Check that the target market is halted, indicating that merkle withdrawals are enabled
+        require(marketHashToHalted[targetMarketHash], MerkleWithdrawalsNotEnabled());
+
+        // Get the merkleDepositsInfo struct for the intended market
+        MerkleDepositsInfo storage merkleDepositsInfo = marketHashToMerkleDepositsInfo[targetMarketHash];
+        uint256 latestCcdmNonce = merkleDepositsInfo.latestCcdmNonce;
+        // Get the withdrawable amount from the current merkle tree for this Weiroll Wallet
+        uint256 amountToWithdraw = merkleDepositsInfo.latestCcdmNonceToWeirollWalletToDepositAmount[latestCcdmNonce][msg.sender];
+
+        // Ensure that this Weiroll Wallet's deposit hasn't been bridged and this Weiroll Wallet hasn't withdrawn.
+        require(amountToWithdraw > 0, NothingToWithdraw());
+
+        // Account for the withdrawal
+        delete merkleDepositsInfo.latestCcdmNonceToWeirollWalletToDepositAmount[latestCcdmNonce][msg.sender];
+
+        // Transfer back the amount deposited directly to the AP
+        (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
+        marketInputToken.safeTransfer(depositor, amountToWithdraw);
+
+        // Emit withdrawal event
+        emit MerkleWithdrawalMade(targetMarketHash, depositor, amountToWithdraw);
     }
 
     /**
@@ -537,6 +606,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         bytes32 targetMarketHash = wallet.marketHash();
         address depositor = wallet.owner();
         uint256 amountDeposited = wallet.amount();
+
+        require(!marketHashToHalted[targetMarketHash], MarketIsHalted());
 
         // Get the token to deposit for this market
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
@@ -645,6 +716,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Reset the merkle tree and its accounting infor for this market
         merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
+        merkleDepositsInfo.latestCcdmNonce = nonce;
         delete merkleDepositsInfo.merkleRoot;
         delete merkleDepositsInfo.totalAmountDeposited;
 
@@ -745,6 +817,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Reset the merkle tree and its accounting information for this market
         merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
+        merkleDepositsInfo.latestCcdmNonce = nonce;
         delete merkleDepositsInfo.merkleRoot;
         delete merkleDepositsInfo.totalAmountDeposited;
 
@@ -1323,6 +1396,17 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     function setGreenLighter(address _greenLighter) external onlyOwner {
         greenLighter = _greenLighter;
         emit GreenLighterSet(_greenLighter);
+    }
+
+    /**
+     * @notice Halt deposits and bridging for the specified market.
+     * @dev Only callable by the contract owner.
+     * @dev NOTE: Halting a market's deposit and bridging is immutable. Withdrawals for that market will still be functional.
+     * @param _marketHash The market hash to halt deposits and bridging for.
+     */
+    function haltMarket(bytes32 _marketHash) external onlyOwner {
+        marketHashToHalted[_marketHash] = true;
+        emit MarketHalted(_marketHash);
     }
 
     /**

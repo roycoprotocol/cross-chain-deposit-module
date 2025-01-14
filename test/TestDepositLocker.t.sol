@@ -235,7 +235,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
             bytes32 depositLeaf = keccak256(abi.encodePacked(depositLocker.merkleDepositNonce() - 1, ap, fillAmount));
             // Add the deposit leaf to the Merkle Tree
             (, bytes32 updatedMerkleRoot) = merkleTree.push(depositLeaf);
-            (, bytes32 marketMerkleRoot,) = depositLocker.marketHashToMerkleDepositsInfo(merkleMarketHash);
+            (, bytes32 marketMerkleRoot,,) = depositLocker.marketHashToMerkleDepositsInfo(merkleMarketHash);
             assertEq(updatedMerkleRoot, marketMerkleRoot);
         } else {
             // Extract the Weiroll wallet address
