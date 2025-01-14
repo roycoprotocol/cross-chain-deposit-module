@@ -566,7 +566,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @dev NOTE: Market MUST be halted for this function to be called.
      * @dev Called by the withdraw script of the depositor's Weiroll Wallet.
      */
-    function merkleWithdrawal() external nonReentrant {
+    function merkleWithdraw() external nonReentrant {
         // Get Weiroll Wallet's market hash and depositor/owner/AP
         WeirollWallet wallet = WeirollWallet(payable(msg.sender));
         bytes32 targetMarketHash = wallet.marketHash();

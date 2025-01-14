@@ -60,7 +60,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         marketHash = recipeMarketHub.createMarket(WETH_MAINNET_ADDRESS, 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
 
         DEPOSIT_RECIPE = _buildDepositRecipe(DepositLocker.merkleDeposit.selector, address(walletHelper), WETH_MAINNET_ADDRESS, address(depositLocker));
-        WITHDRAWAL_RECIPE = RecipeMarketHubBase.Recipe(new bytes32[](0), new bytes[](0));
+        WITHDRAWAL_RECIPE = _buildWithdrawalRecipe(DepositLocker.merkleWithdraw.selector, address(depositLocker));
         merkleMarketHash = recipeMarketHub.createMarket(WETH_MAINNET_ADDRESS, 30 days, frontendFee, DEPOSIT_RECIPE, WITHDRAWAL_RECIPE, RewardStyle.Forfeitable);
 
         merkleTree.setup(depositLocker.MERKLE_TREE_DEPTH(), depositLocker.NULL_LEAF());
@@ -85,6 +85,74 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         // Loop through depositors
         for (uint256 i = 0; i < numDepositors; i++) {
             (filledSoFar,,) = testDeposit(offerHash, offerAmount, numDepositors, i, filledSoFar, true);
+        }
+    }
+
+    function test_MerkleWithdrawals(uint256 offerAmount, uint256 numDepositors, uint256 numWithdrawals) external {
+        // Bound the number of depositors and offer amount to prevent overflows and underflows
+        numDepositors = bound(numDepositors, 1, depositLocker.MAX_INDIVIDUAL_DEPOSITORS_PER_BRIDGE());
+        offerAmount = bound(offerAmount, 1e6, ERC20(WETH_MAINNET_ADDRESS).totalSupply());
+        numWithdrawals = bound(numWithdrawals, 1, numDepositors);
+
+        // Check for dust removal
+        vm.assume(_removeDust(offerAmount / numDepositors, 18, 6) > 0);
+
+        // Initial balance check
+        assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), 0);
+
+        // Create a fillable IP offer for points
+        (bytes32 offerHash,) = createIPOffer_WithPoints(merkleMarketHash, offerAmount, IP_ADDRESS);
+
+        address[] memory aps = new address[](numDepositors);
+        address[] memory depositorWallets = new address[](numDepositors);
+
+        uint256 filledSoFar = 0; // Use fewer local variables
+
+        // Loop through depositors
+        for (uint256 i = 0; i < numDepositors; i++) {
+            (uint256 filled, address ap, address wallet) = testDeposit(offerHash, offerAmount, numDepositors, i, filledSoFar, true);
+            filledSoFar = filled;
+            aps[i] = ap;
+            depositorWallets[i] = wallet;
+        }
+
+        assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), filledSoFar);
+
+        uint256 withdrawnSoFar;
+
+        vm.startPrank(OWNER_ADDRESS);
+        depositLocker.haltMarket(merkleMarketHash);
+        vm.stopPrank();
+
+        for (uint256 i = 0; i < numWithdrawals; i++) {
+            // Calculate the fill amount
+            uint256 fillAmount = offerAmount / numDepositors;
+            if (i == (numDepositors - 1)) {
+                fillAmount = offerAmount - (fillAmount * (numDepositors - 1));
+            }
+            fillAmount = _removeDust(fillAmount, 18, 6);
+
+            uint256 preWithdrawApTokenBalance = ERC20(WETH_MAINNET_ADDRESS).balanceOf(aps[i]);
+
+            vm.startPrank(aps[i]);
+
+            vm.expectEmit(true, true, false, true, WETH_MAINNET_ADDRESS);
+            emit ERC20.Transfer(address(depositLocker), aps[i], fillAmount);
+
+            vm.expectEmit(true, true, false, true, address(depositLocker));
+            emit DepositLocker.MerkleWithdrawalMade(merkleMarketHash, aps[i], fillAmount);
+
+            recipeMarketHub.forfeit(depositorWallets[i], true);
+            vm.stopPrank();
+
+            withdrawnSoFar += fillAmount;
+
+            // (uint256 totalAmountDeposited,) = depositLocker.marketHashToMerkleDepositsInfo(marketHash);
+
+            // assertEq(totalAmountDeposited, 0);
+
+            assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(aps[i]), preWithdrawApTokenBalance + fillAmount);
+            assertEq(ERC20(WETH_MAINNET_ADDRESS).balanceOf(address(depositLocker)), filledSoFar - withdrawnSoFar);
         }
     }
 
@@ -230,6 +298,10 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         // AP Fills the offer (no funding vault)
         recipeMarketHub.fillIPOffers(ipOfferHashes, fillAmounts, address(0), FRONTEND_FEE_RECIPIENT);
         vm.stopPrank();
+
+        // Extract the Weiroll wallet address
+        weirollWallet = address(uint160(uint256(vm.getRecordedLogs()[0].topics[2])));
+
         if (isMerkle) {
             // Generate the deposit leaf
             bytes32 depositLeaf = keccak256(abi.encodePacked(depositLocker.merkleDepositNonce() - 1, ap, fillAmount));
@@ -238,9 +310,6 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
             (, bytes32 marketMerkleRoot,,) = depositLocker.marketHashToMerkleDepositsInfo(merkleMarketHash);
             assertEq(updatedMerkleRoot, marketMerkleRoot);
         } else {
-            // Extract the Weiroll wallet address
-            weirollWallet = address(uint160(uint256(vm.getRecordedLogs()[0].topics[2])));
-
             // Assertions
             assertDepositorState(ap, weirollWallet, fillAmount, filledSoFar);
         }
