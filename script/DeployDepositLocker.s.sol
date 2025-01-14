@@ -12,6 +12,7 @@ address constant CREATE2_FACTORY_ADDRESS = 0x4e59b44847b379578588920cA78FbF26c0B
 address constant DEPOSIT_LOCKER_OWNER = 0xCe6EC1D4401A3CbaEF79942ff257de2dFbC7714f;
 uint32 constant DESTINATION_CHAIN_LZ_EID = 40_346; // cArtio
 address constant DEPOSIT_EXECUTOR = address(0); // Will be set through setter once deployed
+uint128 constant BASE_LZ_RECEIVE_GAS_LIMIT = 200_000;
 address constant GREEN_LIGHTER = 0x5D1B9186Ac01B7c364734618172CD4487E68bC92;
 RecipeMarketHubBase constant RECIPE_MARKET_HUB = RecipeMarketHubBase(0x783251f103555068c1E9D755f69458f39eD937c0);
 IUniswapV2Router01 constant UNISWAP_V2_ROUTER = IUniswapV2Router01(0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3);
@@ -109,7 +110,16 @@ contract DeployDepositLocker is Script {
         console2.log("Deploying DepositLocker");
         bytes memory depositLockerCreationCode = abi.encodePacked(
             vm.getCode("DepositLocker"),
-            abi.encode(DEPOSIT_LOCKER_OWNER, DESTINATION_CHAIN_LZ_EID, DEPOSIT_EXECUTOR, GREEN_LIGHTER, RECIPE_MARKET_HUB, UNISWAP_V2_ROUTER, LZ_V2_OFTs)
+            abi.encode(
+                DEPOSIT_LOCKER_OWNER,
+                DESTINATION_CHAIN_LZ_EID,
+                DEPOSIT_EXECUTOR,
+                BASE_LZ_RECEIVE_GAS_LIMIT,
+                GREEN_LIGHTER,
+                RECIPE_MARKET_HUB,
+                UNISWAP_V2_ROUTER,
+                LZ_V2_OFTs
+            )
         );
         DepositLocker depositLocker = DepositLocker(payable(_deployWithSanityChecks(DEPOSIT_LOCKER_SALT, depositLockerCreationCode)));
 

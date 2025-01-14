@@ -132,8 +132,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice The address of the DepositExecutor on the destination chain.
     address public depositExecutor;
 
-    /// @notice The gas limit when calling lzReceive for bridged tokens on the destination chain.
-    uint128 public extraLzReceiveGasLimit;
+    /// @notice The base gas limit when calling lzReceive for bridged tokens on the destination chain.
+    uint128 public baseLzReceiveGasLimit;
 
     /// @notice Mapping of an ERC20 token to its corresponding LayerZero OFT.
     /// @dev NOTE: Must implement the IOFT interface.
@@ -305,10 +305,10 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     event DestinationChainLzEidSet(uint32 dstChainLzEid);
 
     /**
-        * @notice Emitted when the extra gas limit for receiving bridged tokens on the destination chain is set.
-        * @param extraLzReceiveGasLimit The new extra gas limit for receiving bridged tokens on the destination chain.
+     * @notice Emitted when the extra gas limit for receiving bridged tokens on the destination chain is set.
+     * @param baseLzReceiveGasLimit The new extra gas limit for receiving bridged tokens on the destination chain.
      */
-    event ExtraLzReceiveGasLimitSet(uint128 extraLzReceiveGasLimit);
+    event BaseLzReceiveGasLimitSet(uint128 baseLzReceiveGasLimit);
 
     /**
      * @notice Emitted when the Deposit Executor address is set.
@@ -474,6 +474,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param _dstChainLzEid The destination LayerZero endpoint ID for the destination chain.
      * @param _depositExecutor The address of the DepositExecutor on the destination chain.
      * @param _greenLighter The address of the global green lighter responsible for marking deposits as bridgable.
+     * @param _baseLzReceiveGasLimit The base gas limit to pass to lzReceive on destination per bridge.
      * @param _recipeMarketHub The address of the recipe market hub used to create markets on the source chain.
      * @param _uniswap_v2_router The address of the Uniswap V2 router on the source chain.
      * @param _lzV2OFTs The LayerZero V2 OFT instances for each acceptable deposit token on the source chain.
@@ -482,6 +483,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         address _owner,
         uint32 _dstChainLzEid,
         address _depositExecutor,
+        uint128 _baseLzReceiveGasLimit,
         address _greenLighter,
         RecipeMarketHubBase _recipeMarketHub,
         IUniswapV2Router01 _uniswap_v2_router,
@@ -503,6 +505,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         for (uint256 i = 0; i < _lzV2OFTs.length; ++i) {
             _setLzV2OFTForToken(_lzV2OFTs[i]);
         }
+
+        baseLzReceiveGasLimit = _baseLzReceiveGasLimit;
+        emit BaseLzReceiveGasLimitSet(_baseLzReceiveGasLimit);
 
         greenLighter = _greenLighter;
         emit GreenLighterSet(_greenLighter);
@@ -1246,9 +1251,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             to: _addressToBytes32(depositExecutor),
             amountLD: _amountToBridge,
             minAmountLD: _amountToBridge,
-            extraOptions: OptionsBuilder.newOptions()
-                .addExecutorLzReceiveOption(extraLzReceiveGasLimit, 0)
-                .addExecutorLzComposeOption(0, _executorGasLimit, 0),
+            extraOptions: OptionsBuilder.newOptions().addExecutorLzReceiveOption(baseLzReceiveGasLimit, 0).addExecutorLzComposeOption(0, _executorGasLimit, 0),
             composeMsg: _composeMsg,
             oftCmd: ""
         });
@@ -1341,12 +1344,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         emit DestinationChainLzEidSet(_dstChainLzEid);
     }
 
-    function setLzReceiveGasLimit(uint128 _gasLimit) external onlyOwner {
-        extraLzReceiveGasLimit = _gasLimit;
-        emit ExtraLzReceiveGasLimitSet(_gasLimit);
-    }
- 
-
     /**
      * @notice Sets the DepositExecutor address.
      * @dev Only callable by the contract owner.
@@ -1355,6 +1352,16 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     function setDepositExecutor(address _depositExecutor) external onlyOwner {
         depositExecutor = _depositExecutor;
         emit DepositExecutorSet(_depositExecutor);
+    }
+
+    /**
+     * @notice Sets the base lzReceive Gas Limit on destination.
+     * @dev Only callable by the contract owner.
+     * @param _baseLzReceiveGasLimit The base LZ Receive gas limit.
+     */
+    function setBaseLzReceiveGasLimit(uint128 _baseLzReceiveGasLimit) external onlyOwner {
+        baseLzReceiveGasLimit = _baseLzReceiveGasLimit;
+        emit BaseLzReceiveGasLimitSet(_baseLzReceiveGasLimit);
     }
 
     /**

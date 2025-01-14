@@ -894,8 +894,9 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS);
 
         // Deploy the DepositLocker
-        DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs);
+        DepositLocker depositLocker = new DepositLocker(
+            OWNER_ADDRESS, 30_284, address(0xbeef), 200_000, GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs
+        );
 
         result.depositLocker = address(depositLocker);
 
@@ -1008,8 +1009,9 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         depositTokens[1] = ERC20(WBTC_MAINNET_ADDRESS);
         lzV2OFTs[1] = IOFT(WBTC_OFT_ADAPTER_MAINNET_ADDRESS);
 
-        DepositLocker depositLocker =
-            new DepositLocker(OWNER_ADDRESS, 30_284, address(0xbeef), GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs);
+        DepositLocker depositLocker = new DepositLocker(
+            OWNER_ADDRESS, 30_284, address(0xbeef), 200_000, GREEN_LIGHTER_ADDRESS, recipeMarketHub, UNISWAP_V2_MAINNET_ROUTER_ADDRESS, lzV2OFTs
+        );
         result.depositLocker = address(depositLocker);
 
         result.actualNumberOfDepositors = numDepositors;
