@@ -282,7 +282,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
 
         if (isMerkle) {
             vm.expectEmit(true, true, false, false, address(depositLocker));
-            emit DepositLocker.MerkleDepositMade(1, merkleMarketHash, address(0), ap, uint256(0), uint256(0), bytes32(0), uint256(0), bytes32(0));
+            emit DepositLocker.MerkleDepositMade(0, merkleMarketHash, address(0), ap, uint256(0), uint256(0), bytes32(0), uint256(0), bytes32(0));
         } else {
             vm.expectEmit(false, false, false, true, address(depositLocker));
             emit DepositLocker.IndividualDepositMade(marketHash, address(0), ap, fillAmount);
