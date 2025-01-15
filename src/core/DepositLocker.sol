@@ -179,8 +179,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param depositor The address of the user who made the deposit.
      * @param amountDeposited The amount of funds that were deposited by the user.
      * @param merkleDepositNonce Unique identifier for this merkle deposit - used to make sure that each merkle depositor's leaf is unique.
-     * @param leafIndex The index in the Merkle tree where the new deposit leaf was added.
-     * @param leafIndex The index in the Merkle tree where the new deposit leaf was added.
+     * @param depositLeaf The leaf representing the user's deposit = keccak256(abi.encodePacked(merkleDepositNonce, depositor, amountDeposited))
+     * @param depositLeafIndex The index in the Merkle tree where the new deposit leaf was added.
      * @param updatedMerkleRoot The new Merkle root after the deposit leaf was inserted.
      */
     event MerkleDepositMade(
@@ -190,8 +190,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         address depositor,
         uint256 amountDeposited,
         uint256 merkleDepositNonce,
-        bytes32 leaf,
-        uint256 leafIndex,
+        bytes32 depositLeaf,
+        uint256 depositLeafIndex,
         bytes32 updatedMerkleRoot
     );
 

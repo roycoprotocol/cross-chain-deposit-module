@@ -139,7 +139,14 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @param weirollWallet The Weiroll Wallet that the depositor was withdrawn from.
      * @param depositor The address of the depositor withdrawan from the Weiroll Wallet.
      */
-    event DepositorWithdrawn(address indexed weirollWallet, address indexed depositor);
+    event IndividualDepositorWithdrawn(address indexed weirollWallet, address indexed depositor);
+
+    /**
+     * @param weirollWallet The Weiroll Wallet that the depositor was withdrawn from.
+     * @param depositor The address of the depositor withdrawn from the Weiroll Wallet.
+     * @param depositLeaf The leaf representing the user deposit that was withdrawn.
+     */
+    event MerkleDepositorWithdrawn(address indexed weirollWallet, address indexed depositor, bytes32 depositLeaf);
 
     /**
      * @notice Emitted when the campaign verifier address is set.
@@ -575,7 +582,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                     inputToken.safeTransfer(msg.sender, amountDepositedOnDest);
                 }
             }
-            emit DepositorWithdrawn(_weirollWallets[i], msg.sender);
+            emit IndividualDepositorWithdrawn(_weirollWallets[i], msg.sender);
         }
     }
 
@@ -677,7 +684,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         walletAccounting.leafToWithdrawn[depositLeaf] = true;
         walletAccounting.totalMerkleTreeSourceAmountLeftToWithdraw -= _amountDepositedOnSource;
 
-        emit DepositorWithdrawn(_weirollWallet, msg.sender);
+        emit MerkleDepositorWithdrawn(_weirollWallet, msg.sender, depositLeaf);
     }
 
     /**
