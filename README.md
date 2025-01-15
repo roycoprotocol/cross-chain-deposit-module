@@ -44,9 +44,7 @@ CCDM consists of two core components: the **Deposit Locker** on the source chain
 
 ## CCDM Flow
 1. IP creates a Royco Recipe Market on the source chain.
-   - The market's deposit recipe will approve the ```DepositLocker``` to spend the amount of tokens deposited (fill amount) and then call the ```deposit()``` functions on the ```DepositLocker```.
-   - The market's withdrawal recipe will call ```withdraw()``` on the ```DepositLocker```.
-2. IP initializes their Deposit Campaign corresponding to their Royco Recipe market on the destination chain by setting the following parameters:
+2. IP initializes their Deposit Campaign corresponding to their Royco Recipe IAM on the destination chain by setting the following parameters:
    - Unlock Timestamp
       - The ABSOLUTE timestamp that all deposits in your campaign will be locked until.
       - Note: This value can only be set ONCE.
@@ -60,11 +58,9 @@ CCDM consists of two core components: the **Deposit Locker** on the source chain
    - The Recipe Market Hub creates a fresh Weiroll Wallet owned by the AP.
    - The Recipe Market Hub automatically executes the market's deposit recipe through the wallet, depositing the liqudiity into the ```DepositLocker```.
    - The deposit is withdrawable by the AP any time prior to their funds being bridged.
-5. Once green light is given for a market, its funds can be bridged to the destination chain from the ```DepositLocker``` after the rage quite period (48 hours).
-6. After the rage quit period ends, IP bridges depositors for their market to the destination chain.
+5. Once green light is given for a market, its funds can be bridged to the destination chain from the ```DepositLocker``` after the rage quite period.
+6. After the rage quit period ends, the IP bridges depositors for their market to the destination chain.
 7. The ```DepositExecutor``` receives bridged funds belonging to a market on the source chain and creates a Weiroll Wallet for the CCDM nonce associated with the bridge transaction if it hasn't aleady. 
-   - The ```DepositExecutor``` stores granular accounting for each bridged depositor to facilitate prorated withdrawals.
-   - The ```DepositExecutor``` holds the deposits until the owner executes the deposit recipe for the Weiroll Wallet.
-8. The destination deposit recipe is executed (if verified) by the campaign's owner for the Weiroll Wallets associated with their campaign on the destination chain.
+8. The destination deposit recipe is executed (if verified) by the campaign's owner (IP) for the Weiroll Wallets associated with their campaign on the destination chain.
 9. Steps 6,7, and 8 are repeated until all depositors have been bridged and deposited into the protocol/DApp on the destination chain.
 10. APs can withdraw funds through the ```DepositExecutor``` after the campaign's unlock timestamp has passed.
