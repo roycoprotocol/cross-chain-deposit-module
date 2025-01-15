@@ -131,8 +131,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
      * @notice Emitted on batch execute of Weiroll Wallet deposits.
      * @param sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
      * @param weirollWalletsExecuted The addresses of the weiroll wallets that executed the campaign's deposit recipe.
+     * @param receiptTokensReceived The receipt tokens received by the Weiroll Wallets after executing the deposit recipe.
      */
-    event WeirollWalletsExecutedDeposits(bytes32 indexed sourceMarketHash, address[] weirollWalletsExecuted);
+    event WeirollWalletsExecutedDepositRecipe(bytes32 indexed sourceMarketHash, address[] weirollWalletsExecuted, uint256[] receiptTokensReceived);
 
     /**
      * @param weirollWallet The Weiroll Wallet that the depositor was withdrawn from.
@@ -455,8 +456,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
 
         ERC20 receiptToken = campaign.receiptToken;
         Recipe memory depositRecipe = campaign.depositRecipe;
+
+        uint256 numWeirollWallets = _weirollWallets.length;
+        uint256[] memory receiptTokensReceived = new uint256[](numWeirollWallets);
+
         // Execute deposit recipes for specified wallets
-        for (uint256 i = 0; i < _weirollWallets.length; ++i) {
+        for (uint256 i = 0; i < numWeirollWallets; ++i) {
             WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallets[i]));
 
             // Only execute deposit recipe if the wallet belongs to this market and hasn't been executed already
@@ -474,8 +479,12 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             // Execute the deposit recipe on the Weiroll wallet
             weirollWallet.executeWeiroll(depositRecipe.weirollCommands, depositRecipe.weirollState);
 
+            // Get the receipt tokens received on execution
+            uint256 balanceDifference = receiptToken.balanceOf(_weirollWallets[i]) - initialReceiptTokenBalance;
             // Check that receipt tokens were received on deposit
-            require(receiptToken.balanceOf(_weirollWallets[i]) - initialReceiptTokenBalance > 0, MustReturnReceiptTokensOnDeposit());
+            require(balanceDifference > 0, MustReturnReceiptTokensOnDeposit());
+            // Set the receipt tokens received on execution for event emission
+            receiptTokensReceived[i] = balanceDifference;
 
             // Check that the executor has the proper allowance for the Weiroll Wallet's input and receipt tokens
             require(receiptToken.allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
@@ -484,7 +493,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             }
         }
 
-        emit WeirollWalletsExecutedDeposits(_sourceMarketHash, _weirollWallets);
+        emit WeirollWalletsExecutedDepositRecipe(_sourceMarketHash, _weirollWallets, receiptTokensReceived);
     }
 
     /**
