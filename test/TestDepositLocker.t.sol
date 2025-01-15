@@ -140,7 +140,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
             emit ERC20.Transfer(address(depositLocker), aps[i], fillAmount);
 
             vm.expectEmit(true, true, false, true, address(depositLocker));
-            emit DepositLocker.MerkleWithdrawalMade(merkleMarketHash, aps[i], fillAmount);
+            emit DepositLocker.MerkleWithdrawalMade(merkleMarketHash, depositorWallets[i], aps[i], fillAmount);
 
             recipeMarketHub.forfeit(depositorWallets[i], true);
             vm.stopPrank();
@@ -229,7 +229,7 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
             emit ERC20.Transfer(address(depositLocker), aps[i], fillAmount);
 
             vm.expectEmit(true, true, false, true, address(depositLocker));
-            emit DepositLocker.IndividualWithdrawalMade(marketHash, aps[i], fillAmount);
+            emit DepositLocker.IndividualWithdrawalMade(marketHash, depositorWallets[i], aps[i], fillAmount);
 
             recipeMarketHub.forfeit(depositorWallets[i], true);
             vm.stopPrank();
@@ -281,11 +281,11 @@ contract Test_DepositsAndWithdrawals_DepositLocker is RecipeMarketHubTestBase {
         emit ERC20.Transfer(address(0), address(depositLocker), fillAmount);
 
         if (isMerkle) {
-            vm.expectEmit(true, true, true, false, address(depositLocker));
-            emit DepositLocker.MerkleDepositMade(1, merkleMarketHash, ap, uint256(0), uint256(0), bytes32(0), uint256(0), bytes32(0));
+            vm.expectEmit(true, true, false, false, address(depositLocker));
+            emit DepositLocker.MerkleDepositMade(1, merkleMarketHash, address(0), ap, uint256(0), uint256(0), bytes32(0), uint256(0), bytes32(0));
         } else {
-            vm.expectEmit(true, true, false, true, address(depositLocker));
-            emit DepositLocker.IndividualDepositMade(marketHash, ap, fillAmount);
+            vm.expectEmit(false, false, false, true, address(depositLocker));
+            emit DepositLocker.IndividualDepositMade(marketHash, address(0), ap, fillAmount);
         }
 
         // Record the logs to capture Transfer events

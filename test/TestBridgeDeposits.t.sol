@@ -411,7 +411,7 @@ contract Test_BridgeDeposits_DepositLocker is RecipeMarketHubTestBase {
 
         vm.expectEmit(true, true, false, false, address(depositLocker));
         emit DepositLocker.LpTokensBridgedToDestination(
-            marketHash, 1, new address[](0), bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0
+            marketHash, 1, new address[](0), 0, bytes32(0), 0, ERC20(address(0)), 0, bytes32(0), 0, ERC20(address(0)), 0
         );
         vm.warp(block.timestamp + depositLocker.RAGE_QUIT_PERIOD_DURATION() + 1);
 

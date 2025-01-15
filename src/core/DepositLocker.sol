@@ -63,6 +63,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /// @notice Struct to hold parameters for bridging LP tokens.
     struct LpBridgeParams {
         bytes32 marketHash;
+        uint256 lpTokenAmountRedeemed;
         ERC20 token0;
         ERC20 token1;
         TotalAmountsToBridge totals;
@@ -174,6 +175,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @notice Emitted when a merkle deposit is made for a given market.
      * @param ccdmNonce The CCDM Nonce indicating the next bridge nonce.
      * @param marketHash The unique hash identifier of the market where the deposit occurred.
+     * @param weirollWallet The Weiroll Wallet used to deposit.
      * @param depositor The address of the user who made the deposit.
      * @param amountDeposited The amount of funds that were deposited by the user.
      * @param merkleDepositNonce Unique identifier for this merkle deposit - used to make sure that each merkle depositor's leaf is unique.
@@ -184,7 +186,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     event MerkleDepositMade(
         uint256 indexed ccdmNonce,
         bytes32 indexed marketHash,
-        address indexed depositor,
+        address indexed weirollWallet,
+        address depositor,
         uint256 amountDeposited,
         uint256 merkleDepositNonce,
         bytes32 leaf,
@@ -195,26 +198,29 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /**
      * @notice Emitted when a user withdraws funds from a market.
      * @param marketHash The unique hash identifier of the market from which the withdrawal was made.
+     * @param weirollWallet The Weiroll Wallet used to withdraw.
      * @param depositor The address of the user who invoked the withdrawal.
      * @param amountWithdrawn The amount of funds that were withdrawn by the user.
      */
-    event MerkleWithdrawalMade(bytes32 indexed marketHash, address indexed depositor, uint256 amountWithdrawn);
+    event MerkleWithdrawalMade(bytes32 indexed marketHash, address indexed weirollWallet, address depositor, uint256 amountWithdrawn);
 
     /**
      * @notice Emitted when a user deposits funds into a market.
      * @param marketHash The unique hash identifier of the market where the deposit occurred.
+     * @param weirollWallet The Weiroll Wallet used to deposit.
      * @param depositor The address of the user who made the deposit.
      * @param amountDeposited The amount of funds that were deposited by the user.
      */
-    event IndividualDepositMade(bytes32 indexed marketHash, address indexed depositor, uint256 amountDeposited);
+    event IndividualDepositMade(bytes32 indexed marketHash, address indexed weirollWallet, address depositor, uint256 amountDeposited);
 
     /**
      * @notice Emitted when a user withdraws funds from a market.
      * @param marketHash The unique hash identifier of the market from which the withdrawal was made.
+     * @param weirollWallet The Weiroll Wallet used to withdraw.
      * @param depositor The address of the user who invoked the withdrawal.
      * @param amountWithdrawn The amount of funds that were withdrawn by the user.
      */
-    event IndividualWithdrawalMade(bytes32 indexed marketHash, address indexed depositor, uint256 amountWithdrawn);
+    event IndividualWithdrawalMade(bytes32 indexed marketHash, address indexed weirollWallet, address depositor, uint256 amountWithdrawn);
 
     /**
      * @notice Emitted when single tokens are merkle bridged to the destination chain.
@@ -247,6 +253,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param marketHash The unique hash identifier of the market associated with the LP tokens.
      * @param ccdmNonce The CCDM Nonce for this bridge.
      * @param merkleRoot The merkle root bridged to the destination.
+     * @param totalLpTokensBridged The total number of LP tokens redeemed for this bridge.
      * @param lz_token0_guid The LayerZero unique identifier for the bridging of token0.
      * @param lz_token0_nonce The LayerZero nonce value for the bridging of token0.
      * @param token0 The address of the first token in the liquidity pair.
@@ -260,6 +267,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         bytes32 indexed marketHash,
         uint256 indexed ccdmNonce,
         bytes32 merkleRoot,
+        uint256 totalLpTokensBridged,
         bytes32 lz_token0_guid,
         uint64 lz_token0_nonce,
         ERC20 token0,
@@ -275,6 +283,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param marketHash The unique hash identifier of the market associated with the LP tokens.
      * @param ccdmNonce The CCDM Nonce for this bridge.
      * @param depositorsBridged All the depositors bridged in this CCDM bridge transaction.
+     * @param totalLpTokensBridged The total number of LP tokens redeemed for this bridge.
      * @param lz_token0_guid The LayerZero unique identifier for the bridging of token0.
      * @param lz_token0_nonce The LayerZero nonce value for the bridging of token0.
      * @param token0 The address of the first token in the liquidity pair.
@@ -288,6 +297,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         bytes32 indexed marketHash,
         uint256 indexed ccdmNonce,
         address[] depositorsBridged,
+        uint256 totalLpTokensBridged,
         bytes32 lz_token0_guid,
         uint64 lz_token0_nonce,
         ERC20 token0,
@@ -572,7 +582,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         merkleDepositsInfo.latestCcdmNonceToWeirollWalletToDepositAmount[merkleDepositsInfo.latestCcdmNonce][msg.sender] = amountDeposited;
 
         // Emit merkle deposit event
-        emit MerkleDepositMade(ccdmNonce, targetMarketHash, depositor, amountDeposited, merkleDepositNonce++, depositLeaf, leafIndex, updatedMerkleRoot);
+        emit MerkleDepositMade(
+            ccdmNonce, targetMarketHash, msg.sender, depositor, amountDeposited, merkleDepositNonce++, depositLeaf, leafIndex, updatedMerkleRoot
+        );
     }
 
     /**
@@ -606,7 +618,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         marketInputToken.safeTransfer(depositor, amountToWithdraw);
 
         // Emit withdrawal event
-        emit MerkleWithdrawalMade(targetMarketHash, depositor, amountToWithdraw);
+        emit MerkleWithdrawalMade(targetMarketHash, msg.sender, depositor, amountToWithdraw);
     }
 
     /**
@@ -652,7 +664,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         walletInfo.amountDeposited = amountDeposited;
 
         // Emit deposit event
-        emit IndividualDepositMade(targetMarketHash, depositor, amountDeposited);
+        emit IndividualDepositMade(targetMarketHash, msg.sender, depositor, amountDeposited);
     }
 
     /**
@@ -683,7 +695,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         marketInputToken.safeTransfer(depositor, amountToWithdraw);
 
         // Emit withdrawal event
-        emit IndividualWithdrawalMade(targetMarketHash, depositor, amountToWithdraw);
+        emit IndividualWithdrawalMade(targetMarketHash, msg.sender, depositor, amountToWithdraw);
     }
 
     /**
@@ -840,6 +852,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             _marketHash,
             ccdmNonce++,
             merkleRoot,
+            totalAmountDeposited,
             token0_MessageReceipt.guid,
             token0_MessageReceipt.nonce,
             token0,
@@ -1029,6 +1042,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Create bridge parameters
         LpBridgeParams memory bridgeParams = LpBridgeParams({
             marketHash: _marketHash,
+            lpTokenAmountRedeemed: lp_TotalDepositsInBatch,
             token0: token0,
             token1: token1,
             totals: totals,
@@ -1214,6 +1228,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             _params.marketHash,
             ccdmNonce++,
             _params.depositorsBridged,
+            _params.lpTokenAmountRedeemed,
             token0_MessageReceipt.guid,
             token0_MessageReceipt.nonce,
             _params.token0,
