@@ -57,7 +57,6 @@ CCDM consists of two core components: the **Deposit Locker** on the source chain
 4. Upon an offer being filled: 
    - The Recipe Market Hub creates a fresh Weiroll Wallet owned by the AP.
    - The Recipe Market Hub automatically executes the market's deposit recipe through the wallet, depositing the liqudiity into the ```DepositLocker```.
-   - The deposit is withdrawable by the AP any time prior to their funds being bridged.
 5. Once green light is given for a market, its funds can be bridged to the destination chain from the ```DepositLocker``` after the rage quite period.
 6. After the rage quit period ends, the IP bridges depositors for their market to the destination chain.
 7. The ```DepositExecutor``` receives bridged funds belonging to a market on the source chain and creates a Weiroll Wallet for the CCDM nonce associated with the bridge transaction if it hasn't aleady. 
