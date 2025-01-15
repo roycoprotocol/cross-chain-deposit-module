@@ -90,16 +90,16 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         bytes32 merkleRoot; // Merkle root of the merkle tree representing deposits for this market.
         uint256 totalAmountDeposited; // Total amount deposited by depositors for this market.
         // The CCDM nonce of the latest merkle bridge transaction for this market. Used to handle merkle withdrawals.
-        uint256 latestCcdmNonce;
+        uint256 lastCcdmNonceBridged;
         // Each Weiroll Wallet's deposit amount since the last merkle bridge for this market.
-        // Signifies the amount the Weiroll Wallet has deposited into the current merkle tree when indexed with latestCcdmNonce.
-        mapping(uint256 => mapping(address => uint256)) latestCcdmNonceToWeirollWalletToDepositAmount;
+        // Signifies the amount the Weiroll Wallet has deposited into the current merkle tree when indexed with lastCcdmNonceBridged.
+        mapping(uint256 => mapping(address => uint256)) lastCcdmNonceBridgedToWeirollWalletToDepositAmount;
     }
 
     /// @notice Struct to hold the info about a depositor.
     struct IndividualDepositorInfo {
         uint256 totalAmountDeposited; // Total amount deposited by this depositor for this market.
-        uint256 latestCcdmNonce; // Most recent CCDM nonce of the bridge txn that this depositor was included in for this market.
+        uint256 lastCcdmNonceBridged; // Most recent CCDM nonce of the bridge txn that this depositor was included in for this market.
     }
 
     /// @notice Struct to hold the info about a Weiroll Wallet.
@@ -173,7 +173,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /**
      * @notice Emitted when a merkle deposit is made for a given market.
-     * @param ccdmNonce The CCDM Nonce indicating the next bridge nonce.
+     * @param lastCcdmNonceBridged The CCDM Nonce of the last bridge transaction made for this market.
      * @param marketHash The unique hash identifier of the market where the deposit occurred.
      * @param weirollWallet The Weiroll Wallet used to deposit.
      * @param depositor The address of the user who made the deposit.
@@ -184,7 +184,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @param updatedMerkleRoot The new Merkle root after the deposit leaf was inserted.
      */
     event MerkleDepositMade(
-        uint256 indexed ccdmNonce,
+        uint256 indexed lastCcdmNonceBridged,
         bytes32 indexed marketHash,
         address indexed weirollWallet,
         address depositor,
@@ -226,13 +226,20 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @notice Emitted when single tokens are merkle bridged to the destination chain.
      * @param marketHash The unique hash identifier of the market related to the bridged tokens.
      * @param ccdmNonce The CCDM Nonce for this bridge.
+     * @param lastCcdmNonceBridged The CCDM Nonce of the last bridge transaction made for this market.
      * @param merkleRoot The merkle root bridged to the destination.
      * @param lz_guid The LayerZero unique identifier associated with the bridging transaction.
      * @param lz_nonce The LayerZero nonce value for the bridging message.
      * @param totalAmountBridged The total amount of tokens that were bridged to the destination chain.
      */
     event SingleTokensMerkleBridgedToDestination(
-        bytes32 indexed marketHash, uint256 indexed ccdmNonce, bytes32 merkleRoot, bytes32 lz_guid, uint64 lz_nonce, uint256 totalAmountBridged
+        bytes32 indexed marketHash,
+        uint256 indexed ccdmNonce,
+        uint256 indexed lastCcdmNonceBridged,
+        bytes32 merkleRoot,
+        bytes32 lz_guid,
+        uint64 lz_nonce,
+        uint256 totalAmountBridged
     );
 
     /**
@@ -252,6 +259,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
      * @notice Emitted when UNI V2 LP tokens are merkle bridged to the destination chain.
      * @param marketHash The unique hash identifier of the market associated with the LP tokens.
      * @param ccdmNonce The CCDM Nonce for this bridge.
+     * @param lastCcdmNonceBridged The CCDM Nonce of the last bridge transaction made for this market.
      * @param merkleRoot The merkle root bridged to the destination.
      * @param totalLpTokensBridged The total number of LP tokens redeemed for this bridge.
      * @param lz_token0_guid The LayerZero unique identifier for the bridging of token0.
@@ -266,6 +274,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     event LpTokensMerkleBridgedToDestination(
         bytes32 indexed marketHash,
         uint256 indexed ccdmNonce,
+        uint256 indexed lastCcdmNonceBridged,
         bytes32 merkleRoot,
         uint256 totalLpTokensBridged,
         bytes32 lz_token0_guid,
@@ -579,11 +588,12 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         merkleDepositsInfo.merkleRoot = updatedMerkleRoot;
         merkleDepositsInfo.totalAmountDeposited += amountDeposited;
         // Update the amount this Weiroll Wallet has deposited into the currently stored merkle tree.
-        merkleDepositsInfo.latestCcdmNonceToWeirollWalletToDepositAmount[merkleDepositsInfo.latestCcdmNonce][msg.sender] = amountDeposited;
+        uint256 lastCcdmNonceBridged = merkleDepositsInfo.lastCcdmNonceBridged;
+        merkleDepositsInfo.lastCcdmNonceBridgedToWeirollWalletToDepositAmount[lastCcdmNonceBridged][msg.sender] = amountDeposited;
 
         // Emit merkle deposit event
         emit MerkleDepositMade(
-            ccdmNonce, targetMarketHash, msg.sender, depositor, amountDeposited, merkleDepositNonce++, depositLeaf, leafIndex, updatedMerkleRoot
+            lastCcdmNonceBridged, targetMarketHash, msg.sender, depositor, amountDeposited, merkleDepositNonce++, depositLeaf, leafIndex, updatedMerkleRoot
         );
     }
 
@@ -603,15 +613,15 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Get the merkleDepositsInfo struct for the intended market
         MerkleDepositsInfo storage merkleDepositsInfo = marketHashToMerkleDepositsInfo[targetMarketHash];
-        uint256 latestCcdmNonce = merkleDepositsInfo.latestCcdmNonce;
+        uint256 lastCcdmNonceBridged = merkleDepositsInfo.lastCcdmNonceBridged;
         // Get the withdrawable amount from the current merkle tree for this Weiroll Wallet
-        uint256 amountToWithdraw = merkleDepositsInfo.latestCcdmNonceToWeirollWalletToDepositAmount[latestCcdmNonce][msg.sender];
+        uint256 amountToWithdraw = merkleDepositsInfo.lastCcdmNonceBridgedToWeirollWalletToDepositAmount[lastCcdmNonceBridged][msg.sender];
 
         // Ensure that this Weiroll Wallet's deposit hasn't been bridged and this Weiroll Wallet hasn't withdrawn.
         require(amountToWithdraw > 0, NothingToWithdraw());
 
         // Account for the withdrawal
-        delete merkleDepositsInfo.latestCcdmNonceToWeirollWalletToDepositAmount[latestCcdmNonce][msg.sender];
+        delete merkleDepositsInfo.lastCcdmNonceBridgedToWeirollWalletToDepositAmount[lastCcdmNonceBridged][msg.sender];
 
         // Transfer back the amount deposited directly to the AP
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(targetMarketHash);
@@ -684,7 +694,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get amount to withdraw for this Weiroll Wallet
         uint256 amountToWithdraw = walletInfo.amountDeposited;
         // Ensure that this Weiroll Wallet's deposit hasn't been bridged and this Weiroll Wallet hasn't withdrawn.
-        require(walletInfo.ccdmNonceOnDeposit > depositorInfo.latestCcdmNonce && amountToWithdraw > 0, NothingToWithdraw());
+        require(walletInfo.ccdmNonceOnDeposit > depositorInfo.lastCcdmNonceBridged && amountToWithdraw > 0, NothingToWithdraw());
 
         // Account for the withdrawal
         depositorInfo.totalAmountDeposited -= amountToWithdraw;
@@ -742,12 +752,16 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Reset the merkle tree and its accounting infor for this market
         merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
-        merkleDepositsInfo.latestCcdmNonce = nonce;
         delete merkleDepositsInfo.merkleRoot;
         delete merkleDepositsInfo.totalAmountDeposited;
 
         // Emit event to keep track of bridged deposits
-        emit SingleTokensMerkleBridgedToDestination(_marketHash, ccdmNonce++, merkleRoot, messageReceipt.guid, messageReceipt.nonce, totalAmountDeposited);
+        emit SingleTokensMerkleBridgedToDestination(
+            _marketHash, ccdmNonce++, merkleDepositsInfo.lastCcdmNonceBridged, merkleRoot, messageReceipt.guid, messageReceipt.nonce, totalAmountDeposited
+        );
+
+        // Update last CCDM bridge nonce to this nonce
+        merkleDepositsInfo.lastCcdmNonceBridged = nonce;
     }
 
     /**
@@ -843,7 +857,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Reset the merkle tree and its accounting information for this market
         merkleDepositsInfo.merkleTree.setup(MERKLE_TREE_DEPTH, NULL_LEAF);
-        merkleDepositsInfo.latestCcdmNonce = nonce;
         delete merkleDepositsInfo.merkleRoot;
         delete merkleDepositsInfo.totalAmountDeposited;
 
@@ -851,6 +864,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         emit LpTokensMerkleBridgedToDestination(
             _marketHash,
             ccdmNonce++,
+            merkleDepositsInfo.lastCcdmNonceBridged,
             merkleRoot,
             totalAmountDeposited,
             token0_MessageReceipt.guid,
@@ -862,6 +876,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             token1,
             token1_TotalAmountToBridge
         );
+
+        // Update last CCDM bridge nonce to this nonce
+        merkleDepositsInfo.lastCcdmNonceBridged = nonce;
     }
 
     /**
@@ -971,7 +988,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
             // Set the total amount deposited by this depositor (AP) for this market to zero
             delete depositorInfo.totalAmountDeposited;
             // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
-            depositorInfo.latestCcdmNonce = nonce;
+            depositorInfo.lastCcdmNonceBridged = nonce;
         }
 
         // Get the market's input token
@@ -1092,7 +1109,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         }
 
         // Mark the current CCDM nonce as the latest CCDM bridge txn that this depositor was included in for this market.
-        marketHashToDepositorToIndividualDepositorInfo[_marketHash][_depositor].latestCcdmNonce = _ccdmNonce;
+        marketHashToDepositorToIndividualDepositorInfo[_marketHash][_depositor].lastCcdmNonceBridged = _ccdmNonce;
 
         // Set the total amount deposited by this depositor (AP) for this market to zero
         delete marketHashToDepositorToIndividualDepositorInfo[_marketHash][_depositor].totalAmountDeposited;
