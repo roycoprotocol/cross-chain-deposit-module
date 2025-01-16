@@ -243,19 +243,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     );
 
     /**
-     * @notice Emitted when single tokens are bridged to the destination chain.
-     * @param marketHash The unique hash identifier of the market related to the bridged tokens.
-     * @param ccdmNonce The CCDM Nonce for this bridge.
-     * @param depositorsBridged All the depositors bridged in this CCDM bridge transaction.
-     * @param lz_guid The LayerZero unique identifier associated with the bridging transaction.
-     * @param lz_nonce The LayerZero nonce value for the bridging message.
-     * @param totalAmountBridged The total amount of tokens that were bridged to the destination chain.
-     */
-    event SingleTokensBridgedToDestination(
-        bytes32 indexed marketHash, uint256 indexed ccdmNonce, address[] depositorsBridged, bytes32 lz_guid, uint64 lz_nonce, uint256 totalAmountBridged
-    );
-
-    /**
      * @notice Emitted when UNI V2 LP tokens are merkle bridged to the destination chain.
      * @param marketHash The unique hash identifier of the market associated with the LP tokens.
      * @param ccdmNonce The CCDM Nonce for this bridge.
@@ -285,6 +272,19 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         uint64 lz_token1_nonce,
         ERC20 token1,
         uint256 lz_token1_AmountBridged
+    );
+
+    /**
+     * @notice Emitted when single tokens are bridged to the destination chain.
+     * @param marketHash The unique hash identifier of the market related to the bridged tokens.
+     * @param ccdmNonce The CCDM Nonce for this bridge.
+     * @param depositorsBridged All the depositors bridged in this CCDM bridge transaction.
+     * @param lz_guid The LayerZero unique identifier associated with the bridging transaction.
+     * @param lz_nonce The LayerZero nonce value for the bridging message.
+     * @param totalAmountBridged The total amount of tokens that were bridged to the destination chain.
+     */
+    event SingleTokensBridgedToDestination(
+        bytes32 indexed marketHash, uint256 indexed ccdmNonce, address[] depositorsBridged, bytes32 lz_guid, uint64 lz_nonce, uint256 totalAmountBridged
     );
 
     /**
@@ -589,7 +589,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         merkleDepositsInfo.totalAmountDeposited += amountDeposited;
         // Update the amount this Weiroll Wallet has deposited into the currently stored merkle tree.
         uint256 lastCcdmNonceBridged = merkleDepositsInfo.lastCcdmNonceBridged;
-        merkleDepositsInfo.lastCcdmNonceBridgedToWeirollWalletToDepositAmount[lastCcdmNonceBridged][msg.sender] = amountDeposited;
+        merkleDepositsInfo.lastCcdmNonceBridgedToWeirollWalletToDepositAmount[lastCcdmNonceBridged][msg.sender] += amountDeposited;
 
         // Emit merkle deposit event
         emit MerkleDepositMade(
@@ -643,6 +643,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         address depositor = wallet.owner();
         uint256 amountDeposited = wallet.amount();
 
+        // Check that the target market isn't halted
         require(!marketHashToHalted[targetMarketHash], MarketIsHalted());
 
         // Get the token to deposit for this market
@@ -671,7 +672,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         depositorInfo.totalAmountDeposited = totalDepositAmountPostDeposit;
         WeirollWalletDepositInfo storage walletInfo = depositorToWeirollWalletToWeirollWalletDepositInfo[depositor][msg.sender];
         walletInfo.ccdmNonceOnDeposit = ccdmNonce;
-        walletInfo.amountDeposited = amountDeposited;
+        walletInfo.amountDeposited += amountDeposited;
 
         // Emit deposit event
         emit IndividualDepositMade(targetMarketHash, msg.sender, depositor, amountDeposited);
@@ -720,6 +721,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the market's input token
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
 
+        // Can't bridge LP positions using this function
         require(!_isUniV2Pair(address(marketInputToken)), CannotBridgeLpTokens());
 
         // Get merkleDepositsInfo for the specified market
@@ -894,6 +896,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Get the market's input token
         (, ERC20 marketInputToken,,,,,) = RECIPE_MARKET_HUB.marketHashToWeirollMarket(_marketHash);
 
+        // Can't bridge LP positions using this function
         require(!_isUniV2Pair(address(marketInputToken)), CannotBridgeLpTokens());
 
         // Initialize compose message
@@ -1467,7 +1470,7 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
     /**
      * @notice Turns the green light on for a market.
-     * @notice Will trigger the 48-hour rage quit duration, after which funds will be bridgable for this market.
+     * @notice Will trigger the rage quit duration, after which funds will be bridgable for this market.
      * @dev Only callable by the green lighter.
      * @param _marketHash The market hash to turn the green light on for.
      */

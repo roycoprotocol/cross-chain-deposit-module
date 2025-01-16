@@ -1,7 +1,7 @@
 {
   "name": "cross-chain-deposit-module",
   "version": "1.0.0",
-  "description": "A system for facilitating cross-chain deposit campaigns through Royco",
+  "description": "A system for facilitating cross-chain liquidity acquisition campaigns through Royco",
   "scripts": {
     "build": "forge build",
     "test": "forge test -vvv",
