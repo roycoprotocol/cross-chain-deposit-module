@@ -494,9 +494,10 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
             receiptTokensReceived[i] = balanceDifference;
 
             // Check that the executor has the proper allowance for the Weiroll Wallet's input and receipt tokens
-            require(receiptToken.allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
+            // Max Approval is checked as being >= type(uint96).max since some tokens (eg. UNI, COMP) don't allow for higher approvals.
+            require(receiptToken.allowance(_weirollWallets[i], address(this)) >= type(uint96).max, MustMaxAllowDepositExecutor());
             for (uint256 j = 0; j < campaign.inputTokens.length; ++j) {
-                require(campaign.inputTokens[j].allowance(_weirollWallets[i], address(this)) == type(uint256).max, MustMaxAllowDepositExecutor());
+                require(campaign.inputTokens[j].allowance(_weirollWallets[i], address(this)) >= type(uint96).max, MustMaxAllowDepositExecutor());
             }
         }
 
