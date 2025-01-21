@@ -387,7 +387,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         assertEq(weirollWalletCreatedForBridge.owner(), address(0));
         assertEq(weirollWalletCreatedForBridge.recipeMarketHub(), address(depositExecutor));
         assertEq(weirollWalletCreatedForBridge.amount(), 0);
-        assertEq(weirollWalletCreatedForBridge.lockedUntil(), unlockTimestamp);
+        assertEq(weirollWalletCreatedForBridge.lockedUntil(), 0);
         assertEq(weirollWalletCreatedForBridge.isForfeitable(), false);
         assertEq(weirollWalletCreatedForBridge.marketHash(), bridgeResult.marketHash);
         assertEq(weirollWalletCreatedForBridge.executed(), false);
@@ -541,7 +541,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         assertEq(weirollWalletCreatedForBridge.owner(), address(0));
         assertEq(weirollWalletCreatedForBridge.recipeMarketHub(), address(depositExecutor));
         assertEq(weirollWalletCreatedForBridge.amount(), 0);
-        assertEq(weirollWalletCreatedForBridge.lockedUntil(), unlockTimestamp);
+        assertEq(weirollWalletCreatedForBridge.lockedUntil(), 0);
         assertEq(weirollWalletCreatedForBridge.isForfeitable(), false);
         assertEq(weirollWalletCreatedForBridge.marketHash(), bridgeResult.marketHash);
         assertEq(weirollWalletCreatedForBridge.executed(), false);
@@ -692,7 +692,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         assertEq(weirollWalletCreatedForBridge.owner(), address(0));
         assertEq(weirollWalletCreatedForBridge.recipeMarketHub(), address(depositExecutor));
         assertEq(weirollWalletCreatedForBridge.amount(), 0);
-        assertEq(weirollWalletCreatedForBridge.lockedUntil(), unlockTimestamp);
+        assertEq(weirollWalletCreatedForBridge.lockedUntil(), 0);
         assertEq(weirollWalletCreatedForBridge.isForfeitable(), false);
         assertEq(weirollWalletCreatedForBridge.marketHash(), bridgeResult.marketHash);
         assertEq(weirollWalletCreatedForBridge.executed(), false);
@@ -832,7 +832,7 @@ contract E2E_Test_DepositExecutor is RecipeMarketHubTestBase {
         assertEq(weirollWalletCreatedForBridge.owner(), address(0));
         assertEq(weirollWalletCreatedForBridge.recipeMarketHub(), address(depositExecutor));
         assertEq(weirollWalletCreatedForBridge.amount(), 0);
-        assertEq(weirollWalletCreatedForBridge.lockedUntil(), unlockTimestamp);
+        assertEq(weirollWalletCreatedForBridge.lockedUntil(), 0);
         assertEq(weirollWalletCreatedForBridge.isForfeitable(), false);
         assertEq(weirollWalletCreatedForBridge.marketHash(), bridgeResult.marketHash);
         assertEq(weirollWalletCreatedForBridge.executed(), false);

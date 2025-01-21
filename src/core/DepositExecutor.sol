@@ -406,7 +406,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         // If there is no cached Weiroll Wallet for this CCDM Nonce in the market, create one
         address cachedWeirollWallet = campaign.ccdmNonceToWeirollWallet[ccdmNonce];
         if (cachedWeirollWallet == address(0)) {
-            cachedWeirollWallet = _createWeirollWallet(sourceMarketHash, campaign.unlockTimestamp);
+            cachedWeirollWallet = _createWeirollWallet(sourceMarketHash);
             campaign.ccdmNonceToWeirollWallet[ccdmNonce] = cachedWeirollWallet;
         }
 
@@ -520,11 +520,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
         for (uint256 i = 0; i < _weirollWallets.length; ++i) {
             // Instantiate Weiroll Wallet from the address
             WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallets[i]));
-            // Checks to ensure that the withdrawal is after the lock timestamp
-            require(weirollWallet.lockedUntil() <= block.timestamp, CannotWithdrawBeforeUnlockTimestamp());
 
             // Get the campaign details for the source market
             DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[weirollWallet.marketHash()];
+            // Checks to ensure that the withdrawal is after the unlock timestamp
+            require(campaign.unlockTimestamp <= block.timestamp, CannotWithdrawBeforeUnlockTimestamp());
             // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM Nonce on destination)
             WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallets[i]];
 
@@ -612,11 +612,11 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     {
         // Instantiate Weiroll Wallet from the address
         WeirollWallet weirollWallet = WeirollWallet(payable(_weirollWallet));
-        // Checks to ensure that the withdrawal is after the lock timestamp
-        require(weirollWallet.lockedUntil() <= block.timestamp, CannotWithdrawBeforeUnlockTimestamp());
 
         // Get the campaign details for the source market
         DepositCampaign storage campaign = sourceMarketHashToDepositCampaign[weirollWallet.marketHash()];
+        // Checks to ensure that the withdrawal is after the unlock timestamp
+        require(campaign.unlockTimestamp <= block.timestamp, CannotWithdrawBeforeUnlockTimestamp());
         // Get the accounting ledger for this Weiroll Wallet (amount arg is repurposed as the CCDM Nonce on destination)
         WeirollWalletAccounting storage walletAccounting = campaign.weirollWalletToAccounting[_weirollWallet];
 
@@ -778,10 +778,9 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
     /**
      * @dev Creates a Weiroll wallet with the specified parameters.
      * @param _sourceMarketHash The market hash on the source chain used to identify the corresponding campaign on the destination.
-     * @param _unlockTimestamp The ABSOLUTE unlock timestamp for this Weiroll Wallet.
      * @return weirollWallet The address of the Weiroll wallet.
      */
-    function _createWeirollWallet(bytes32 _sourceMarketHash, uint256 _unlockTimestamp) internal returns (address payable weirollWallet) {
+    function _createWeirollWallet(bytes32 _sourceMarketHash) internal returns (address payable weirollWallet) {
         // Deploy a fresh, non-forfeitable Weiroll Wallet with immutable args.
         weirollWallet = payable(
             WEIROLL_WALLET_IMPLEMENTATION.clone(
@@ -789,7 +788,7 @@ contract DepositExecutor is ILayerZeroComposer, Ownable2Step, ReentrancyGuardTra
                     address(0), // Wallet owner will be zero address so that no single party can siphon depositor funds after lock timestamp has passed.
                     address(this), // DepositExecutor will be the entrypoint for recipe execution.
                     uint256(0), // Amount will always be 0 since a Weiroll Wallet may hold multiple tokens.
-                    _unlockTimestamp, // The ABSOLUTE unlock timestamp for wallets created for this campaign.
+                    uint256(0), // Locked until timestamp will always be 0 since this withdrawal unlock timestamp is checked directly from the campaign struct.
                     false, // Weiroll Wallet is non-forfeitable since the deposits have reached the destination chain.
                     _sourceMarketHash // The source market hash and its corresponding campaign identifier that this wallet belongs to.
                 )
