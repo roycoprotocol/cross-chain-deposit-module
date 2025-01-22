@@ -564,13 +564,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // Check to avoid frontrunning deposits before a market has been created or the market's input token is deployed
         require(address(marketInputToken).code.length != 0, RoycoMarketNotInitialized());
 
-        if (!_isUniV2Pair(address(marketInputToken))) {
-            // Check that the deposit amount is less or equally as precise as specified by the shared decimals of the OFT for SINGLE_TOKEN markets
-            bool depositAmountHasValidPrecision =
-                amountDeposited % (10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals())) == 0;
-            require(depositAmountHasValidPrecision, DepositAmountIsTooPrecise());
-        }
-
         // Transfer the deposit amount from the Weiroll Wallet to the Deposit Locker
         marketInputToken.safeTransferFrom(msg.sender, address(this), amountDeposited);
 
@@ -712,6 +705,8 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
     /**
      * @notice Merkle bridges depositors in single token markets from the source chain to the destination chain.
      * @dev NOTE: Be generous with the msg.value to pay for bridging fees, as you will be refunded the excess.
+     * @dev NOTE: Dust amount after normalizing between the OFT's LD and SD is locked in the locker forever.
+     * @dev NOTE: Dust does not scale with the number of deposits being merkle bridged.
      * @dev Green light must be given before calling.
      * @param _marketHash The hash of the market to merkle bridge tokens for.
      */
@@ -729,9 +724,6 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         bytes32 merkleRoot = merkleDepositsInfo.merkleRoot;
         uint256 totalAmountDeposited = merkleDepositsInfo.totalAmountDeposited;
 
-        // Ensure that at least one depositor was included in the bridge payload
-        require(totalAmountDeposited > 0, MustBridgeAtLeastOneDepositor());
-
         // Initialize compose message
         bytes memory composeMsg = CCDMPayloadLib.initComposeMsg(
             0, _marketHash, nonce, NUM_TOKENS_BRIDGED_FOR_SINGLE_TOKEN_BRIDGE, marketInputToken.decimals(), CCDMPayloadLib.BridgeType.MERKLE_DEPOSITORS
@@ -741,6 +733,15 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
 
         // Estimate gas used by the lzCompose call for this bridge transaction
         uint128 destinationGasLimit = CCDMFeeLib.GAS_FOR_MERKLE_BRIDGE;
+
+        // Normalize deposit amount to the OFT's SD
+        // IMPORTANT: Dust amount is locked in the Deposit Locker forever.
+        // Dust does not scale with the number of deposits bridged.
+        uint256 decimalConversionRate = 10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals());
+        totalAmountDeposited = (totalAmountDeposited / decimalConversionRate) * decimalConversionRate;
+
+        // Ensure that at least one depositor was included in the bridge payload
+        require(totalAmountDeposited > 0, MustBridgeAtLeastOneDepositor());
 
         // Execute the bridge
         MessagingReceipt memory messageReceipt = _executeBridge(marketInputToken, totalAmountDeposited, composeMsg, 0, destinationGasLimit);
