@@ -738,7 +738,9 @@ contract DepositLocker is Ownable2Step, ReentrancyGuardTransient {
         // IMPORTANT: Dust amount is locked in the Deposit Locker forever.
         // Dust does not scale with the number of deposits bridged.
         uint256 decimalConversionRate = 10 ** (marketInputToken.decimals() - tokenToLzV2OFT[marketInputToken].sharedDecimals());
-        totalAmountDeposited = (totalAmountDeposited / decimalConversionRate) * decimalConversionRate;
+        if (decimalConversionRate != 1) {
+            totalAmountDeposited = (totalAmountDeposited / decimalConversionRate) * decimalConversionRate;
+        }
 
         // Ensure that at least one depositor was included in the bridge payload
         require(totalAmountDeposited > 0, MustBridgeAtLeastOneDepositor());
