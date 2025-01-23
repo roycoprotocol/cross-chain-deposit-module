@@ -9,7 +9,7 @@ import { DepositLocker, RecipeMarketHubBase, IWETH, IUniswapV2Router01, IOFT } f
 address constant CREATE2_FACTORY_ADDRESS = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
 // Deployment Configuration
-address constant DEPOSIT_LOCKER_OWNER = 0xCe6EC1D4401A3CbaEF79942ff257de2dFbC7714f;
+address constant DEPOSIT_LOCKER_OWNER = 0xAcFFf72AE9e9724b8efFC7e724Eba0690b770543;
 uint32 constant DESTINATION_CHAIN_LZ_EID = 30_362; // Berachain
 address constant DEPOSIT_EXECUTOR = address(0); // Will be set through setter once deployed
 uint128 constant BASE_LZ_RECEIVE_GAS_LIMIT = 200_000;
@@ -96,7 +96,7 @@ contract DeployDepositLocker is Script {
         console2.log("Deployer Balance: ", address(deployerAddress).balance);
 
         // Boyco Mainnet OFTs
-        IOFT[] memory LZ_V2_OFTs = new IOFT[](30);
+        IOFT[] memory LZ_V2_OFTs = new IOFT[](31);
         LZ_V2_OFTs[0] = IOFT(0x77b2043768d28E9C9aB44E1aBfC95944bcE57931); // Stargate Pool Native
         LZ_V2_OFTs[1] = IOFT(0xc026395860Db2d07ee33e05fE50ed7bD583189C7); // Stargate Pool USDC
         LZ_V2_OFTs[2] = IOFT(0xB12979Ff302Ac903849948037A51792cF7186E8e); // SolvBTC OFT Adapter
@@ -127,6 +127,7 @@ contract DeployDepositLocker is Script {
         LZ_V2_OFTs[27] = IOFT(0xE14C486b93C3B62F76F88cf8FE4B36fb672f3B26); // USD0 OFT Adapter
         LZ_V2_OFTs[28] = IOFT(0xd155d91009cbE9B0204B06CE1b62bf1D793d3111); // USD0++ OFT Adapter
         LZ_V2_OFTs[29] = IOFT(0x6C96dE32CEa08842dcc4058c14d3aaAD7Fa41dee); // USDT0 OFT Adapter
+        LZ_V2_OFTs[30] = IOFT(0x0555E30da8f98308EdB960aa94C0Db47230d2B9c); // wBTC OFT Adapter
 
         vm.startBroadcast(deployerPrivateKey);
 

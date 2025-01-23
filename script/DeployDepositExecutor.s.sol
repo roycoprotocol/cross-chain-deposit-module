@@ -9,7 +9,7 @@ import { DepositExecutor, IWETH } from "src/core/DepositExecutor.sol";
 address constant CREATE2_FACTORY_ADDRESS = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
 // Deployment Configuration
-address constant DEPOSIT_EXECUTOR_OWNER = 0x39Fff7105606472AC14eA9A272054d728D5b1104;
+address constant DEPOSIT_EXECUTOR_OWNER = 0xAcFFf72AE9e9724b8efFC7e724Eba0690b770543;
 address constant LZ_V2_ENDPOINT = 0x6F475642a6e85809B1c36Fa62763669b1b48DD5B; // LZ V2 Endpoint on Berachain
 uint32 constant SOURCE_CHAIN_LZ_EID = 30_101; // ETH Mainnet
 address constant DEPOSIT_LOCKER = address(0); // Address of Deposit Locker that was deployed on the source chain
