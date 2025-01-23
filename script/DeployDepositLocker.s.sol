@@ -13,7 +13,7 @@ address constant DEPOSIT_LOCKER_OWNER = 0xAcFFf72AE9e9724b8efFC7e724Eba0690b7705
 uint32 constant DESTINATION_CHAIN_LZ_EID = 30_362; // Berachain
 address constant DEPOSIT_EXECUTOR = address(0); // Will be set through setter once deployed
 uint128 constant BASE_LZ_RECEIVE_GAS_LIMIT = 200_000;
-address constant GREEN_LIGHTER = 0x5D1B9186Ac01B7c364734618172CD4487E68bC92;
+address constant GREEN_LIGHTER = 0x22A9Dce6C79f76Fa8F318F694AF510f424901671;
 RecipeMarketHubBase constant RECIPE_MARKET_HUB = RecipeMarketHubBase(0x783251f103555068c1E9D755f69458f39eD937c0);
 IUniswapV2Router01 constant UNISWAP_V2_ROUTER = IUniswapV2Router01(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
 

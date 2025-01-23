@@ -13,7 +13,7 @@ address constant DEPOSIT_EXECUTOR_OWNER = 0xAcFFf72AE9e9724b8efFC7e724Eba0690b77
 address constant LZ_V2_ENDPOINT = 0x6F475642a6e85809B1c36Fa62763669b1b48DD5B; // LZ V2 Endpoint on Berachain
 uint32 constant SOURCE_CHAIN_LZ_EID = 30_101; // ETH Mainnet
 address constant DEPOSIT_LOCKER = address(0); // Address of Deposit Locker that was deployed on the source chain
-address constant CAMPAIGN_VERIFIER = 0x7508A8b7887ef6ced89f1F0DCE09bb52707510F7;
+address constant CAMPAIGN_VERIFIER = 0x22A9Dce6C79f76Fa8F318F694AF510f424901671;
 IWETH constant WRAPPED_NATIVE_ASSET = IWETH(0x6969696969696969696969696969696969696969); // wBera on Berachain
 
 // Deployment salts
@@ -94,12 +94,7 @@ contract DeployDepositExecutor is Script {
         console2.log("Deploying with address: ", deployerAddress);
         console2.log("Deployer Balance: ", address(deployerAddress).balance);
 
-        address[] memory LZ_V2_OFTs = new address[](4);
-        LZ_V2_OFTs[0] = 0x370DC69d5B49E6844C867efA752b419EaC49ABa8;
-        LZ_V2_OFTs[1] = 0x87C367a0522AEb8aD9F9660D2250f1eAC403C70F;
-        LZ_V2_OFTs[2] = 0x4F5F42799d1E01662B629Ede265baEa223e9f9C7;
-        LZ_V2_OFTs[3] = 0x49a49AB0A048bCADB8b4E51c5c970C46bF889CCD;
-
+        address[] memory LZ_V2_OFTs = new address[](0);
         bytes32[] memory SOURCE_MARKET_HASHES = new bytes32[](0);
         address[] memory CAMPAIGN_OWNERS = new address[](0);
 
